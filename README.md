@@ -2,11 +2,85 @@
 
 Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.
 
-Teatime is a proof of concept for an API that helps agents and developers query TypeScript projects semantically, construct deterministic and inspectable change plans, verify them against the next project state, and explicitly apply minimal source edits.
+Teatime helps agents and developers query TypeScript projects semantically, construct deterministic and inspectable change plans, verify their consequences, and explicitly apply minimal source edits.
 
-The public API is intentionally not designed yet. Executable experiments live under `src/prototype/` while the decisions are worked through in the [Wayfinder map](./.scratch/typescript-project-transformation/map.md).
+## Where things stand
 
-The proven semantic contract and production implementation plan are captured in the [implementation-ready candidate specification](./.scratch/typescript-project-transformation/briefing/implementation-ready-specification.md). Its facade names remain provisional for the dedicated API-design pass.
+- **Candidate public API** — executable in [`src/api/`](./src/api/), proven end to end against the native compiler; design decisions recorded in the [public API design document](./.scratch/typescript-project-transformation/briefing/public-api-design.md).
+- **Production contract** — the [implementation-ready candidate specification](./.scratch/typescript-project-transformation/briefing/implementation-ready-specification.md) fixes the behavior implementation must preserve.
+- **Prototype evidence** — executable experiments in `src/prototype/`; decision rationale lives in the [Wayfinder map](./.scratch/typescript-project-transformation/map.md).
+
+## Example
+
+A Transformation Recipe is a reusable program — written once by a human or an agent — that queries a snapshot and proposes edits. This one wraps the argument of every call to the canonical `target` symbol in an object, through import aliases and re-exports, preserving comments and formatting:
+
+```ts
+import { Effect } from "effect"
+import { isObjectLiteralExpression } from "typescript/unstable/ast/is"
+import { ConfiguredProject, Draft, Policy, Query, Recipe, WorkspaceSnapshot } from "teatime"
+
+const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+
+export const wrapTargetInput = Recipe.define("wrap-target-input", {
+  version: "1.0.0",
+  policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
+  run: (input: { readonly property: string }) =>
+    Effect.gen(function*() {
+      const snapshot = yield* WorkspaceSnapshot
+      const project = yield* snapshot.project(app)
+      const target = yield* project.symbolNamed("target", { within: "src/library.ts" })
+
+      const matches = yield* Query.calls(project).pipe(
+        Query.where(Query.resolvesTo(target, { location: (call) => call.expression })),
+        Query.filter(({ value: call }) =>
+          call.arguments.length === 1 && !isObjectLiteralExpression(call.arguments[0]!)),
+        Query.collect,
+      )
+
+      // Ranges, hashes, file identity, and evidence are derived — the author
+      // writes none of them. Nothing has been written or finalized yet.
+      return yield* Draft.replaceEach(matches, ({ value: call }) => {
+        const argument = call.arguments[0]!
+        return { node: argument, text: `{ ${input.property}: ${argument.getText()} }` }
+      })
+    }),
+})
+```
+
+Running it moves through explicit stages — query, plan, preview, verify, apply — and only the last one touches the filesystem:
+
+```ts
+import { Effect, Layer } from "effect"
+import {
+  Application,
+  planApplicationLayerNode,
+  Preview,
+  Recipe,
+  Verification,
+  Workspace,
+} from "teatime"
+
+const program = Effect.gen(function*() {
+  const plan = yield* Recipe.run(wrapTargetInput, { property: "value" })
+  // Plans are canonical, content-addressed JSON — Plan.serialize and
+  // Plan.parse carry them across process boundaries for review or resumption.
+
+  const preview = yield* Preview.of(plan) // exact proposed bytes, no writes
+  const verified = yield* Verification.verify(plan, wrapTargetInput, { property: "value" })
+  // Fresh compiler authorities check baseline vs. proposed diagnostics,
+  // evaluate every policy, and replay the recipe to prove idempotence.
+
+  return yield* Application.apply(verified) // the only write in the system
+})
+
+const layer = planApplicationLayerNode.pipe(
+  Layer.provideMerge(Workspace.layer({ projects: [app] }, { cwd: process.cwd() })),
+)
+
+await Effect.runPromise(program.pipe(Effect.provide(layer)))
+```
+
+Application accepts only a Verified Plan — passing a raw plan is a compile error, not a runtime mistake. A dry run is `Recipe.run` + `Preview` + `Verification`, with `planApplicationLayerNode` simply left out of the layer.
 
 ## Requirements
 
@@ -17,31 +91,24 @@ The proven semantic contract and production implementation plan are captured in 
 
 ```sh
 pnpm install
-pnpm check
-pnpm test
-pnpm prototype:native
-pnpm prototype:lifecycle
-pnpm prototype:workspace
-pnpm prototype:query
-pnpm prototype:identity
-pnpm prototype:edits
-pnpm prototype:requests
-pnpm prototype:plan
-pnpm prototype:verification
-pnpm prototype:end-to-end
-pnpm prototype:stress
-pnpm prototype:contract
+pnpm check   # typecheck
+pnpm test    # prototype suites plus the candidate API pipeline tests
 ```
 
-`prototype:native` spawns the pinned TypeScript 7 native compiler API, opens the filesystem-backed fixture project, reads its source file, and requests semantic diagnostics.
+Each prototype experiment also runs standalone via `pnpm prototype:<name>`:
 
-`prototype:lifecycle` is a throwaway Effect-scoped experiment covering snapshot updates, object identity, disposal, semantic batching, timing instrumentation, hybrid AST printing, and an in-memory overlay over the real fixture filesystem.
-
-`prototype:workspace` exercises the selected region-scoped workspace and snapshot domain model. It keeps configured projects as plain values, provides a temporary workspace-generation capability through Effect context, and prevents semantic use after the region closes.
-
-`prototype:query` selects native call-expression nodes by canonical TypeScript symbol across import aliases and re-exports. It demonstrates composable stream queries, batched checker predicates, deterministic selection evidence, and project-wide native references.
-
-The remaining prototypes exercise strict node/symbol evidence anchors, guarded minimal edits and native fragment printing, Effect Request batching, canonical JSON plans, stale-safe preview/verification/application, and one alias-aware idempotent recipe from semantic query through explicit two-file application.
+- `native` — spawn the pinned TypeScript 7 native compiler, open the fixture project, read a source file, request semantic diagnostics
+- `lifecycle` — scoped snapshots: updates, object identity, disposal, semantic batching, timing, hybrid AST printing, in-memory overlays
+- `workspace` — region-scoped workspace/snapshot domain model; semantic use is rejected after the region closes
+- `query` — select call expressions by canonical symbol across aliases and re-exports; batched criteria, deterministic evidence, native references
+- `identity` — strict, serializable node and symbol anchors across snapshots
+- `edits` — guarded minimal text edits and native fragment printing
+- `requests` — Effect Request batching compared with direct native array calls
+- `plan` — canonical, content-addressed JSON Transformation Plans
+- `verification` — stale-safe preview, verification, and explicit application
+- `end-to-end` — one alias-aware, idempotent recipe from semantic query to two-file application
+- `stress` — import and symbol recipes; ambiguity, baseline diagnostics, idempotence, trivia, and staleness behavior
+- `contract` — facade composition and type inference; manifest-observation feasibility
 
 ## Pinned foundation
 

@@ -38,6 +38,10 @@ export interface PlanPolicies {
   readonly idempotence: "required" | "not-promised"
 }
 
+export interface PlanMeasurements {
+  readonly matches?: number
+}
+
 export interface TransformationPlan {
   readonly schemaVersion: 1
   readonly planId: string
@@ -58,6 +62,7 @@ export interface TransformationPlan {
   readonly edits: ReadonlyArray<PlannedTextEdit>
   readonly evidence: ReadonlyArray<EvidenceRecord>
   readonly policies: PlanPolicies
+  readonly measurements?: PlanMeasurements
 }
 
 export type PlanInput = Omit<TransformationPlan, "schemaVersion" | "planId" | "snapshotHash">
