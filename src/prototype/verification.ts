@@ -231,6 +231,27 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
       const staged: Array<{ readonly target: string; readonly temporary: string }> = []
       const applied: Array<FilePreview> = []
 
+      // Application revalidates the entire semantic input snapshot, not only
+      // files that happen to receive edits.
+      for (const source of plan.sources) {
+        const target = absoluteFileName(plan, workspaceRoot, source.projectId, source.fileName)
+        const current = yield* Effect.tryPromise({
+          try: () => Fs.readFile(target, "utf8"),
+          catch: () => new StalePlanError({
+            planId: plan.planId,
+            projectId: source.projectId,
+            fileName: source.fileName,
+          }),
+        })
+        if (textHash(current) !== source.hash) {
+          return yield* new StalePlanError({
+            planId: plan.planId,
+            projectId: source.projectId,
+            fileName: source.fileName,
+          })
+        }
+      }
+
       for (const file of preview.files) {
         const target = absoluteFileName(plan, workspaceRoot, file.projectId, file.fileName)
         const current = yield* Effect.tryPromise({

@@ -31,6 +31,8 @@ Produce an implementation-ready specification, anchored by a working proof of co
 - [Decide Transformation Plan durability and evidence](./issues/09-decide-plan-durability-and-evidence.md) — Made finalized plans canonical, content-addressed JSON artifacts while keeping live draft state and compiler/filesystem authority process-local.
 - [Choose verification and application semantics](./issues/10-choose-verification-and-application-semantics.md) — Separated deterministic preview, isolated virtual Verification, and stale-safe explicit Application with staged writes, typed recovery outcomes, and durable receipts.
 - [Prove one end-to-end Transformation Recipe](./issues/11-prove-one-end-to-end-recipe.md) — Proved an alias-aware, comment-preserving, idempotent API migration through semantic query, durable plan, virtual diagnostics, and explicit two-file application.
+- [Stress-test the API with representative Transformation Recipes](./issues/14-stress-test-the-api-with-representative-recipes.md) — Reused the core for call, import, and symbol recipes; proved ambiguity, baseline-diagnostic, idempotence, trivia, and post-verification staleness behavior; kept operation conveniences outside the kernel.
+- [Shape the implementation-ready specification](./issues/12-shape-the-implementation-ready-specification.md) — Produced the production handoff contract, provisional facade/type probe, complete-manifest feasibility probe, internal architecture, compatibility/error policy, test gates, and staged implementation plan.
 
 ## Not yet specified
 

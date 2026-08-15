@@ -5,6 +5,7 @@ import { Effect, Stream } from "effect"
 import { isObjectLiteralExpression } from "typescript/unstable/ast/is"
 import { textHash } from "./edits.ts"
 import { finalizePlan, type EvidenceRecord, type PlanInput, type TransformationPlan } from "./plan.ts"
+import { isWithinProject, projectRelativePath } from "./project-path.ts"
 import {
   calls,
   collect,
@@ -65,7 +66,7 @@ export const buildWrapTargetPlan = (
       const call = selection.value
       const argument = call.arguments[0]!
       const sourceFile = call.getSourceFile()
-      const fileName = Path.relative(projectRoot, sourceFile.fileName)
+      const fileName = projectRelativePath(projectRoot, sourceFile.fileName)
       const sourceText = yield* readText(sourceFile.fileName)
       const start = argument.getStart(sourceFile)
       const end = argument.getEnd()
@@ -94,7 +95,7 @@ export const buildWrapTargetPlan = (
     }
 
     const ownedFileNames = (yield* project.sourceFileNames()).filter((fileName) =>
-      fileName.startsWith(`${projectRoot}${Path.sep}`))
+      isWithinProject(projectRoot, fileName))
     const fingerprintFiles = [...new Set([
       Path.join(projectRoot, "tsconfig.json"),
       ...ownedFileNames,
@@ -102,7 +103,7 @@ export const buildWrapTargetPlan = (
     const sources = yield* Effect.all(fingerprintFiles.map((absolute) => readText(absolute).pipe(
       Effect.map((content) => ({
         projectId: "app",
-        fileName: Path.relative(projectRoot, absolute),
+        fileName: projectRelativePath(projectRoot, absolute),
         hash: textHash(content),
       })),
     )))

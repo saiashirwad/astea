@@ -32,6 +32,14 @@ _Avoid_: Persisted live builder, partially valid plan
 The digest of a Transformation Plan's canonical durable content, independent of absolute workspace location, time, tracing, and scheduling.
 _Avoid_: Random run ID, database identity
 
+**Snapshot Input Manifest**:
+The canonical record of project, toolchain, file-content, missing-path, directory, realpath, and declared-environment observations that could affect a Workspace Snapshot's compiler or recipe semantics. Any mismatch makes its Plan stale.
+_Avoid_: Edited-file list, source-files-only hash
+
+**Durable Path**:
+A project- or workspace-relative, case-preserving path paired with stable project identity for use in plans and evidence. Native canonical and absolute filesystem paths remain runtime lookup details.
+_Avoid_: Absolute workspace path, native canonical path
+
 **Transformation Recipe**:
 A reusable program, authored through the same API by a human or an agent, that queries a TypeScript project and produces a Transformation Plan.
 _Avoid_: Agent-only language, migration script

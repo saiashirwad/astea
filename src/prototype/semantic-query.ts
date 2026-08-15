@@ -156,24 +156,28 @@ export const symbolAtPosition = (
 ): Effect.Effect<NativeSymbol | undefined, ProjectSnapshotError> => project.unsafeNative((nativeProject) =>
   nativeRequest("getSymbolAtPosition", () => nativeProject.checker.getSymbolAtPosition(fileName, position)))
 
-export const resolvesToSymbol = (
+export const resolvesNodeToSymbol = <A extends Node>(
   project: ProjectSnapshot,
   target: NativeSymbol,
-): BatchedCriterion<CallExpression, NativeCompilerError | SnapshotExpired> => ({
+  location: (candidate: A) => Node = (candidate) => candidate,
+): BatchedCriterion<A, NativeCompilerError | SnapshotExpired> => ({
   id: "resolves-to-symbol",
   evaluate: (candidates) => project.unsafeNative((nativeProject) => Effect.gen(function*() {
     // Position requests are intentional. TypeScript 7 may retain decoded nodes for
     // unchanged files across snapshots while checker handles remain generation-local.
     // Sending those retained nodes back to a newer checker can produce stale handles.
-    const byFile = Map.groupBy(candidates.map((candidate, index) => ({ candidate, index })),
-      ({ candidate }) => candidate.getSourceFile().fileName)
+    const byFile = Map.groupBy(candidates.map((candidate, index) => ({
+      candidate,
+      index,
+      location: location(candidate),
+    })), ({ location }) => location.getSourceFile().fileName)
     const symbols = new Array<NativeSymbol | undefined>(candidates.length)
     yield* Effect.all([...byFile].map(([fileName, entries]) => nativeRequest(
       "getSymbolsAtPositions",
       async () => {
         const resolved = await nativeProject.checker.getSymbolAtPosition(
           fileName,
-          entries.map(({ candidate }) => candidate.expression.getStart(candidate.getSourceFile())),
+          entries.map((entry) => entry.location.getStart(entry.location.getSourceFile())),
         )
         for (let index = 0; index < entries.length; index++) {
           symbols[entries[index]!.index] = resolved[index]
@@ -195,6 +199,12 @@ export const resolvesToSymbol = (
       : undefined)
   })),
 })
+
+export const resolvesToSymbol = (
+  project: ProjectSnapshot,
+  target: NativeSymbol,
+): BatchedCriterion<CallExpression, NativeCompilerError | SnapshotExpired> =>
+  resolvesNodeToSymbol(project, target, (candidate) => candidate.expression)
 
 export const referencesInProject = (
   project: ProjectSnapshot,

@@ -6,6 +6,8 @@ Teatime is a proof of concept for an API that helps agents and developers query 
 
 The public API is intentionally not designed yet. Executable experiments live under `src/prototype/` while the decisions are worked through in the [Wayfinder map](./.scratch/typescript-project-transformation/map.md).
 
+The proven semantic contract and production implementation plan are captured in the [implementation-ready candidate specification](./.scratch/typescript-project-transformation/briefing/implementation-ready-specification.md). Its facade names remain provisional for the dedicated API-design pass.
+
 ## Requirements
 
 - Node.js 24 or later
@@ -27,6 +29,8 @@ pnpm prototype:requests
 pnpm prototype:plan
 pnpm prototype:verification
 pnpm prototype:end-to-end
+pnpm prototype:stress
+pnpm prototype:contract
 ```
 
 `prototype:native` spawns the pinned TypeScript 7 native compiler API, opens the filesystem-backed fixture project, reads its source file, and requests semantic diagnostics.
