@@ -1,0 +1,150 @@
+import * as Fs from "node:fs/promises"
+import * as Path from "node:path"
+import { fileURLToPath } from "node:url"
+import { Effect, Layer } from "effect"
+import type { CallExpression } from "typescript/unstable/ast"
+import { describe, expect, it } from "vitest"
+import {
+  Application,
+  ConfiguredProject,
+  Plan,
+  planApplicationLayerNode,
+  Preview,
+  Query,
+  Recipe,
+  type Selection,
+  type TransformationPlan,
+  Verification,
+  type VerifiedPlan,
+  Workspace,
+} from "./index.ts"
+import { wrapTargetInput, type WrapTargetInput } from "./wrap-target-input.ts"
+import { migrateImportSource, type MigrateImportSourceInput } from "./migrate-import-source.ts"
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends
+    (<Value>() => Value extends Right ? 1 : 2) ? true : false
+type Assert<Value extends true> = Value
+
+// --- Type-level contract -------------------------------------------------
+
+type _RecipeInputInference = Assert<Equal<Parameters<typeof wrapTargetInput.run>[0], WrapTargetInput>>
+
+declare const _anyProject: Parameters<typeof Query.calls>[0]
+type _CallInference = Assert<Equal<
+  ReturnType<typeof Query.calls> extends import("effect").Stream.Stream<infer S, infer _E, infer _R>
+    ? S extends Selection<infer Node> ? Node : never
+    : never,
+  CallExpression
+>>
+
+const _rawPlanIsNotApplicationAuthority = (plan: TransformationPlan) =>
+  // @ts-expect-error — Application accepts only a Verified Plan
+  Application.apply(plan)
+
+const _verifiedPlanIsApplicationAuthority = (verified: VerifiedPlan) => Application.apply(verified)
+
+// --- End-to-end pipeline ---------------------------------------------------
+
+const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
+
+describe("candidate public API", () => {
+  it("runs query → plan → preview → verify → apply as one typed pipeline", async () => {
+    const root = await Fs.mkdtemp("/tmp/teatime-api-")
+    await Fs.cp(fixtureSource, root, { recursive: true })
+
+    const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+    const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
+
+    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+    const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+
+    try {
+      const result = await Effect.runPromise(Effect.gen(function*() {
+        const plan = yield* Recipe.run(wrapTargetInput, input)
+        const preview = yield* Preview.of(plan)
+        const verified = yield* Verification.verify(plan, wrapTargetInput, input)
+        const receipt = yield* Application.apply(verified)
+        return { plan, preview, verified, receipt }
+      }).pipe(Effect.provide(mainLayer)))
+
+      expect(result.plan.recipe.name).toBe("wrap-target-input")
+      expect(result.plan.measurements?.matches).toBe(2)
+      expect(result.preview.files).toHaveLength(2)
+      expect(result.verified.receipt.diagnosticDelta).toBe(0)
+      expect(result.verified.receipt.idempotenceChecked).toBe(true)
+      expect(result.receipt.outputs).toHaveLength(2)
+
+      const consumer = await Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+      const reexport = await Fs.readFile(Path.join(root, "src/reexport-consumer.ts"), "utf8")
+      expect(consumer).toContain("renamed(/* keep this comment */ { value: 1 })")
+      expect(consumer).toContain("const first  =")
+      expect(consumer).toContain("other(2)")
+      expect(consumer).toContain("local.target(3)")
+      expect(reexport).toContain("publicTarget({ value: 4 })")
+
+      // A durable plan crosses the process boundary intact.
+      const roundTripped = await Effect.runPromise(Plan.parse(Plan.serialize(result.plan)))
+      expect(roundTripped.planId).toBe(result.plan.planId)
+
+      // After application the recipe is a no-op: the reran plan has no edits.
+      const second = await Effect.runPromise(
+        Recipe.run(wrapTargetInput, input).pipe(Effect.provide(workspaceLayer)),
+      )
+      expect(second.edits).toHaveLength(0)
+      expect(second.measurements?.matches).toBe(0)
+    } finally {
+      await Fs.rm(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it("produces identical plan IDs for identical inputs", async () => {
+    const root = await Fs.mkdtemp("/tmp/teatime-api-determinism-")
+    await Fs.cp(fixtureSource, root, { recursive: true })
+
+    const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+    const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
+    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+
+    try {
+      const [first, second] = await Effect.runPromise(Effect.all([
+        Recipe.run(wrapTargetInput, input),
+        Recipe.run(wrapTargetInput, input),
+      ]).pipe(Effect.provide(workspaceLayer)))
+      expect(first.planId).toBe(second.planId)
+    } finally {
+      await Fs.rm(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it("migrates an import source, preserving quote style and trivia", async () => {
+    const stressFixture = fileURLToPath(new URL("../../fixtures/stress/", import.meta.url))
+    const root = await Fs.mkdtemp("/tmp/teatime-api-import-")
+    await Fs.cp(stressFixture, root, { recursive: true })
+
+    const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+    const input: MigrateImportSourceInput = { project: app, from: "./legacy.js", to: "./replacement.js" }
+
+    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+    const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+
+    try {
+      const { plan, receipt } = await Effect.runPromise(Effect.gen(function*() {
+        const plan = yield* Recipe.run(migrateImportSource, input)
+        const verified = yield* Verification.verify(plan, migrateImportSource, input)
+        const receipt = yield* Application.apply(verified)
+        return { plan, receipt }
+      }).pipe(Effect.provide(mainLayer)))
+
+      expect(plan.edits).toHaveLength(1)
+      expect(receipt.outputs).toHaveLength(1)
+
+      const consumer = await Fs.readFile(Path.join(root, "src/import-consumer.ts"), "utf8")
+      expect(consumer).toContain("from './replacement.js'")
+      expect(consumer).toContain("/* preserve import trivia */")
+      expect(consumer).toContain("const importResult  =")
+    } finally {
+      await Fs.rm(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})

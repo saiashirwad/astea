@@ -1,0 +1,36 @@
+{
+  "name": "teatime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "prototype:native": "tsx src/prototype/run-native-api.ts",
+    "prototype:lifecycle": "tsx src/prototype/run-native-lifecycle.ts",
+    "prototype:workspace": "tsx src/prototype/run-workspace-snapshot.ts",
+    "prototype:query": "tsx src/prototype/run-semantic-query.ts",
+    "prototype:identity": "vitest run src/prototype/identity.test.ts",
+    "prototype:edits": "vitest run src/prototype/edits.test.ts",
+    "prototype:requests": "vitest run src/prototype/semantic-request.test.ts",
+    "prototype:plan": "vitest run src/prototype/plan.test.ts",
+    "prototype:verification": "vitest run src/prototype/verification.test.ts",
+    "prototype:end-to-end": "vitest run src/prototype/end-to-end.test.ts",
+    "prototype:stress": "vitest run src/prototype/stress-recipes.test.ts",
+    "prototype:contract": "vitest run src/prototype/public-api-probe.test.ts src/prototype/snapshot-manifest.test.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.109"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
