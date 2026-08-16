@@ -286,16 +286,3 @@ export const filesMatching = <E = never, R = never>(
 
     return unique.sort((a, b) => a.path.localeCompare(b.path))
   })
-
-export const Precondition = {
-  fileTextIncludes,
-  fileTextMatches,
-  hasImport,
-  pathMatches,
-  all,
-  any,
-  not,
-  custom,
-  satisfies,
-  filesMatching,
-} as const

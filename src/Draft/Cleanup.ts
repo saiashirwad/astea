@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { isImportDeclaration, isNamedImports } from "typescript/unstable/ast/is"
-import { Query, type QueryContractError } from "../Query/index.ts"
+import * as Query from "../Query/index.ts"
+import type { QueryContractError } from "../Query/index.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
 import { imports } from "./Imports.ts"
 import { concat, empty, type Draft } from "./Model.ts"

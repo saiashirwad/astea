@@ -406,9 +406,6 @@ export const precedes = <Out = unknown, E2 = never, R2 = never>(
 ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
   where(criterionPrecedes<A, Out, E2, R2>(matcher, options))(self)
 
-/** Alias for `precedes`. */
-export const preceding = precedes
-
 /** Filter selections to only those following a sibling matching the given pattern, criterion, or predicate. */
 export const follows = <Out = unknown, E2 = never, R2 = never>(
   matcher: RelationalMatcher<Out, E2, R2>,
@@ -419,14 +416,9 @@ export const follows = <Out = unknown, E2 = never, R2 = never>(
 ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
   where(criterionFollows<A, Out, E2, R2>(matcher, options))(self)
 
-/** Alias for `follows`. */
-export const following = follows
-
 export const RelationCriterion = {
   inside: criterionInside,
   has: criterionHas,
   precedes: criterionPrecedes,
-  preceding: criterionPrecedes,
   follows: criterionFollows,
-  following: criterionFollows,
 }

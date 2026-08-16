@@ -9,10 +9,10 @@
  * Application accepts. Neither stage writes project files.
  */
 import { path as Path } from "../platform/node.ts"
-import { Effect, Predicate } from "effect"
+import { Data, Effect, Predicate, Schema } from "effect"
 import { layer as nodeLayer } from "../platform/node.ts"
 import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
-import type { TransformationPlan } from "../Plan/index.ts"
+import { canonicalJson, type Json, type TransformationPlan } from "../Plan/index.ts"
 import {
   type PlanPreview,
   type PolicyResult,
@@ -29,7 +29,7 @@ import {
   type DiagnosticRecord,
   type PolicyEvaluationContext,
 } from "../Policy/index.ts"
-import type { Recipe } from "../Recipe/index.ts"
+import { TOOLCHAIN, type Recipe } from "../Recipe/index.ts"
 import {
   Workspace,
   WorkspaceSnapshot,
@@ -37,13 +37,46 @@ import {
   type SnapshotExpired,
 } from "../Workspace/index.ts"
 
+// SAFETY: these process-local symbols match the Workspace virtual-FS adapter.
+const VIRTUAL_CREATED: unique symbol = Symbol.for("@safemods/Overlay/virtual-created") as never
+const VIRTUAL_DELETED: unique symbol = Symbol.for("@safemods/Overlay/virtual-deleted") as never
+
 export {
   StalePlanError,
   VerificationFailure,
 } from "./Engine.ts"
 
+/** The supplied recipe is not the recipe that authored the durable plan. */
+export class RecipeMismatch extends Data.TaggedError("RecipeMismatch")<{
+  readonly planId: string
+  readonly expected: { readonly name: string; readonly version: string; readonly implementationHash: string }
+  readonly actual: { readonly name: string; readonly version: string; readonly implementationHash: string }
+}> {}
+
+/** The supplied recipe input does not match the canonical input in the plan. */
+export class RecipeInputMismatch extends Data.TaggedError("RecipeInputMismatch")<{
+  readonly planId: string
+  readonly expected: Json
+  readonly actual: Json
+}> {}
+
+/** The running toolchain is not the one that authored the durable plan. */
+export class ToolchainMismatch extends Data.TaggedError("ToolchainMismatch")<{
+  readonly planId: string
+  readonly expected: TransformationPlan["toolchain"]
+  readonly actual: TransformationPlan["toolchain"]
+}> {}
+
+/** The supplied recipe's durable policies differ from those in the plan. */
+export class PolicyMismatch extends Data.TaggedError("PolicyMismatch")<{
+  readonly planId: string
+  readonly expected: TransformationPlan["policies"]
+  readonly actual: TransformationPlan["policies"]
+}> {}
+
 export type {
   FilePreview,
+  FileState,
   PlanPreview,
   VerificationReceipt,
   VerifiedPlan,
@@ -93,9 +126,64 @@ export const of = (
 ): Effect.Effect<PlanPreview, StalePlanError | VerificationFailure, Workspace> =>
   Workspace.use((workspace) => previewPlan(plan, workspace.root).pipe(Effect.provide(nodeLayer)))
 
-export const Preview = {
-  of,
-}
+const canonicalInput = <Input, E, R>(
+  recipe: Recipe<Input, E, R>,
+  input: Input,
+  planId: string,
+): Effect.Effect<{ readonly value: Input; readonly json: Json }, RecipeInputMismatch> => Effect.gen(function*() {
+  let validated = input
+  if (recipe.schema !== undefined) {
+    const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: unknown) => Effect.Effect<Input, Schema.SchemaError, never>
+    validated = yield* decode(input).pipe(
+      Effect.mapError(() => new RecipeInputMismatch({ planId, expected: null, actual: null })),
+    )
+    // Encode after decoding. This mirrors Recipe.run's validation and gives
+    // schemas with transforms/defaults the same canonical representation used
+    // in plan.recipe.options.
+    const encode = Schema.encodeUnknownEffect(recipe.schema) as (value: Input) => Effect.Effect<unknown, Schema.SchemaError, never>
+    const encoded = yield* encode(validated).pipe(
+      Effect.mapError(() => new RecipeInputMismatch({ planId, expected: null, actual: null })),
+    )
+    return { value: validated, json: (encoded === undefined ? null : encoded) as Json }
+  }
+  return { value: validated, json: (validated === undefined ? null : validated) as Json }
+})
+
+const validateRecipeForPlan = <Input, E, R>(
+  plan: TransformationPlan,
+  recipe: Recipe<Input, E, R>,
+  input: Input,
+): Effect.Effect<Input, RecipeMismatch | RecipeInputMismatch | PolicyMismatch | ToolchainMismatch> => Effect.gen(function*() {
+  const expectedIdentity = {
+    name: plan.recipe.name,
+    version: plan.recipe.version,
+    implementationHash: plan.recipe.implementationHash,
+  }
+  const actualIdentity = {
+    name: recipe.name,
+    version: recipe.version,
+    implementationHash: recipe.implementationHash,
+  }
+  if (expectedIdentity.name !== actualIdentity.name ||
+      expectedIdentity.version !== actualIdentity.version ||
+      expectedIdentity.implementationHash !== actualIdentity.implementationHash) {
+    return yield* new RecipeMismatch({ planId: plan.planId, expected: expectedIdentity, actual: actualIdentity })
+  }
+
+  const encoded = yield* canonicalInput(recipe, input, plan.planId)
+  if (canonicalJson(encoded.json) !== canonicalJson(plan.recipe.options)) {
+    return yield* new RecipeInputMismatch({ planId: plan.planId, expected: plan.recipe.options, actual: encoded.json })
+  }
+
+  if (canonicalJson(recipe.policies as unknown as Json) !== canonicalJson(plan.policies as unknown as Json)) {
+    return yield* new PolicyMismatch({ planId: plan.planId, expected: plan.policies, actual: recipe.policies })
+  }
+
+  if (canonicalJson(TOOLCHAIN as unknown as Json) !== canonicalJson(plan.toolchain as unknown as Json)) {
+    return yield* new ToolchainMismatch({ planId: plan.planId, expected: plan.toolchain, actual: TOOLCHAIN })
+  }
+  return encoded.value
+})
 
 const collectDiagnostics = Effect.gen(function*() {
   const snapshot = yield* WorkspaceSnapshot
@@ -146,6 +234,10 @@ export const verify = <Input, E, R>(
   | E
   | VerificationFailure
   | StalePlanError
+  | RecipeMismatch
+  | RecipeInputMismatch
+  | PolicyMismatch
+  | ToolchainMismatch
   | NativeCompilerError
   | ProjectNotInSnapshot
   | SnapshotExpired,
@@ -153,12 +245,26 @@ export const verify = <Input, E, R>(
 > =>
   Effect.gen(function*() {
     const workspace = yield* Workspace
+    const validatedInput = yield* validateRecipeForPlan(plan, recipe, input)
     const proposed = yield* of(plan)
 
-    const overlay: Record<string, string> = {}
+    const overlay: Record<string, string> & {
+      readonly [VIRTUAL_CREATED]?: ReadonlySet<string>
+      readonly [VIRTUAL_DELETED]?: ReadonlySet<string>
+    } = {}
+    const created = new Set<string>()
+    const deleted = new Set<string>()
     for (const file of proposed.files) {
-      overlay[absoluteTarget(workspace.root, plan, file.projectId, file.fileName)] = file.afterText
+      const target = absoluteTarget(workspace.root, plan, file.projectId, file.fileName)
+      if (file.after.exists) {
+        overlay[target] = file.after.text
+        if (!file.before.exists) created.add(target)
+      } else {
+        deleted.add(target)
+      }
     }
+    Object.defineProperty(overlay, VIRTUAL_CREATED, { value: created })
+    Object.defineProperty(overlay, VIRTUAL_DELETED, { value: deleted })
 
     const baselineDiagnostics = yield* workspace.withIsolatedSnapshot({}, collectDiagnostics)
 
@@ -168,11 +274,15 @@ export const verify = <Input, E, R>(
         const diagnostics = yield* collectDiagnostics
         if (plan.policies.idempotence !== "required") {
           // SAFETY: no replay is requested, so this optional count is absent by construction.
-          return { diagnostics, replayEdits: undefined as number | undefined }
+          return { diagnostics, replayChanges: undefined as number | undefined }
         }
-        const replay = yield* recipe.run(input)
-        // SAFETY: replay.edits is the normalized edit list produced by the recipe.
-        return { diagnostics, replayEdits: replay.edits.length as number | undefined }
+        const replay = yield* recipe.run(validatedInput)
+        // SAFETY: both collections are normalized recipe output. File
+        // operations are changes just like text edits for idempotence.
+        return {
+          diagnostics,
+          replayChanges: replay.edits.length + (replay.fileOperations?.length ?? 0) as number | undefined,
+        }
       }),
     )
 
@@ -202,14 +312,14 @@ export const verify = <Input, E, R>(
       policyResults.push({ name: "diagnostic-diff", passed: true })
     }
     if (plan.policies.idempotence === "required") {
-      policyResults.push({ name: "idempotence", passed: proposedRun.replayEdits === 0 })
+      policyResults.push({ name: "idempotence", passed: proposedRun.replayChanges === 0 })
     }
 
     const context: PolicyEvaluationContext = {
       actualMatches: matches ?? 0,
       affectedFiles: proposed.files.length,
       diagnosticDiff,
-      replayEdits: proposedRun.replayEdits,
+      replayEdits: proposedRun.replayChanges,
     }
 
     if (recipe.rules.length > 0) {
@@ -232,26 +342,24 @@ export const verify = <Input, E, R>(
     const baselineErrorCount = baselineDiagnostics.filter((d) => d.category === "error").length
     const proposedErrorCount = proposedRun.diagnostics.filter((d) => d.category === "error").length
 
-    const observation: VerificationObservation = proposedRun.replayEdits === undefined
+    const observation: VerificationObservation = proposedRun.replayChanges === undefined
       ? {
         actualMatches: matches ?? 0,
         baselineErrorCount,
         proposedErrorCount,
+        diagnosticDiff,
         policyResults,
       }
       : {
         actualMatches: matches ?? 0,
         baselineErrorCount,
         proposedErrorCount,
+        diagnosticDiff,
         policyResults,
-        secondPlanEditCount: proposedRun.replayEdits,
+        secondPlanChangeCount: proposedRun.replayChanges,
       }
 
     const verified = yield* verifyPreview(plan, proposed, observation)
 
     return Object.assign(verified, { diagnosticDiff })
   })
-
-export const Verification = {
-  verify,
-}

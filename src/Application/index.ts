@@ -28,5 +28,3 @@ export const apply = (
     StalePlanError | ApplicationFailure | ApplicationIndeterminate,
     PlanApplication | FileSystem.FileSystem | Path.Path
   > => PlanApplication.use((application) => application.apply(verified))
-
-export const Application = { apply }

@@ -1,6 +1,8 @@
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Exit } from "effect"
 import { finalizePlan, parsePlan, serializePlan } from "./index.ts"
+import { createHash } from "node:crypto"
+import { parseProjectRelativePath } from "../Workspace/ProjectPath.ts"
 
 const input = {
   recipe: { name: "test", version: "1", implementationHash: "impl", options: null },
@@ -28,5 +30,38 @@ describe("Plan schema", () => {
     const plan = yield* finalizePlan(input)
     const invalid = { ...plan, edits: [{ projectId: "app" }] }
     expect(Exit.isFailure(yield* Effect.exit(parsePlan(JSON.stringify(invalid))))).toBe(true)
+  }))
+
+  effect("rejects unsafe project-relative paths", () => Effect.sync(() => {
+    for (const path of ["../escape.ts", "/tmp/file.ts", "C:\\tmp\\file.ts", "C:/tmp/file.ts", "\\\\server\\share\\file.ts", "//server/share/file.ts", "bad\0name.ts"]) {
+      expect(parseProjectRelativePath(path)).toBeUndefined()
+    }
+    expect(parseProjectRelativePath("src/../src/index.ts")).toBe("src/index.ts")
+  }))
+
+  effect("rejects a semantically invalid plan even when rehashed", () => Effect.gen(function*() {
+    const plan = yield* finalizePlan(input)
+    const malformed = {
+      ...plan,
+      edits: [{
+        projectId: "unknown",
+        fileName: "src/index.ts",
+        start: -1,
+        end: 0,
+        expectedTextHash: "",
+        newText: "x",
+        evidenceIds: [],
+      }],
+    }
+    const withoutId = ({ planId: _, ...rest }: typeof malformed) => rest
+    const canonicalize = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(canonicalize)
+      if (value !== null && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonicalize(child)]))
+      }
+      return value
+    }
+    const encoded = JSON.stringify(canonicalize({ ...malformed, planId: createHash("sha256").update(JSON.stringify(canonicalize(withoutId(malformed)))).digest("hex") }))
+    expect(Exit.isFailure(yield* Effect.exit(parsePlan(encoded)))).toBe(true)
   }))
 })

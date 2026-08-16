@@ -33,7 +33,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 const classFileDraft = yield* Draft.files.create(
                   project,
                   "src/service.ts",
-                  "export class UserService {\n  public readonly endpoint: string = \"/api/users\";\n  public async getUser(id: string): Promise<User> {\n    return fetch(`${this.endpoint}/${id}`).then(r => r.json());\n  }\n}\n",
+                  "export interface User { readonly id: string }\n\nexport class UserService {\n  public readonly endpoint: string = \"/api/users\";\n  public async getUser(id: string): Promise<User> {\n    return fetch(`${this.endpoint}/${id}`).then(r => r.json());\n  }\n}\n",
                 )
 
                 const lib = yield* project.sourceFile("src/library.ts")

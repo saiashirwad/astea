@@ -46,6 +46,28 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
+    effect("preserves a schema when composing with a schema-less recipe", () =>
+      withFixture((_, _app) =>
+        Effect.gen(function*() {
+          const InputSchema = Schema.Struct({ value: Schema.NonEmptyString })
+          const validated = Recipe.define("validated-child", {
+            version: "1.0.0",
+            schema: InputSchema,
+            run: () => Effect.succeed(Draft.empty),
+          })
+          const schemaLess = Recipe.define<{ readonly value: string }>("schema-less-child", {
+            version: "1.0.0",
+            run: () => Effect.succeed(Draft.empty),
+          })
+          const composed = Recipe.pipe(schemaLess, validated)
+          expect(composed.schema).toBe(InputSchema)
+          const failure = yield* Recipe.run(composed, { value: "" }).pipe(Effect.flip)
+          expect(failure).toBeInstanceOf(RecipeInputError)
+        })
+      ),
+      60_000,
+    )
+
     effect("composes sequential recipes with Recipe.pipe and in-memory transitions", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
@@ -823,6 +845,34 @@ describe("declarative transformations API (@effect/vitest)", () => {
         })
       ),
       60_000,
+    )
+
+    effect("preserves compiled durable policies and runtime rules across combinators", () =>
+      Effect.sync(() => {
+        const guarded = Recipe.define("guarded", {
+          version: "1.0.0",
+          policies: [Policy.atMostFiles(2), Policy.idempotent(), Policy.fixesError(999)],
+          run: () => Effect.succeed(Draft.empty),
+        })
+        const bounded = Recipe.define("bounded", {
+          version: "1.0.0",
+          policies: [Policy.matches({ min: 3 })],
+          run: () => Effect.succeed(Draft.empty),
+        })
+
+        const composedCases: ReadonlyArray<readonly [Recipe.Recipe<any, any, any>, number | undefined]> = [
+          [Recipe.pipe(guarded, bounded), 3],
+          [Recipe.all([guarded, bounded]), 3],
+          [Recipe.branch(() => true, guarded, bounded), 3],
+          [Recipe.when(() => true, guarded), undefined],
+        ]
+        for (const [composed, expectedMin] of composedCases) {
+          expect(composed.policies.maxAffectedFiles).toBe(2)
+          expect(composed.policies.matchCount.min).toBe(expectedMin)
+          expect(composed.policies.idempotence).toBe("required")
+          expect(composed.rules.map((rule) => rule.name)).toContain("fixes-error:TS999")
+        }
+      })
     )
   })
 

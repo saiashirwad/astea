@@ -6,6 +6,8 @@
  */
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- This is the documented Node composition boundary.
+import * as nodeFs from "node:fs"
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- This is the documented Node composition boundary.
 import * as nodeFsPromises from "node:fs/promises"
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- This is the documented Node composition boundary.
 import * as path from "node:path"
@@ -18,4 +20,4 @@ export const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 export const pathLayer = NodePath.layer
 
 /** Direct Node APIs are restricted to process bootstrap and test-fixture setup. */
-export { nodeFsPromises, path }
+export { nodeFs, nodeFsPromises, path }

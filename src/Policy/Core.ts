@@ -54,26 +54,43 @@ export const computeDiagnosticDiff = (
   baseline: ReadonlyArray<DiagnosticRecord>,
   proposed: ReadonlyArray<DiagnosticRecord>,
 ): DiagnosticDiff => {
-  const key = (d: DiagnosticRecord) => `${d.code}:${d.fileName ?? ""}:${d.start ?? 0}:${d.message}`
-  const baselineMap = new Map(baseline.map((d) => [key(d), d]))
-  const proposedMap = new Map(proposed.map((d) => [key(d), d]))
+  // Category and the complete location are part of diagnostic identity.  In
+  // particular, a warning becoming an error must be treated as an introduced
+  // error even when its code and message stay the same.
+  const key = (diagnostic: DiagnosticRecord) => JSON.stringify([
+    diagnostic.category,
+    diagnostic.code,
+    diagnostic.fileName ?? null,
+    diagnostic.start ?? null,
+    diagnostic.length ?? null,
+    diagnostic.message,
+  ])
+  const group = (diagnostics: ReadonlyArray<DiagnosticRecord>) => {
+    const grouped = new Map<string, Array<DiagnosticRecord>>()
+    for (const diagnostic of diagnostics) {
+      const diagnosticKey = key(diagnostic)
+      const matches = grouped.get(diagnosticKey)
+      if (matches === undefined) grouped.set(diagnosticKey, [diagnostic])
+      else matches.push(diagnostic)
+    }
+    return grouped
+  }
+  const baselineMap = group(baseline)
+  const proposedMap = group(proposed)
 
   const introduced: Array<DiagnosticRecord> = []
   const unchanged: Array<DiagnosticRecord> = []
   const resolved: Array<DiagnosticRecord> = []
 
-  for (const [k, d] of proposedMap.entries()) {
-    if (baselineMap.has(k)) {
-      unchanged.push(d)
-    } else {
-      introduced.push(d)
-    }
+  for (const [diagnosticKey, diagnostics] of proposedMap.entries()) {
+    const baselineMatches = baselineMap.get(diagnosticKey)?.length ?? 0
+    unchanged.push(...diagnostics.slice(0, baselineMatches))
+    introduced.push(...diagnostics.slice(baselineMatches))
   }
 
-  for (const [k, d] of baselineMap.entries()) {
-    if (!proposedMap.has(k)) {
-      resolved.push(d)
-    }
+  for (const [diagnosticKey, diagnostics] of baselineMap.entries()) {
+    const proposedMatches = proposedMap.get(diagnosticKey)?.length ?? 0
+    resolved.push(...diagnostics.slice(proposedMatches))
   }
 
   return { introduced, resolved, unchanged }
@@ -180,16 +197,4 @@ export const all = (policies: ReadonlyArray<Policy>): CompiledPolicy => {
     return { policy: { ...policy, maxAffectedFiles }, rules }
   }
   return { policy, rules }
-}
-
-export const Policy = {
-  matches,
-  exactly,
-  atMostFiles,
-  noNewErrors,
-  fixesError,
-  allowErrors,
-  diagnosticDiff,
-  idempotent,
-  all,
 }

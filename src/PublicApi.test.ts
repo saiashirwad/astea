@@ -88,7 +88,7 @@ describe("candidate public API (@effect/vitest)", () => {
         expect(reexport).toContain("publicTarget({ value: 4 })")
 
         // A durable plan crosses the process boundary intact.
-        const roundTripped = yield* Plan.parse(Plan.serialize(plan))
+        const roundTripped = yield* Plan.parsePlan(Plan.serializePlan(plan))
         expect(roundTripped.planId).toBe(plan.planId)
 
         // After application the recipe is a no-op: the reran plan has no edits.

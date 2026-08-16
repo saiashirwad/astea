@@ -1,6 +1,7 @@
 import { Effect, Option } from "effect"
 import type { Symbol as NativeSymbol } from "typescript/unstable/async"
-import { Query, type QueryContractError } from "../Query/index.ts"
+import * as Query from "../Query/index.ts"
+import type { QueryContractError } from "../Query/index.ts"
 import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError } from "../Workspace/index.ts"
 import { empty, replaceEach, type Draft } from "./Model.ts"
 

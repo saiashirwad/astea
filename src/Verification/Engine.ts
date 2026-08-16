@@ -1,6 +1,7 @@
 /** Verification and application service engine. */
 import { Data, Effect, FileSystem, Path } from "effect"
 import { applyFileEdits, textHash } from "../Edit/index.ts"
+import type { DiagnosticDiff } from "../Policy/index.ts"
 import type { TransformationPlan } from "../Plan/index.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{
@@ -15,13 +16,19 @@ export class VerificationFailure extends Data.TaggedError("VerificationFailure")
   readonly detail: string
 }> {}
 
+export type FileState =
+  | { readonly exists: false; readonly text?: undefined; readonly hash?: undefined }
+  | { readonly exists: true; readonly text: string; readonly hash: string }
+
 export interface FilePreview {
   readonly projectId: string
   readonly fileName: string
-  readonly beforeHash: string
-  readonly afterHash: string
-  readonly beforeText: string
-  readonly afterText: string
+  /** Explicit operation and virtual existence state; empty text is valid content. */
+  readonly action: "create" | "modify" | "delete" | "move"
+  readonly before: FileState
+  readonly after: FileState
+  /** The counterpart path for a move operation, when applicable. */
+  readonly movePath?: string | undefined
 }
 
 export interface PlanPreview {
@@ -34,7 +41,8 @@ export interface VerificationObservation {
   readonly actualMatches: number
   readonly baselineErrorCount: number
   readonly proposedErrorCount: number
-  readonly secondPlanEditCount?: number
+  readonly secondPlanChangeCount?: number
+  readonly diagnosticDiff: DiagnosticDiff
   readonly policyResults?: ReadonlyArray<PolicyResult>
 }
 
@@ -82,7 +90,9 @@ export const previewPlan = (
   plan: TransformationPlan,
   workspaceRoot: string,
 ): Effect.Effect<PlanPreview, StalePlanError | VerificationFailure, FileSystem.FileSystem | Path.Path> => Effect.gen(function*() {
-  const sourceTexts = new Map<string, string>()
+  type VirtualFile = { readonly exists: boolean; readonly text: string }
+  const keyOf = (projectId: string, fileName: string): string => `${projectId}\0${fileName}`
+  const sourceTexts = new Map<string, VirtualFile>()
   for (const source of plan.sources) {
     const absolute = yield* absoluteFileName(plan, workspaceRoot, source.projectId, source.fileName)
     const content = yield* FileSystem.FileSystem.use((fs) => fs.readFileString(absolute)).pipe(Effect.mapError(() => new StalePlanError({
@@ -97,95 +107,92 @@ export const previewPlan = (
         fileName: source.fileName,
       })
     }
-    sourceTexts.set(`${source.projectId}\0${source.fileName}`, content)
+    sourceTexts.set(keyOf(source.projectId, source.fileName), { exists: true, text: content })
   }
 
+  const initial = new Map(sourceTexts)
+  const touched = new Set<string>()
+  const moveCounterpart = new Map<string, string>()
+  const operationKinds = new Map<string, "create" | "delete" | "move">()
+  const stateOf = (file: VirtualFile): FileState => file.exists
+    ? { exists: true, text: file.text, hash: textHash(file.text) }
+    : { exists: false }
   for (const op of plan.fileOperations ?? []) {
+    const sourceKey = keyOf(op.projectId, op.path)
     if (op.kind === "create") {
-      sourceTexts.set(`${op.projectId}\0${op.path}`, op.content ?? "")
-    } else if (op.kind === "move" && op.toPath !== undefined) {
-      sourceTexts.set(`${op.projectId}\0${op.toPath}`, op.content ?? sourceTexts.get(`${op.projectId}\0${op.path}`) ?? "")
+      sourceTexts.set(sourceKey, { exists: true, text: op.content })
+      touched.add(sourceKey)
+      operationKinds.set(sourceKey, "create")
+    } else if (op.kind === "delete") {
+      const before = sourceTexts.get(sourceKey)
+      if (before?.exists !== true) {
+        return yield* new VerificationFailure({ planId: plan.planId, policy: "edits", detail: `Missing source for ${sourceKey}` })
+      }
+      if (textHash(before.text) !== op.initialHash) {
+        return yield* new StalePlanError({ planId: plan.planId, projectId: op.projectId, fileName: op.path })
+      }
+      sourceTexts.set(sourceKey, { exists: false, text: "" })
+      touched.add(sourceKey)
+      operationKinds.set(sourceKey, "delete")
+    } else {
+      const before = sourceTexts.get(sourceKey)
+      if (before?.exists !== true) {
+        return yield* new VerificationFailure({ planId: plan.planId, policy: "edits", detail: `Missing source for ${sourceKey}` })
+      }
+      if (textHash(before.text) !== op.initialHash) {
+        return yield* new StalePlanError({ planId: plan.planId, projectId: op.projectId, fileName: op.path })
+      }
+      const targetKey = keyOf(op.projectId, op.toPath)
+      sourceTexts.set(sourceKey, { exists: false, text: "" })
+      sourceTexts.set(targetKey, { exists: true, text: op.content ?? before.text })
+      touched.add(sourceKey)
+      touched.add(targetKey)
+      operationKinds.set(sourceKey, "move")
+      operationKinds.set(targetKey, "move")
+      moveCounterpart.set(sourceKey, op.toPath)
+      moveCounterpart.set(targetKey, op.path)
     }
   }
 
   const groups = Map.groupBy(plan.edits, (edit) => `${edit.projectId}\0${edit.fileName}`)
-  const files: Array<FilePreview> = []
+  const filesByKey = new Map<string, FilePreview>()
   for (const [key, edits] of groups) {
-    const beforeText = sourceTexts.get(key)
-    if (beforeText === undefined) {
+    const before = sourceTexts.get(key)
+    if (before?.exists !== true) {
       return yield* new VerificationFailure({
         planId: plan.planId,
         policy: "edits",
         detail: `Missing source for ${key}`,
       })
     }
-    const afterText = yield* applyFileEdits(beforeText, edits).pipe(
+    const afterText = yield* applyFileEdits(before.text, edits).pipe(
       Effect.mapError((error) => new VerificationFailure({
         planId: plan.planId,
         policy: "edits",
         detail: error._tag,
       })),
     )
-    const first = edits[0]!
-    files.push({
-      projectId: first.projectId,
-      fileName: first.fileName,
-      beforeHash: textHash(beforeText),
-      afterHash: textHash(afterText),
-      beforeText,
-      afterText,
+    sourceTexts.set(key, { exists: true, text: afterText })
+    touched.add(key)
+  }
+
+  for (const key of touched) {
+    const [projectId, fileName] = key.split("\0") as [string, string]
+    const before = initial.get(key) ?? { exists: false, text: "" }
+    const after = sourceTexts.get(key) ?? { exists: false, text: "" }
+    const operation = operationKinds.get(key)
+    const action = operation ?? (before.exists ? "modify" : "create")
+    filesByKey.set(key, {
+      projectId,
+      fileName,
+      action,
+      before: stateOf(before),
+      after: stateOf(after),
+      movePath: moveCounterpart.get(key),
     })
   }
 
-  if (plan.fileOperations !== undefined) {
-    for (const op of plan.fileOperations) {
-      if (op.kind === "create") {
-        if (files.some((file) => file.projectId === op.projectId && file.fileName === op.path)) continue
-        const content = op.content ?? ""
-        files.push({
-          projectId: op.projectId,
-          fileName: op.path,
-          beforeHash: textHash(""),
-          afterHash: textHash(content),
-          beforeText: "",
-          afterText: content,
-        })
-      } else if (op.kind === "delete") {
-        const beforeText = sourceTexts.get(`${op.projectId}\0${op.path}`) ?? ""
-        files.push({
-          projectId: op.projectId,
-          fileName: op.path,
-          beforeHash: textHash(beforeText),
-          afterHash: textHash(""),
-          beforeText,
-          afterText: "",
-        })
-      } else if (op.kind === "move" && op.toPath !== undefined) {
-        const beforeText = sourceTexts.get(`${op.projectId}\0${op.path}`) ?? ""
-        const content = op.content ?? beforeText
-        if (!files.some((file) => file.projectId === op.projectId && file.fileName === op.path)) {
-          files.push({
-            projectId: op.projectId,
-            fileName: op.path,
-            beforeHash: textHash(beforeText),
-            afterHash: textHash(""),
-            beforeText,
-            afterText: "",
-          })
-        }
-        if (files.some((file) => file.projectId === op.projectId && file.fileName === op.toPath)) continue
-        files.push({
-          projectId: op.projectId,
-          fileName: op.toPath,
-          beforeHash: textHash(""),
-          afterHash: textHash(content),
-          beforeText: "",
-          afterText: content,
-        })
-      }
-    }
-  }
-
+  const files = [...filesByKey.values()]
   files.sort((left, right) =>
     left.projectId.localeCompare(right.projectId) || left.fileName.localeCompare(right.fileName))
   return { planId: plan.planId, snapshotHash: plan.snapshotHash, files }
@@ -214,19 +221,37 @@ export const verifyPreview = (
   }
   if (
     plan.policies.diagnostics === "no-new-errors" &&
-    observation.proposedErrorCount > observation.baselineErrorCount
+    observation.diagnosticDiff.introduced.some((d) => d.category === "error")
   ) {
     return yield* new VerificationFailure({
       planId: plan.planId,
       policy: "diagnostics",
-      detail: `${observation.baselineErrorCount} -> ${observation.proposedErrorCount}`,
+      detail: `${observation.baselineErrorCount} -> ${observation.proposedErrorCount}; introduced error diagnostics are not permitted`,
     })
   }
-  if (plan.policies.idempotence === "required" && observation.secondPlanEditCount !== 0) {
+  if (plan.policies.idempotence === "required" && observation.secondPlanChangeCount !== 0) {
     return yield* new VerificationFailure({
       planId: plan.planId,
       policy: "idempotence",
       detail: "Second recipe run was not empty",
+    })
+  }
+
+  // Do not mint a VerifiedPlan containing a failed built-in result, even when
+  // a caller constructed the observation directly rather than going through
+  // Core's policy checks above.
+  const failedBuiltIn = observation.policyResults?.find((result) => !result.passed)
+  if (failedBuiltIn !== undefined) {
+    return yield* new VerificationFailure({
+      planId: plan.planId,
+      policy: failedBuiltIn.name === "idempotence"
+        ? "idempotence"
+        : failedBuiltIn.name === "match-count"
+        ? "matches"
+        : failedBuiltIn.name === "affected-files"
+        ? "affected-files"
+        : "diagnostics",
+      detail: failedBuiltIn.detail ?? `Policy '${failedBuiltIn.name}' failed`,
     })
   }
 

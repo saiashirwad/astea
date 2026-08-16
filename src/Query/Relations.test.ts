@@ -221,15 +221,15 @@ describe("declarative transformations API (@effect/vitest)", () => {
               // 5. initialization precedes cleanup (non-immediate)
               const initPrecedingCleanup = yield* Query.nodes(overlayProject, isVariableStatement).pipe(
                 Query.where(Query.textMatches("initialized")),
-                Query.preceding(Pattern.callExpression({ expression: Pattern.identifier({ name: "cleanup" }) })),
+                Query.precedes(Pattern.callExpression({ expression: Pattern.identifier({ name: "cleanup" }) })),
                 Query.collect,
               )
               expect(initPrecedingCleanup.length).toBe(1)
 
-              // 6. cleanup follows initialization using Query.following alias
+              // 6. cleanup follows initialization
               const cleanupFollowingInit = yield* Query.calls(overlayProject).pipe(
                 Query.where(Query.textMatches("cleanup")),
-                Query.following(Pattern.variableStatement({ name: "initialized" })),
+                Query.follows(Pattern.variableStatement({ name: "initialized" })),
                 Query.collect,
               )
               expect(cleanupFollowingInit.length).toBe(1)

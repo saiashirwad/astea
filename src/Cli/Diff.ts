@@ -81,14 +81,18 @@ export const renderFilePreview = (
   options: DiffOptions = {},
 ): string => {
   const useColor = options.color ?? true
-  const badge = file.beforeText === ""
+  const badge = file.action === "create"
     ? colorize("[CREATE]", ANSI.green + ANSI.bold, useColor)
-    : file.afterText === ""
+    : file.action === "delete"
     ? colorize("[DELETE]", ANSI.red + ANSI.bold, useColor)
+    : file.action === "move"
+    ? colorize("[MOVE]", ANSI.yellow + ANSI.bold, useColor)
     : colorize("[MODIFY]", ANSI.cyan + ANSI.bold, useColor)
 
   const header = `${badge} ${colorize(file.fileName, ANSI.bold, useColor)} (${file.projectId})`
-  const diff = computeUnifiedDiff(file.fileName, file.beforeText, file.afterText, options)
+  const beforeText = file.before.exists ? file.before.text : ""
+  const afterText = file.after.exists ? file.after.text : ""
+  const diff = computeUnifiedDiff(file.fileName, beforeText, afterText, options)
   return `${header}\n${diff}`
 }
 

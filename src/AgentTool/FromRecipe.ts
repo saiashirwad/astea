@@ -5,14 +5,14 @@
  * to standard LLM function-calling protocols (OpenAI / MCP / Anthropic).
  */
 import { Data, Effect, Layer, Schema } from "effect"
-import { Application } from "../Application/index.ts"
+import { apply } from "../Application/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
-import { Recipe, type Recipe as RecipeModel } from "../Recipe/index.ts"
-import { Preview } from "../Preview/index.ts"
-import { Verification } from "../Verification/index.ts"
+import { type Recipe as RecipeModel, run as runRecipe } from "../Recipe/index.ts"
+import { of as previewOf } from "../Preview/index.ts"
+import { verify } from "../Verification/index.ts"
 import { Workspace, type WorkspaceSnapshot } from "../Workspace/index.ts"
 
-export type ToolAction = "create" | "delete" | "modify"
+export type ToolAction = "create" | "delete" | "modify" | "move"
 
 export interface ToolFileResult {
   readonly fileName: string
@@ -77,27 +77,27 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
         const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(Layer.succeed(Workspace, workspace)))
 
         const typedInput = yield* decodeToolInput(recipe, rawInput)
-        const plan = yield* Recipe.run(recipe, typedInput).pipe(
+        const plan = yield* runRecipe(recipe, typedInput).pipe(
           Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
         )
-        const preview = yield* Preview.of(plan).pipe(
+        const preview = yield* previewOf(plan).pipe(
           Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
         )
-        const verified = yield* Verification.verify(plan, recipe, typedInput).pipe(
+        const verified = yield* verify(plan, recipe, typedInput).pipe(
           Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
         )
 
         if (options.apply === true) {
-          yield* Application.apply(verified).pipe(
+          yield* apply(verified).pipe(
             Effect.provide(mainLayer),
             Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
           )
         }
 
-        const files: ReadonlyArray<ToolFileResult> = preview.files.map((f: (typeof preview.files)[number]) => {
-          const action: ToolAction = f.beforeText === "" ? "create" : f.afterText === "" ? "delete" : "modify"
-          return { fileName: f.fileName, action }
-        })
+        const files: ReadonlyArray<ToolFileResult> = preview.files.map((file) => ({
+          fileName: file.fileName,
+          action: file.action,
+        }))
 
         return {
           planId: plan.planId,

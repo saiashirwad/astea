@@ -3,11 +3,11 @@
  */
 import { path as Path } from "../platform/node.ts"
 import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"
-import { Application } from "../Application/index.ts"
+import { apply } from "../Application/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
-import { type Recipe, Recipe as RecipeApi } from "../Recipe/index.ts"
-import { Preview } from "../Preview/index.ts"
-import { Verification } from "../Verification/index.ts"
+import { type Recipe, run as runRecipe } from "../Recipe/index.ts"
+import { of as previewOf } from "../Preview/index.ts"
+import { verify } from "../Verification/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import type {
   AuditCriterionRecord,
@@ -158,7 +158,7 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
 
     yield* Effect.gen(function*() {
       const workspace = yield* Workspace
-      const plan = yield* RecipeApi.run(recipe, options.input)
+      const plan = yield* runRecipe(recipe, options.input)
 
       if (options.mode === "scan") {
         const report = yield* workspace.withSnapshot({}, Effect.gen(function*() {
@@ -184,18 +184,18 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
         return
       }
 
-      const preview = yield* Preview.of(plan)
+      const preview = yield* previewOf(plan)
 
       yield* Console.log(renderPlanPreview(preview, { color: useColor }))
 
       if (options.mode === "verify" || options.mode === "apply") {
-        const verified = yield* Verification.verify(plan, recipe, options.input)
+        const verified = yield* verify(plan, recipe, options.input)
         if (verified.diagnosticDiff) {
           yield* Console.log(renderDiagnosticDiff(verified.diagnosticDiff, { color: useColor }))
         }
 
         if (options.mode === "apply") {
-          const receipt = yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
+          const receipt = yield* apply(verified).pipe(Effect.provide(mainLayer))
           yield* Console.log(`\n✔ Applied ${receipt.outputs.length} file changes successfully!`)
         }
       }
