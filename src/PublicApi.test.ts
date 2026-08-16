@@ -1,24 +1,12 @@
-import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
+import { path as Path, nodeFsPromises as Fs } from "./platform/node.ts"
 import { fileURLToPath } from "node:url"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import type { CallExpression } from "typescript/unstable/ast"
-import {
-  Application,
-  ConfiguredProject,
-  Plan,
-  planApplicationLayerNode,
-  Preview,
-  Query,
-  Recipe,
-  type Selection,
-  type TransformationPlan,
-  Verification,
-  type VerifiedPlan,
-  Workspace,
-} from "./index.ts"
-import { wrapTargetInput, type WrapTargetInput } from "./wrap-target-input.ts"
-import { migrateImportSource, type MigrateImportSourceInput } from "./migrate-import-source.ts"
+import { Application, Plan, Preview, Query, Recipe, Verification, Workspace } from "./index.ts"
+import { applicationLayerNode } from "./Node/index.ts"
+import { wrapTargetInput, type WrapTargetInput } from "./test/wrap-target-input.ts"
+import { migrateImportSource, type MigrateImportSourceInput } from "./test/migrate-import-source.ts"
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -32,28 +20,28 @@ export type _RecipeInputInference = Assert<Equal<Parameters<typeof wrapTargetInp
 declare const _anyProject: Parameters<typeof Query.calls>[0]
 export type _CallInference = Assert<Equal<
   ReturnType<typeof Query.calls> extends import("effect").Stream.Stream<infer S, infer _E, infer _R>
-    ? S extends Selection<infer Node> ? Node : never
+    ? S extends Query.Selection<infer Node> ? Node : never
     : never,
   CallExpression
 >>
 
-const _rawPlanIsNotApplicationAuthority = (plan: TransformationPlan) =>
+const _rawPlanIsNotApplicationAuthority = (plan: Plan.TransformationPlan) =>
   // @ts-expect-error — Application accepts only a Verified Plan
   Application.apply(plan)
 void _rawPlanIsNotApplicationAuthority
 
-const _verifiedPlanIsApplicationAuthority = (verified: VerifiedPlan) => Application.apply(verified)
+const _verifiedPlanIsApplicationAuthority = (verified: Verification.VerifiedPlan) => Application.apply(verified)
 void _verifiedPlanIsApplicationAuthority
 
 // --- End-to-end pipeline ---------------------------------------------------
 
-const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
-const stressFixture = fileURLToPath(new URL("../../fixtures/stress/", import.meta.url))
+const fixtureSource = fileURLToPath(new URL("../fixtures/recipe/", import.meta.url))
+const stressFixture = fileURLToPath(new URL("../fixtures/stress/", import.meta.url))
 
 const withFixture = <A, E, R>(
   fixturePath: string,
-  use: (root: string, app: ConfiguredProject, workspaceLayer: Layer.Layer<Workspace, any>) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, unknown, Exclude<R, Workspace>> =>
+  use: (root: string, app: Workspace.ConfiguredProject, workspaceLayer: Layer.Layer<Workspace.Workspace, any>) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, unknown, Exclude<R, Workspace.Workspace>> =>
   Effect.acquireUseRelease(
     Effect.tryPromise(async () => {
       const root = await Fs.mkdtemp("/tmp/safemods-api-")
@@ -61,7 +49,7 @@ const withFixture = <A, E, R>(
       return root
     }),
     (root) => {
-      const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+      const app = Workspace.ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
       const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
       return use(root, app, workspaceLayer).pipe(Effect.provide(workspaceLayer))
     },
@@ -73,7 +61,7 @@ describe("candidate public API (@effect/vitest)", () => {
     withFixture(fixtureSource, (root, app, workspaceLayer) =>
       Effect.gen(function*() {
         const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
-        const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+        const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
         const { plan, preview, receipt, verified } = yield* Effect.gen(function*() {
           const plan = yield* Recipe.run(wrapTargetInput, input)
@@ -132,7 +120,7 @@ describe("candidate public API (@effect/vitest)", () => {
     withFixture(stressFixture, (root, app, workspaceLayer) =>
       Effect.gen(function*() {
         const input: MigrateImportSourceInput = { project: app, from: "./legacy.js", to: "./replacement.js" }
-        const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+        const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
         const { plan, receipt } = yield* Effect.gen(function*() {
           const plan = yield* Recipe.run(migrateImportSource, input)

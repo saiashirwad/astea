@@ -4,7 +4,7 @@
 import { path as Path } from "../platform/node.ts"
 import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"
 import { Application } from "../Application/index.ts"
-import { applicationLayerNode as planApplicationLayerNode } from "../Node/index.ts"
+import { applicationLayerNode } from "../Node/index.ts"
 import { type Recipe, Recipe as RecipeApi } from "../Recipe/index.ts"
 import { Preview } from "../Preview/index.ts"
 import { Verification } from "../Verification/index.ts"
@@ -148,7 +148,7 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
 
     const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
     const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: targetCwd })
-    const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+    const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
     const noColorConfig = yield* Config.string("NO_COLOR").pipe(
       Config.option,

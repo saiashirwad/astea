@@ -12,13 +12,12 @@ import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { createHash } from "node:crypto"
 import { Data, Effect, Schema } from "effect"
 import { SYSTEM_VERSION } from "../generated/version.ts"
-import { EditConflict, InvalidEdit, applyFileEdits, textHash } from "../Edit/index.ts"
+import { EditConflict, InvalidEdit, applyFileEdits, textHash, type TextEdit } from "../Edit/index.ts"
 import { NativeCompilerError } from "../Compiler/Service.ts"
 import {
   finalizePlan,
   type Json,
   type PlanBuildError,
-  type PlannedTextEdit,
   type SourceFingerprint,
   type TransformationPlan,
 } from "../Plan/index.ts"
@@ -26,7 +25,7 @@ import { isWithinProject, projectRelativePath } from "../Workspace/ProjectPath.t
 import { Draft } from "../Draft/index.ts"
 import { type VerificationRule, Policy } from "../Policy/index.ts"
 import type { PlanPolicies } from "../Plan/index.ts"
-import { overlay } from "../Overlay/index.ts"
+import { run as runOverlay } from "../Overlay/index.ts"
 import {
   Workspace,
   WorkspaceSnapshot,
@@ -163,7 +162,7 @@ const composeDrafts = (
     const nextByFile = Map.groupBy(next.edits, (e) => `${e.projectId}\0${e.fileName}`)
 
     const allKeys = new Set([...accumulatedByFile.keys(), ...nextByFile.keys()])
-    const combinedEdits: Array<PlannedTextEdit> = []
+    const combinedEdits: Array<TextEdit> = []
 
     for (const key of allKeys) {
       const accEdits = accumulatedByFile.get(key)
@@ -259,7 +258,7 @@ export function pipe<Input, E, R>(
         let accumulatedDraft = Draft.empty
         for (const recipe of recipes) {
           if (accumulatedDraft.edits.length > 0) {
-            const nextDraft = yield* overlay(accumulatedDraft, recipe.run(input))
+            const nextDraft = yield* runOverlay(accumulatedDraft, recipe.run(input))
             accumulatedDraft = yield* composeDrafts(snapshot, accumulatedDraft, nextDraft)
           } else {
             const nextDraft = yield* recipe.run(input)

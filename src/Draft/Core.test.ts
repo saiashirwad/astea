@@ -1,16 +1,14 @@
 import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect } from "effect"
-import {
-  Application,
-  Draft,
-  planApplicationLayerNode,
-  Policy,
-  Query,
-  Recipe,
-  Verification,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Application from "../Application/index.ts"
+import * as Draft from "../Draft/index.ts"
+import { applicationLayerNode } from "../Node/index.ts"
+import * as Policy from "../Policy/index.ts"
+import * as Query from "../Query/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import * as Verification from "../Verification/index.ts"
+import { WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {
@@ -48,7 +46,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           const plan = yield* Recipe.run(draftTestRecipe, undefined)
           const verified = yield* Verification.verify(plan, draftTestRecipe, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>
@@ -82,7 +80,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
 
           const verified = yield* Verification.verify(plan, renameRecipe, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const libContent = yield* Effect.tryPromise(() =>

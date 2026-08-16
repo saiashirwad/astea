@@ -1,20 +1,17 @@
 import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Schema } from "effect"
-import {
-  Application,
-  Draft,
-  Pattern,
-  planApplicationLayerNode,
-  Policy,
-  Precondition,
-  Query,
-  Recipe,
-  RecipeInputError,
-  Verification,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Application from "../Application/index.ts"
+import * as Draft from "../Draft/index.ts"
+import { applicationLayerNode } from "../Node/index.ts"
+import * as Pattern from "../Pattern/index.ts"
+import * as Policy from "../Policy/index.ts"
+import * as Precondition from "../Precondition/index.ts"
+import * as Query from "../Query/index.ts"
+import { RecipeInputError } from "../Recipe/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import * as Verification from "../Verification/index.ts"
+import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {
@@ -85,7 +82,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
 
           const verified = yield* Verification.verify(plan, pipedRecipe, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>
@@ -135,7 +132,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           const plan = yield* Recipe.run(piped, undefined)
           const verified = yield* Verification.verify(plan, piped, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>
@@ -220,7 +217,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
 
           const verified = yield* Verification.verify(plan, scanningRecipe, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>
@@ -265,7 +262,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
 
           const verified = yield* Verification.verify(plan, scanningWithInput, { importName: "TargetInput" })
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>
@@ -327,7 +324,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
 
           const verified = yield* Verification.verify(plan, piped, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>
@@ -359,7 +356,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           const plan = yield* Recipe.run(renameRecipe, undefined)
           const verified = yield* Verification.verify(plan, renameRecipe, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const libContent = yield* Effect.tryPromise(() =>
@@ -419,7 +416,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           const plan = yield* Recipe.run(fileRecipe, undefined)
           const verified = yield* Verification.verify(plan, fileRecipe, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>
@@ -772,7 +769,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           const plan = yield* Recipe.run(pipeline, undefined)
           const verified = yield* Verification.verify(plan, pipeline, undefined)
           yield* Application.apply(verified).pipe(
-            Effect.provide(planApplicationLayerNode),
+            Effect.provide(applicationLayerNode),
           )
 
           const consumerContent = yield* Effect.tryPromise(() =>

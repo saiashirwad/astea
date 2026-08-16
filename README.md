@@ -55,14 +55,11 @@ A recipe finds nodes in your project, drafts replacements, and declares verifica
 ```ts
 import { Effect } from "effect"
 import { isObjectLiteralExpression } from "typescript/unstable/ast/is"
-import {
-  ConfiguredProject,
-  Draft,
-  Policy,
-  Query,
-  Recipe,
-  WorkspaceSnapshot,
-} from "safemods"
+import * as Draft from "safemods/Draft"
+import * as Policy from "safemods/Policy"
+import * as Query from "safemods/Query"
+import * as Recipe from "safemods/Recipe"
+import { ConfiguredProject, WorkspaceSnapshot } from "safemods/Workspace"
 
 // 1. Declare the project boundary
 const app = ConfiguredProject.make({
@@ -126,7 +123,9 @@ export default Recipe.define("wrap-target-input", {
 Multi-phase transformations (e.g. migrating an exported function signature in a library and subsequently refactoring downstream call sites across consuming files) run inside a virtual compiler overlay without writing intermediate states to disk:
 
 ```ts
-import { Draft, overlay, WorkspaceSnapshot } from "safemods"
+import * as Draft from "safemods/Draft"
+import * as Overlay from "safemods/Overlay"
+import { WorkspaceSnapshot } from "safemods/Workspace"
 
 // Phase 1: Update declaration in library.ts
 const draft1 = yield* Draft.imports.addNamed(project, "src/library.ts", {
@@ -135,7 +134,7 @@ const draft1 = yield* Draft.imports.addNamed(project, "src/library.ts", {
 })
 
 // Phase 2: Query downstream files inside the compiler overlay
-return yield* overlay(draft1, Effect.gen(function* () {
+return yield* Overlay.run(draft1, Effect.gen(function* () {
   const overlaySnapshot = yield* WorkspaceSnapshot
   const overlayProject = yield* overlaySnapshot.project(app)
   // Downstream files now see NewConfig resolved by TypeScript!
@@ -208,7 +207,10 @@ safemods tool ./recipe.ts
 Recipes can also be executed directly within an Effect workflow:
 
 ```ts
-import { Recipe, Preview, Verification, Application } from "safemods"
+import * as Application from "safemods/Application"
+import * as Preview from "safemods/Preview"
+import * as Recipe from "safemods/Recipe"
+import * as Verification from "safemods/Verification"
 
 const pipeline = Effect.gen(function* () {
   // 1. Build immutable transformation plan

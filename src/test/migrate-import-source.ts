@@ -5,11 +5,11 @@
  */
 import { Effect } from "effect"
 import { isStringLiteral } from "typescript/unstable/ast/is"
-import { Draft } from "./draft.ts"
-import { Policy } from "./policy.ts"
-import { Query } from "./query.ts"
-import { Recipe } from "./recipe.ts"
-import { type ConfiguredProject, WorkspaceSnapshot } from "./workspace.ts"
+import * as Draft from "../Draft/index.ts"
+import * as Policy from "../Policy/index.ts"
+import * as Query from "../Query/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import { type ConfiguredProject, WorkspaceSnapshot } from "../Workspace/index.ts"
 
 export interface MigrateImportSourceInput {
   readonly project: ConfiguredProject

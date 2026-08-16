@@ -1,5 +1,8 @@
-import { ConfiguredProject, Draft, Policy, Recipe, WorkspaceSnapshot } from "safemods"
 import { Effect } from "effect"
+import * as Draft from "safemods/Draft"
+import * as Policy from "safemods/Policy"
+import * as Recipe from "safemods/Recipe"
+import { ConfiguredProject, WorkspaceSnapshot } from "safemods/Workspace"
 
 const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
 

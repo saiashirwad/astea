@@ -1,2 +1,2 @@
-export { materialize, materialize as computeOverlayMap } from "./Materialize.ts"
-export { run, run as overlay } from "./Run.ts"
+export { materialize } from "./Materialize.ts"
+export { run } from "./Run.ts"

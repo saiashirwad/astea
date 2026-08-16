@@ -15,11 +15,14 @@ for (const file of await files(sourceRoot)) {
   const text = await readFile(file, "utf8")
   for (const match of text.matchAll(/(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g)) {
     const specifier = match[1]
-    if ((specifier === "safemods" || specifier.endsWith("/api/index.ts") || specifier === "../api/index.ts") && file !== resolve(sourceRoot, "index.ts")) {
+    if (specifier === "safemods") {
       failures.push(`${relative(root, file)}: package self-import ${specifier}`)
     }
     if (!specifier.startsWith(".")) continue
     const target = resolve(dirname(file), specifier)
+    if (target === resolve(sourceRoot, "index.ts")) {
+      failures.push(`${relative(root, file)}: root self-import ${specifier}`)
+    }
     const targetParts = relative(sourceRoot, target).split(sep)
     const targetOwner = targetParts[0]
     if (targetParts.includes("internal") && targetOwner !== owner) {
@@ -31,7 +34,7 @@ for (const file of await files(sourceRoot)) {
     if (owner === "Workspace" && ["Draft", "Plan", "Overlay", "Preview", "Verification", "Application"].includes(targetOwner)) {
       failures.push(`${relative(root, file)}: Workspace imports higher layer ${targetOwner}`)
     }
-    if (targetOwner === "Cli" && owner !== "Cli" && owner !== "AgentTool" && owner !== "api") {
+    if (targetOwner === "Cli" && owner !== "Cli" && owner !== "AgentTool") {
       failures.push(`${relative(root, file)}: imports Cli outside an entry-point layer`)
     }
   }

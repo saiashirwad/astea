@@ -22,7 +22,7 @@ Within the semantic layer, `Query` may depend on `Pattern`, `Workspace`, and
 ## Boundary rules
 
 - Source modules import concrete domain modules, never `src/index.ts`, the
-  compatibility barrel, or the package name `safemods`.
+  root barrel or the package name `safemods`.
 - A feature's `internal/` directory is private to that feature.
 - `Workspace` is read/compiler authority. It does not import Draft, Edit
   application, Plan, Overlay, Preview, Verification, or Application.

@@ -11,8 +11,9 @@
 import { Effect, Predicate } from "effect"
 import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
+import type { TextEdit } from "../Edit/Model.ts"
 import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
-import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../Plan/index.ts"
+import type { EvidenceRecord, PlannedFileOperation } from "../Plan/index.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { Selection } from "../Query/index.ts"
 import {
@@ -21,7 +22,7 @@ import {
 } from "../Workspace/index.ts"
 
 /** An edit in pre-finalization form; identical in shape to its durable counterpart. */
-export type ProposedEdit = PlannedTextEdit
+export type ProposedEdit = TextEdit
 
 export interface Draft {
   readonly edits: ReadonlyArray<ProposedEdit>

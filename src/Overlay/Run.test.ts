@@ -1,12 +1,9 @@
 import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect } from "effect"
-import {
-  overlay,
-  Draft,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Draft from "../Draft/index.ts"
+import * as Overlay from "../Overlay/index.ts"
+import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {
@@ -30,7 +27,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
             expect(draft1.edits).toHaveLength(1)
 
             // Stage 2: Evaluate inside in-memory overlay
-            yield* overlay(draft1, Effect.gen(function*() {
+            yield* Overlay.run(draft1, Effect.gen(function*() {
               const overlaySnapshot = yield* WorkspaceSnapshot
               const overlayProject = yield* overlaySnapshot.project(app)
 

@@ -1,15 +1,12 @@
 import { describe, effect, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
-import type { DiagnosticRecord } from "../api/index.ts"
-import {
-  computeDiagnosticDiff,
-  Draft,
-  Policy,
-  Recipe,
-  Verification,
-  VerificationFailure,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Draft from "../Draft/index.ts"
+import { computeDiagnosticDiff, type DiagnosticRecord } from "../Policy/index.ts"
+import * as Policy from "../Policy/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import { VerificationFailure } from "../Verification/index.ts"
+import * as Verification from "../Verification/index.ts"
+import { WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {

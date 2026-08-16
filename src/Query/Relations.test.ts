@@ -1,14 +1,11 @@
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect } from "effect"
-import {
-  overlay,
-  Criterion,
-  Draft,
-  Pattern,
-  Query,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Draft from "../Draft/index.ts"
+import * as Overlay from "../Overlay/index.ts"
+import * as Pattern from "../Pattern/index.ts"
+import { Criterion } from "../Query/index.ts"
+import * as Query from "../Query/index.ts"
+import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import {
   isAwaitExpression,
   isCallExpression,
@@ -51,7 +48,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
               }
             `
             const draft = yield* Draft.replace(project, consumerFile!, code)
-            yield* overlay(draft, Effect.gen(function*() {
+            yield* Overlay.run(draft, Effect.gen(function*() {
               const overlaySnapshot = yield* WorkspaceSnapshot
               const overlayProject = yield* overlaySnapshot.project(app)
 
@@ -130,7 +127,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
               }
             `
             const draft = yield* Draft.replace(project, consumerFile!, code)
-            yield* overlay(draft, Effect.gen(function*() {
+            yield* Overlay.run(draft, Effect.gen(function*() {
               const overlaySnapshot = yield* WorkspaceSnapshot
               const overlayProject = yield* overlaySnapshot.project(app)
               const targetSymbol = yield* overlayProject.symbolNamed("target", { within: "src/library.ts" })
@@ -185,7 +182,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
               }
             `
             const draft = yield* Draft.replace(project, consumerFile!, code)
-            yield* overlay(draft, Effect.gen(function*() {
+            yield* Overlay.run(draft, Effect.gen(function*() {
               const overlaySnapshot = yield* WorkspaceSnapshot
               const overlayProject = yield* overlaySnapshot.project(app)
 
@@ -271,7 +268,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
               }
             `
             const draft = yield* Draft.replace(project, consumerFile!, code)
-            yield* overlay(draft, Effect.gen(function*() {
+            yield* Overlay.run(draft, Effect.gen(function*() {
               const overlaySnapshot = yield* WorkspaceSnapshot
               const overlayProject = yield* overlaySnapshot.project(app)
 
@@ -361,7 +358,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
               }
             `
             const draft = yield* Draft.replace(project, consumerFile!, code)
-            yield* overlay(draft, Effect.gen(function*() {
+            yield* Overlay.run(draft, Effect.gen(function*() {
               const overlaySnapshot = yield* WorkspaceSnapshot
               const overlayProject = yield* overlaySnapshot.project(app)
 

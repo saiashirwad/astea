@@ -5,6 +5,7 @@ import type { EvidenceRecord, Json } from "../Evidence/Model.ts"
 import { compareEdits, editsConflict, type TextEdit } from "../Edit/index.ts"
 
 export type { Json } from "../Evidence/Model.ts"
+export type { TextEdit } from "../Edit/index.ts"
 
 export interface ProjectEvidence {
   readonly id: string
@@ -16,9 +17,6 @@ export interface SourceFingerprint {
   readonly fileName: string
   readonly hash: string
 }
-
-/** @deprecated Use the canonical Edit.TextEdit type. */
-export type PlannedTextEdit = TextEdit
 
 export interface PlannedFileOperation {
   readonly kind: "create" | "delete" | "move"
@@ -60,7 +58,7 @@ export interface TransformationPlan {
   readonly projects: ReadonlyArray<ProjectEvidence>
   readonly sources: ReadonlyArray<SourceFingerprint>
   readonly snapshotHash: string
-  readonly edits: ReadonlyArray<PlannedTextEdit>
+  readonly edits: ReadonlyArray<TextEdit>
   readonly fileOperations?: ReadonlyArray<PlannedFileOperation> | undefined
   readonly evidence: ReadonlyArray<EvidenceRecord>
   readonly policies: PlanPolicies

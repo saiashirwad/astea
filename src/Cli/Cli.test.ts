@@ -8,22 +8,24 @@ import {
   buildAuditReport,
   CliMatchFoundError,
   computeLineAndColumn,
-  ConfiguredProject,
-  Draft,
-  Query,
-  Recipe,
   renderAuditCsv,
   renderAuditJson,
   renderAuditText,
+} from "./Audit.ts"
+import * as Draft from "../Draft/index.ts"
+import * as Query from "../Query/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import {
+  ConfiguredProject,
   Workspace,
   WorkspaceSnapshot,
-} from "../api/index.ts"
+} from "../Workspace/index.ts"
 import { runCli } from "./Run.ts"
 
 const execFileAsync = promisify(execFile)
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
 const binPath = fileURLToPath(new URL("../../bin/safemods.ts", import.meta.url))
-const wrapRecipePath = fileURLToPath(new URL("../api/wrap-target-input.ts", import.meta.url))
+const wrapRecipePath = fileURLToPath(new URL("../test/wrap-target-input.ts", import.meta.url))
 
 const withFixture = <A, E, R>(
   use: (root: string, app: ConfiguredProject) => Effect.Effect<A, E, R>,

@@ -1,13 +1,10 @@
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect } from "effect"
 import type { CallExpression } from "typescript/unstable/ast"
-import {
-  Criterion,
-  Pattern,
-  Query,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Pattern from "../Pattern/index.ts"
+import { Criterion } from "../Query/index.ts"
+import * as Query from "../Query/index.ts"
+import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {

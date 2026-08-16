@@ -35,9 +35,6 @@ export interface VerificationRule {
   readonly evaluate: (context: PolicyEvaluationContext) => boolean | string
 }
 
-/** @deprecated Use VerificationRule. */
-export type CustomPolicyRule = VerificationRule
-
 export interface Policy {
   readonly matchCount?: { readonly min?: number | undefined; readonly max?: number | undefined } | undefined
   readonly maxAffectedFiles?: number | undefined

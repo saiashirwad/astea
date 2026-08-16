@@ -1,16 +1,13 @@
 import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import {
-  Application,
-  Draft,
-  planApplicationLayerNode,
-  Preview,
-  Recipe,
-  Verification,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Application from "../Application/index.ts"
+import * as Draft from "../Draft/index.ts"
+import { applicationLayerNode } from "../Node/index.ts"
+import * as Preview from "../Preview/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import * as Verification from "../Verification/index.ts"
+import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {
@@ -18,7 +15,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
     effect("creates, deletes, and moves files while rewriting relative imports across referencing files", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
-          const mainLayer = planApplicationLayerNode.pipe(
+          const mainLayer = applicationLayerNode.pipe(
             Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
           )
 

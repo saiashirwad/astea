@@ -243,11 +243,3 @@ export const verifyPreview = (
   }
   return { [VerifiedPlanTypeId]: VerifiedPlanTypeId, plan, preview, receipt }
 })
-
-// Compatibility exports; application behavior lives in the Application/Node domains.
-export {
-  ApplicationFailure,
-  ApplicationIndeterminate,
-  PlanApplication,
-} from "../Application/Model.ts"
-export type { ApplicationReceipt, PlanApplicationService } from "../Application/Model.ts"

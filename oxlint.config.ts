@@ -24,14 +24,9 @@ export default defineConfig({
     "import/no-self-import": "error",
     "no-restricted-imports": ["error", { paths: [
       { name: "safemods", message: "Import the concrete source module inside the package." },
-      { name: "../api/index.ts", message: "Import the concrete source module inside the package." },
     ] }],
   },
   overrides: [
-    {
-      files: ["src/**/*.test.ts", "examples/**/*.ts"],
-      rules: { "no-restricted-imports": "off" },
-    },
     {
       files: ["src/Pattern/**/*.ts"],
       rules: {
@@ -43,6 +38,10 @@ export default defineConfig({
       rules: {
         "no-restricted-imports": ["error", { patterns: ["../Draft/*", "../Plan/*", "../Overlay/*", "../Preview/*", "../Verification/*", "../Application/*"] }],
       },
+    },
+    {
+      files: ["src/**/*.test.ts", "examples/**/*.ts"],
+      rules: { "no-restricted-imports": "off" },
     },
   ],
 })

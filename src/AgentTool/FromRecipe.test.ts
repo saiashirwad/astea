@@ -1,13 +1,10 @@
 import { describe, effect, expect, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
-import {
-  computeDiagnosticDiff,
-  computeUnifiedDiff,
-  Draft,
-  Recipe,
-  recipeToAgentTool,
-  renderDiagnosticDiff,
-} from "../api/index.ts"
+import { recipeToAgentTool } from "../AgentTool/index.ts"
+import { computeUnifiedDiff, renderDiagnosticDiff } from "../Cli/index.ts"
+import * as Draft from "../Draft/index.ts"
+import { computeDiagnosticDiff } from "../Policy/index.ts"
+import * as Recipe from "../Recipe/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {

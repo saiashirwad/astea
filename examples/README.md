@@ -16,7 +16,9 @@ $$\text{Snapshot}_0 \xrightarrow{\text{Recipe}_1} \text{Draft}_1 \xrightarrow{\t
 
 ```ts
 import { Effect } from "effect"
-import { Draft, overlay, WorkspaceSnapshot } from "safemods"
+import * as Draft from "safemods/Draft"
+import * as Overlay from "safemods/Overlay"
+import { WorkspaceSnapshot } from "safemods/Workspace"
 
 const twoPhaseMigration = Effect.gen(function*() {
   const snapshot = yield* WorkspaceSnapshot
@@ -29,7 +31,7 @@ const twoPhaseMigration = Effect.gen(function*() {
   })
 
   // Stage 2: Query the updated semantic state inside the overlay
-  return yield* overlay(draft1, Effect.gen(function*() {
+  return yield* Overlay.run(draft1, Effect.gen(function*() {
     const overlaySnapshot = yield* WorkspaceSnapshot
     const overlayProject = yield* overlaySnapshot.project(app)
     // Downstream files now see `NewConfig` resolved by the compiler!

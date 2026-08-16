@@ -1,5 +1,9 @@
-import { ConfiguredProject, Draft, Policy, Query, Recipe, WorkspaceSnapshot } from "safemods";
 import { Effect } from "effect";
+import * as Draft from "safemods/Draft";
+import * as Policy from "safemods/Policy";
+import * as Query from "safemods/Query";
+import * as Recipe from "safemods/Recipe";
+import { ConfiguredProject, WorkspaceSnapshot } from "safemods/Workspace";
 import { isStringLiteral } from "typescript/unstable/ast/is";
 
 /**

@@ -12,20 +12,16 @@ import { nodeFsPromises as Fs } from "../src/platform/node.ts"
 import { fileURLToPath } from "node:url";
 import { isObjectLiteralExpression } from "typescript/unstable/ast/is";
 import { Effect, Layer, Schema } from "effect";
-import {
-  Application,
-  ConfiguredProject,
-  Criterion,
-  Draft,
-  planApplicationLayerNode,
-  Policy,
-  Preview,
-  Query,
-  Recipe,
-  Verification,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../src/api/index.ts";
+import * as Application from "safemods/Application";
+import * as Draft from "safemods/Draft";
+import { applicationLayerNode } from "safemods/Node";
+import * as Policy from "safemods/Policy";
+import * as Preview from "safemods/Preview";
+import { Criterion } from "safemods/Query";
+import * as Query from "safemods/Query";
+import * as Recipe from "safemods/Recipe";
+import * as Verification from "safemods/Verification";
+import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "safemods/Workspace";
 
 const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" });
 
@@ -143,7 +139,7 @@ async function main() {
   await Fs.cp(fixtureSource, tmpRoot, { recursive: true });
 
   const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: tmpRoot });
-  const appLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer));
+  const appLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer));
 
   try {
     await Effect.runPromise(runTour.pipe(Effect.provide(appLayer)));

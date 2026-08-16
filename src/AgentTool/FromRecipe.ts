@@ -6,7 +6,7 @@
  */
 import { Data, Effect, Layer, Schema } from "effect"
 import { Application } from "../Application/index.ts"
-import { applicationLayerNode as planApplicationLayerNode } from "../Node/index.ts"
+import { applicationLayerNode } from "../Node/index.ts"
 import { Recipe, type Recipe as RecipeModel } from "../Recipe/index.ts"
 import { Preview } from "../Preview/index.ts"
 import { Verification } from "../Verification/index.ts"
@@ -74,7 +74,7 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
     execute: (rawInput, options = {}) =>
       Effect.gen(function*() {
         const workspace = yield* Workspace
-        const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(Layer.succeed(Workspace, workspace)))
+        const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(Layer.succeed(Workspace, workspace)))
 
         const typedInput = yield* decodeToolInput(recipe, rawInput)
         const plan = yield* Recipe.run(recipe, typedInput).pipe(

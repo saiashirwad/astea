@@ -32,6 +32,10 @@
       "types": "./dist/src/Edit/index.d.ts",
       "default": "./dist/src/Edit/index.js"
     },
+    "./Overlay": {
+      "types": "./dist/src/Overlay/index.d.ts",
+      "default": "./dist/src/Overlay/index.js"
+    },
     "./Pattern": {
       "types": "./dist/src/Pattern/index.d.ts",
       "default": "./dist/src/Pattern/index.js"
@@ -71,10 +75,6 @@
     "./Node": {
       "types": "./dist/src/Node/index.d.ts",
       "default": "./dist/src/Node/index.js"
-    },
-    "./Compatibility": {
-      "types": "./dist/src/api/index.d.ts",
-      "default": "./dist/src/api/index.js"
     }
   },
   "files": [

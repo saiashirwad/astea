@@ -1,15 +1,12 @@
 import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import {
-  Application,
-  Draft,
-  planApplicationLayerNode,
-  Recipe,
-  Verification,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import * as Application from "../Application/index.ts"
+import * as Draft from "../Draft/index.ts"
+import { applicationLayerNode } from "../Node/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import * as Verification from "../Verification/index.ts"
+import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import {
   isFunctionDeclaration,
   isInterfaceDeclaration,
@@ -21,7 +18,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
     effect("modifies interfaces, classes, and function signatures with high-fidelity combinators", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
-          const mainLayer = planApplicationLayerNode.pipe(
+          const mainLayer = applicationLayerNode.pipe(
             Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
           )
 

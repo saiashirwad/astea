@@ -43,7 +43,6 @@ export {
 } from "./Engine.ts"
 
 export type {
-  ApplicationReceipt,
   FilePreview,
   PlanPreview,
   VerificationReceipt,
