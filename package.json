@@ -1,6 +1,6 @@
 {
   "name": "safemods",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Type-directed codemods for TypeScript 7+ projects, built on Effect.",
   "bin": {
     "safemods": "./dist/bin/safemods.js"
