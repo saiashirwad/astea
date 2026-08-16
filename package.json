@@ -1,15 +1,23 @@
 {
   "name": "safemods",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
   "bin": {
-    "safemods": "./bin/safemods.ts"
+    "safemods": "./dist/bin/safemods.js"
   },
   "type": "module",
   "exports": {
-    ".": "./src/api/index.ts"
+    ".": {
+      "types": "./dist/src/api/index.d.ts",
+      "default": "./dist/src/api/index.js"
+    }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
     "check": "tsc --noEmit && oxlint",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
@@ -19,7 +27,8 @@
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.109",
-    "effect": "4.0.0-rc.109"
+    "effect": "4.0.0-rc.109",
+    "typescript": "7.0.2"
   },
   "devDependencies": {
     "@effect/tsgo": "^0.36.5",
@@ -28,7 +37,6 @@
     "@types/node": "26.2.0",
     "oxlint": "^1.78.0",
     "oxlint-tsgolint": "^7.0.2001",
-    "typescript": "7.0.2",
     "vitest": "4.1.10"
   },
   "engines": {

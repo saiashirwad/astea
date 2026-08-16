@@ -7,6 +7,9 @@
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
+    "paths": {
+      "safemods": ["./src/api/index.ts"]
+    },
     "skipLibCheck": false,
     "types": ["node", "vitest/globals"],
     "plugins": [
