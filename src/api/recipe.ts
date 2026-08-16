@@ -79,6 +79,28 @@ export interface RecipeDefinition<Input, E, R> {
   readonly run: (input: Input) => Effect.Effect<Draft, E, R | WorkspaceSnapshot | Workspace>
 }
 
+/**
+ * A two-phase scanning transformation recipe.
+ * Phase 1 (`scan`) performs a read-only analysis over the workspace to build an accumulator.
+ * Phase 2 (`run`) uses the accumulator to generate transformation drafts.
+ */
+export interface ScanningRecipe<Acc, Input = undefined, E = never, R = never> extends Recipe<Input, E, R> {
+  readonly scan: (input: Input) => Effect.Effect<Acc, E, R | WorkspaceSnapshot | Workspace>
+}
+
+export interface ScanningRecipeDefinition<Acc, Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never> {
+  readonly version: string
+  readonly schema?: Schema.Schema<Input>
+  /**
+   * Digest of the recipe implementation, supplied by the build/release
+   * process. Defaults to a name@version digest suitable for development only.
+   */
+  readonly implementationHash?: string
+  readonly policies?: ReadonlyArray<Policy>
+  readonly scan: (input: Input) => Effect.Effect<Acc, E1, R1 | WorkspaceSnapshot | Workspace>
+  readonly run: (accumulator: Acc, input: Input) => Effect.Effect<Draft, E2, R2 | WorkspaceSnapshot | Workspace>
+}
+
 const define = <Input = undefined, E = never, R = never>(
   name: string,
   definition: RecipeDefinition<Input, E, R>,
@@ -93,7 +115,33 @@ const define = <Input = undefined, E = never, R = never>(
     run: definition.run,
   })
 
-type ComposableRecipe<Input, E, R> = Recipe<Input, E, R>
+/**
+ * Define a two-phase scanning transformation recipe with a global accumulator.
+ * Phase 1 (`scan`) analyzes the workspace snapshot to build a global cross-file model/accumulator.
+ * Phase 2 (`run`) receives the accumulator to execute transformations across files.
+ */
+const scanning = <Acc, Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never>(
+  name: string,
+  definition: ScanningRecipeDefinition<Acc, Input, E1, R1, E2, R2>,
+): ScanningRecipe<Acc, Input, E1 | E2, R1 | R2> => {
+  const scan = definition.scan
+  const runWithAcc = definition.run
+  return Object.freeze({
+    name,
+    version: definition.version,
+    schema: definition.schema,
+    implementationHash: definition.implementationHash ??
+      createHash("sha256").update(`${name}@${definition.version}`).digest("hex"),
+    policies: Policy.all(definition.policies ?? []),
+    scan,
+    run: (input: Input) =>
+      Effect.gen(function*() {
+        const acc = yield* scan(input)
+        return yield* runWithAcc(acc, input)
+      }),
+  })
+}
+
 
 const composeDrafts = (
   snapshot: WorkspaceSnapshotService,
@@ -191,9 +239,24 @@ const composeDrafts = (
   })
 
 /** Sequentially compose recipes, projecting intermediate states via in-memory snapshot overlays. */
-export const pipe = <Input = undefined, E = never, R = never>(
-  ...recipes: ReadonlyArray<ComposableRecipe<Input, E, R>>
-): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> => {
+export function pipe<Input, E1, R1, E2, R2>(
+  r1: Recipe<Input, E1, R1>,
+  r2: Recipe<Input, E2, R2>,
+): Recipe<Input, E1 | E2 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2>
+export function pipe<Input, E1, R1, E2, R2, E3, R3>(
+  r1: Recipe<Input, E1, R1>,
+  r2: Recipe<Input, E2, R2>,
+  r3: Recipe<Input, E3, R3>,
+): Recipe<Input, E1 | E2 | E3 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2 | R3>
+export function pipe<Input, E1, R1, E2, R2, E3, R3, E4, R4>(
+  r1: Recipe<Input, E1, R1>,
+  r2: Recipe<Input, E2, R2>,
+  r3: Recipe<Input, E3, R3>,
+  r4: Recipe<Input, E4, R4>,
+): Recipe<Input, E1 | E2 | E3 | E4 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2 | R3 | R4>
+export function pipe<Input, E, R>(
+  ...recipes: ReadonlyArray<Recipe<Input, E, R>>
+): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> {
   const name = recipes.map((r) => r.name).join(" >> ")
   const version = recipes.map((r) => r.version).join("+")
   const policies = Policy.all(recipes.flatMap((r) => [r.policies]))
@@ -220,9 +283,15 @@ export const pipe = <Input = undefined, E = never, R = never>(
 }
 
 /** Concurrently run recipes over the current snapshot and merge their drafts. */
-export const all = <Input = undefined, E = never, R = never>(
-  recipes: ReadonlyArray<ComposableRecipe<Input, E, R>>,
-): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> => {
+export function all<Input, E1, R1, E2, R2>(
+  recipes: readonly [Recipe<Input, E1, R1>, Recipe<Input, E2, R2>],
+): Recipe<Input, E1 | E2 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2>
+export function all<Input, E1, R1, E2, R2, E3, R3>(
+  recipes: readonly [Recipe<Input, E1, R1>, Recipe<Input, E2, R2>, Recipe<Input, E3, R3>],
+): Recipe<Input, E1 | E2 | E3 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2 | R3>
+export function all<Input, E, R>(
+  recipes: ReadonlyArray<Recipe<Input, E, R>>,
+): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> {
   const name = `all(${recipes.map((r) => r.name).join(", ")})`
   const version = recipes.map((r) => r.version).join("+")
   const policies = Policy.all(recipes.flatMap((r) => [r.policies]))
@@ -380,6 +449,7 @@ const run = <Input, E, R>(
 
 export const Recipe = {
   define,
+  scanning,
   pipe,
   all,
   branch,

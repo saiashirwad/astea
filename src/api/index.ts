@@ -102,7 +102,7 @@ export type {
   SiblingOptions,
 } from "./query.ts"
 export { Recipe, RecipeInputError, TOOLCHAIN } from "./recipe.ts"
-export type { RecipeDefinition } from "./recipe.ts"
+export type { RecipeDefinition, ScanningRecipe, ScanningRecipeDefinition } from "./recipe.ts"
 export { Preview, StalePlanError, Verification, VerificationFailure } from "./verification.ts"
 export type { FilePreview, PlanPreview, VerificationReceipt, VerifiedPlan } from "./verification.ts"
 export {
