@@ -1,147 +1,156 @@
-# Teatime
+teatime
 
-Effect-native TypeScript 7 transformations for reliable codemods.
+Semantic TypeScript codemods you can preview, verify, and apply with confidence.
 
-Teatime lets you select code by TypeScript meaning, propose minimal edits, inspect and verify the result, and write it only with explicit authority.
+Codemods are easy to write. Reliable codemods are not.
 
-```text
-Workspace snapshot → Query → Draft → Transformation plan → Preview → Verification → Application
-```
+teatime is an Effect-native transformation engine for TypeScript 7. It lets developers and coding agents find code by meaning, propose surgical edits, preview the exact diff, verify compiler impact, and only then write to disk.
 
-Planning, previewing, and verification are read-only. `Application.apply` is the only API that writes to disk, and it accepts a `VerifiedPlan` rather than an unverified plan.
+Snapshot → Query → Draft → Plan → Preview → Verify → Apply
 
-## Run the tour
+Everything before Apply is read-only. Application.apply is the single write boundary, and it only accepts a verified plan.
 
-The executable tour copies a fixture to a temporary directory, runs a recipe through the full pipeline, and removes the temporary directory afterward.
+Why teatime
 
-```sh
+Semantic, not textual — match resolved symbols, types, references, and typed AST patterns instead of relying on string search.
+
+Surgical by default — guarded text edits preserve comments, formatting, and every byte outside the intended range.
+
+Safe to review — plans are deterministic and content-addressed, with exact unified-diff previews.
+
+Verified before mutation — enforce match counts, diagnostic policies, and idempotence before a change can be applied.
+
+Composable and agent-ready — combine recipes with in-memory overlays, validate inputs with Effect Schema, or expose a recipe as a structured agent tool.
+
+Quick start
+
+Requirements
+
+Node.js 24+
+
+pnpm 11+
+
+Teatime is currently developed from source:
+
+git clone https://github.com/saiashirwad/teatime.git
+cd teatime
 pnpm install
+
+Run the end-to-end API tour:
+
 pnpm exec tsx examples/declarative-api-tour.ts
-```
 
-It demonstrates semantic matching, minimal edits, diagnostic checks, idempotence, and explicit application.
+Define a recipe
 
-## Write a recipe
+A recipe queries an immutable project snapshot and returns a draft. You do not manually author source ranges, hashes, or filesystem writes.
 
-A recipe reads a `WorkspaceSnapshot`, queries a configured project, and returns a `Draft`. Running it produces a durable transformation plan.
-
-```ts
 import { Effect } from "effect"
-import { isObjectLiteralExpression } from "typescript/unstable/ast/is"
 import {
-  ConfiguredProject,
-  Draft,
-  Policy,
-  Query,
-  Recipe,
-  WorkspaceSnapshot,
+ConfiguredProject,
+Draft,
+Pattern,
+Policy,
+Query,
+Recipe,
+WorkspaceSnapshot,
 } from "teatime"
 
-const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+const app = ConfiguredProject.make({
+id: "app",
+config: "tsconfig.json",
+})
 
 export default Recipe.define("wrap-target-input", {
-  version: "1.0.0",
-  policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
-  run: () =>
-    Effect.gen(function*() {
-      const snapshot = yield* WorkspaceSnapshot
-      const project = yield* snapshot.project(app)
-      const target = yield* project.symbolNamed("target", { within: "src/library.ts" })
-      const calls = yield* Query.calls(project).pipe(
-        Query.where(Query.resolvesTo(target, { location: (call) => call.expression })),
-        Query.filter(({ value }) =>
-          value.arguments.length === 1 && !isObjectLiteralExpression(value.arguments[0]!),
-        ),
-        Query.collect,
-      )
+version: "1.0.0",
+policies: [
+Policy.matches({ min: 1 }),
+Policy.noNewErrors(),
+Policy.idempotent(),
+],
+run: () =>
+Effect.gen(function* () {
+const snapshot = yield* WorkspaceSnapshot
+const project = yield* snapshot.project(app)
+const target = yield* project.symbolNamed("target", {
+within: "src/library.ts",
+})
 
-      return yield* Draft.replaceEach(calls, ({ value: call }) => {
-        const argument = call.arguments[0]!
-        return { node: argument, text: `{ value: ${argument.getText()} }` }
+      const calls = yield* Query.match(
+        project,
+        Pattern.callExpression({
+          expression: Pattern.identifier({ resolvesTo: target }),
+          arguments: Pattern.tuple([
+            Pattern.bind("argument", Pattern.not(Pattern.objectLiteral())),
+          ]),
+        }),
+      ).pipe(Query.collect)
+
+      return yield* Draft.replaceEach(calls, ({ value }) => {
+        const argument = value.args[0]!.argument
+
+        return {
+          node: argument,
+          text: `{ value: ${argument.getText(argument.getSourceFile())} }`,
+        }
       })
     }),
+
 })
-```
 
-The recipe declares its expected matches and safety checks as policies. Its draft contains guarded, focused edits rather than a reprinted file.
+This recipe finds calls that resolve to the intended target symbol—not merely functions with the same spelling—and wraps their single non-object argument.
 
-## Preview, verify, then apply
+Preview, verify, apply
 
-Use the CLI to run a recipe against a target workspace. Preview is the default; `--apply` includes verification before it writes.
+Recipes are ordinary TypeScript modules exporting a Recipe as the default export, as recipe, or as another named export.
 
-```sh
-pnpm exec tsx bin/teatime.ts run ./recipe.ts --cwd ./my-project --preview
-pnpm exec tsx bin/teatime.ts run ./recipe.ts --cwd ./my-project --verify
-pnpm exec tsx bin/teatime.ts run ./recipe.ts --cwd ./my-project --apply
-```
+# Generate an exact diff without writing to disk
 
-Useful options:
+pnpm exec tsx bin/teatime.ts run ./recipe.ts \
+--cwd ./my-project \
+--preview
 
-- `--input '<json>'` supplies recipe input.
-- `--cwd <path>` selects the target workspace.
-- `--no-color` disables ANSI output.
-- `--help` shows command help.
+# Preview and verify diagnostics, policies, and idempotence
 
-A recipe module may export a `Recipe` as its default export, as `recipe`, or as another named export. `teatime tool ./recipe.ts` exposes an agent-facing tool description with the same schema, preview, verification, and optional application flow.
+pnpm exec tsx bin/teatime.ts run ./recipe.ts \
+--cwd ./my-project \
+--verify
 
-## Core capabilities
+# Verify first, then apply the verified plan
 
-- Semantic queries, type inspection, symbol references, and project-wide renames.
-- In-memory snapshot overlays for multi-stage transformations.
-- Guarded text edits that preserve source bytes outside explicit edit ranges.
-- Declarative recipes with Effect Schema validation and policies.
-- Diagnostic diffs, no-new-error checks, and idempotence verification.
-- File creation, deletion, and moves with relative-import rewriting.
-- Draft helpers for imports, arguments, object literals, interfaces, classes, and functions.
-- Unified diff rendering and an agent-tool adapter.
+pnpm exec tsx bin/teatime.ts run ./recipe.ts \
+--cwd ./my-project \
+--apply
 
-For a complete end-to-end example, see [the declarative API tour](./examples/declarative-api-tour.ts). The companion [examples guide](./examples/README.md) covers overlays, query patterns, draft helpers, composition, and policies.
+Pass schema-backed recipe input with --input '<json>'. Use --no-color for plain terminal output and --help for the complete CLI reference.
 
-## Programmatic execution
+To inspect a recipe as an agent-facing tool:
 
-Provide `Workspace.layer(...)` to create planning and verification authority. Add `planApplicationLayerNode` only at the boundary where writes are intended, then apply the verified plan.
+pnpm exec tsx bin/teatime.ts tool ./recipe.ts
 
-```ts
-import { Effect, Layer } from "effect"
-import {
-  Application,
-  planApplicationLayerNode,
-  Recipe,
-  Verification,
-  Workspace,
-} from "teatime"
+What it can transform
 
-const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: "./my-project" })
-const applicationLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+Semantic call sites, symbols, references, types, and project-wide renames
 
-const receipt = await Effect.runPromise(
-  Effect.gen(function*() {
-    const plan = yield* Recipe.run(recipe, input)
-    const verified = yield* Verification.verify(plan, recipe, input)
-    return yield* Application.apply(verified)
-  }).pipe(Effect.provide(applicationLayer)),
-)
-```
+Imports, call arguments, object literals, interfaces, classes, and functions
 
-## Development
+Multi-stage migrations through in-memory snapshot overlays
 
-This repository requires Node.js 24+ and pnpm 11+.
+File creation, deletion, and moves with relative-import rewriting
 
-```sh
-pnpm install
-pnpm typecheck
-pnpm lint
+Unused imports and import organization
+
+Diagnostic diffs, no-new-error checks, expected fixes, match policies, and idempotence
+
+ANSI unified diffs and schema-validated agent-tool adapters
+
+Development
+
+pnpm check
 pnpm effect:check
 pnpm test
-```
 
-`pnpm install` runs `effect-tsgo patch --no-typescript --oxlint`. Oxlint uses the Effect TypeScript-Go integration while the project continues to use its pinned TypeScript 7 installation.
+pnpm install runs the repository's prepare step, which integrates Effect TypeScript-Go diagnostics with Oxlint while keeping the pinned TypeScript 7 toolchain.
 
-## Repository layout
+Learn more
 
-- `src/api/` — public declarative API and integration tests.
-- `src/prototype/` — compiler, plan, verification, and workspace foundations.
-- `src/cli/` — CLI, terminal diff rendering, and agent-tool protocol.
-- `examples/` — executable tour and supporting guide.
-- `fixtures/` — projects used by end-to-end tests.
-- `tools/oxlint/anti-slop/` — vendored Oxlint rules.
+See the declarative API tour, the examples and architecture guide, and the project transformation vocabulary.
