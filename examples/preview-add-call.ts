@@ -1,4 +1,4 @@
-import { Draft, ConfiguredProject, Policy, Query, Recipe, WorkspaceSnapshot } from "teamod";
+import { Draft, ConfiguredProject, Policy, Query, Recipe, WorkspaceSnapshot } from "teaform";
 import { Effect } from "effect";
 
 const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" });

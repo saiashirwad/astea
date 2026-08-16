@@ -6,11 +6,11 @@ const args = process.argv.slice(2)
 
 const printHelp = () => {
   console.log(`
-teamod — Effect-native TypeScript 7 Project Transformation Engine
+teaform — Effect-native TypeScript 7 Project Transformation Engine
 
 Usage:
-  teamod run <recipe.ts> [options]
-  teamod tool <recipe.ts>
+  teaform run <recipe.ts> [options]
+  teaform tool <recipe.ts>
 
 Options:
   --preview          Generate transformation preview without modifying disk (default)
@@ -65,6 +65,6 @@ Effect.runPromise(
     noColor,
   }),
 ).catch((err) => {
-  console.error("Error executing teamod recipe:", err)
+  console.error("Error executing teaform recipe:", err)
   process.exit(1)
 })

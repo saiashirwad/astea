@@ -1,4 +1,4 @@
-import { ConfiguredProject, Draft, Policy, Query, Recipe, WorkspaceSnapshot } from "teamod";
+import { ConfiguredProject, Draft, Policy, Query, Recipe, WorkspaceSnapshot } from "teaform";
 import { Effect } from "effect";
 import { isStringLiteral } from "typescript/unstable/ast/is";
 

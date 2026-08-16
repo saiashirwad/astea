@@ -1,10 +1,10 @@
 {
-  "name": "teamod",
+  "name": "teaform",
   "version": "0.1.0",
   "type": "module",
   "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
   "bin": {
-    "teamod": "./bin/teamod.ts"
+    "teaform": "./bin/teaform.ts"
   },
   "exports": {
     ".": "./src/api/index.ts"

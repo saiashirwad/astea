@@ -1,7 +1,7 @@
 /**
- * teamod — Declarative API Tour
+ * teaform — Declarative API Tour
  *
- * This example walks through the 5 core pillars of teamod:
+ * This example walks through the 5 core pillars of teaform:
  * 1. Declarative AST Pattern Matching (`Pattern` & `Query.match`)
  * 2. Algebraic Criteria Combinators (`Criterion.all`, `Criterion.not`)
  * 3. High-Fidelity Syntactic Draft Combinators (`Draft.imports`, `Draft.args`, `Draft.objectLiteral`)
@@ -139,7 +139,7 @@ export const runTour = Effect.gen(function* () {
 
 async function main() {
   const fixtureSource = fileURLToPath(new URL("../fixtures/recipe/", import.meta.url));
-  const tmpRoot = await Fs.mkdtemp("/tmp/teamod-example-");
+  const tmpRoot = await Fs.mkdtemp("/tmp/teaform-example-");
   await Fs.cp(fixtureSource, tmpRoot, { recursive: true });
 
   const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: tmpRoot });

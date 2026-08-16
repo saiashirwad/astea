@@ -41,7 +41,7 @@ import {
  * time; readers reject mismatched toolchains.
  */
 export const TOOLCHAIN = {
-  systemVersion: "0.0.0-teamod",
+  systemVersion: "0.0.0-teaform",
   typescriptVersion: "7.0.2",
   effectVersion: "4.0.0-rc.109",
 } as const

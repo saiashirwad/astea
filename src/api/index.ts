@@ -1,5 +1,5 @@
 /**
- * teamod — Effect-native TypeScript 7 project transformations.
+ * teaform — Effect-native TypeScript 7 project transformations.
  *
  * The pipeline is the API:
  *

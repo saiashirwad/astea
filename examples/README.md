@@ -1,6 +1,6 @@
-# Teamod Examples & Declarative Architecture Tour
+# Teaform Examples & Declarative Architecture Tour
 
-This directory provides concrete examples and guides explaining how `teamod` delivers declarative, composable, and effectful TypeScript project transformations compared to legacy AST manipulation tools (such as `ts-morph` or `jscodeshift`).
+This directory provides concrete examples and guides explaining how `teaform` delivers declarative, composable, and effectful TypeScript project transformations compared to legacy AST manipulation tools (such as `ts-morph` or `jscodeshift`).
 
 ---
 
@@ -9,14 +9,14 @@ This directory provides concrete examples and guides explaining how `teamod` del
 ### What it solves
 Multi-phase transformations (e.g. migrating an exported function signature in a library and subsequently refactoring downstream call sites across consuming files) previously required either writing intermediate states to disk or discarding type-checker caches.
 
-### How `teamod` does it
-`teamod` uses TypeScript 7's in-memory file overrides to project proposed edits into a new generation `WorkspaceSnapshot` without touching the filesystem:
+### How `teaform` does it
+`teaform` uses TypeScript 7's in-memory file overrides to project proposed edits into a new generation `WorkspaceSnapshot` without touching the filesystem:
 
 $$\text{Snapshot}_0 \xrightarrow{\text{Recipe}_1} \text{Draft}_1 \xrightarrow{\text{overlay}} \text{Snapshot}_1 \xrightarrow{\text{Recipe}_2} \text{Draft}_2 \implies \text{Final Plan}$$
 
 ```ts
 import { Effect } from "effect"
-import { Draft, overlay, WorkspaceSnapshot } from "teamod"
+import { Draft, overlay, WorkspaceSnapshot } from "teaform"
 
 const twoPhaseMigration = Effect.gen(function*() {
   const snapshot = yield* WorkspaceSnapshot
@@ -45,7 +45,7 @@ const twoPhaseMigration = Effect.gen(function*() {
 ### What it solves
 Legacy codemods relied on deeply nested `if` statements, manual AST node type casting, and repetitive compiler queries.
 
-### How `teamod` does it
+### How `teaform` does it
 1. **Structural Patterns (`Pattern`)**: Matches syntax trees and binds typed values in one step:
    ```ts
    const targetPattern = Pattern.callExpression({
@@ -75,7 +75,7 @@ Legacy codemods relied on deeply nested `if` statements, manual AST node type ca
 ### What it solves
 Full AST re-printing often strips comments, custom line breaks, and project formatting styles.
 
-### How `teamod` does it
+### How `teaform` does it
 All syntactic operations operate on **minimal range slices guarded by cryptographic old-text hashes**:
 
 ```ts
@@ -116,7 +116,7 @@ export const fullMigration = Recipe.pipe(
 ### What it solves
 A naive "no compiler errors allowed" rule prevents refactoring in legacy projects with pre-existing errors.
 
-### How `teamod` does it
+### How `teaform` does it
 `Verification` computes a complete **Diagnostic Diff** ($\text{Diagnostics}_{\text{proposed}} - \text{Diagnostics}_{\text{baseline}}$) and evaluates declarative policies:
 
 ```ts

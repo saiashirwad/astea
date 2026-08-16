@@ -54,7 +54,7 @@ const withFixture = <A, E, R>(
 ): Effect.Effect<A, unknown, Exclude<R, Workspace>> =>
   Effect.acquireUseRelease(
     Effect.tryPromise(async () => {
-      const root = await Fs.mkdtemp("/tmp/teamod-api-")
+      const root = await Fs.mkdtemp("/tmp/teaform-api-")
       await Fs.cp(fixturePath, root, { recursive: true })
       return root
     }),
