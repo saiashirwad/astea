@@ -66,8 +66,9 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
   if (recipe.schema !== undefined) {
     // SAFETY: JSONSchema generator yields a JSON-object document for object schemas
     const generated = JSONSchema.fromSchemaDraft2020_12(recipe.schema as never)
-    // SAFETY: draft generator returns a JSON object document
-    jsonSchema = generated as unknown as JsonSchemaDoc
+    const jsonDocument: unknown = generated
+    // SAFETY: draft generator returns a JSON object document.
+    jsonSchema = jsonDocument as JsonSchemaDoc
   }
 
   return {
@@ -122,8 +123,8 @@ const decodeToolInput = <Input, E, R>(
     // SAFETY: recipes without schemas accept the caller-provided input contract
     return Effect.succeed(rawInput as Input)
   }
-  // SAFETY: decoding a schema only needs the schema's pure validation context.
-  const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: unknown) => Effect.Effect<Input, unknown, never>
+  // SAFETY: recipe schemas are pure and fail only with SchemaError.
+  const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: JsonValue) => Effect.Effect<Input, Schema.SchemaError, never>
   return decode(rawInput).pipe(
     Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
   )

@@ -21,7 +21,6 @@ import {
   RecipeInputError,
   recipeToAgentTool,
   renderDiagnosticDiff,
-  renderPlanPreview,
   Verification,
   VerificationFailure,
   Workspace,
@@ -197,16 +196,16 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // ---------------------------------------------------------------------------
   describe("recipe combinators & schema validation", () => {
     effect("validates recipe inputs with Effect Schema", () =>
-      withFixture((_, app) =>
+      withFixture((_, _app) =>
         Effect.gen(function*() {
           const schemaRecipe = Recipe.define("schema-recipe", {
             version: "1.0.0",
             schema: Schema.Struct({
               propertyName: Schema.NonEmptyString,
-              multiplier: Schema.Number,
+              multiplier: Schema.Finite,
             }),
             run: (input) =>
-              Effect.gen(function*() {
+              Effect.sync(() => {
                 expect(input.propertyName).toBe("validProp")
                 expect(input.multiplier).toBe(42)
                 return Draft.empty
@@ -742,11 +741,11 @@ describe("declarative transformations API (@effect/vitest)", () => {
     })
 
     effect("bridges recipes into structured agent tools for AI protocols", () =>
-      withFixture((_, app) =>
+      withFixture((_, _app) =>
         Effect.gen(function*() {
           const sampleRecipe = Recipe.define("agent-tool-sample", {
             version: "1.0.0",
-            schema: Schema.Struct({ multiplier: Schema.Number }),
+            schema: Schema.Struct({ multiplier: Schema.Finite }),
             run: () => Effect.succeed(Draft.empty),
           })
 

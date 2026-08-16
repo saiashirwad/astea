@@ -239,8 +239,8 @@ const run = <Input, E, R>(
   Effect.gen(function*() {
     let validatedInput = input
     if (recipe.schema !== undefined) {
-      // SAFETY: Schema decoding is a pure operation with no service requirements.
-      const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: unknown) => Effect.Effect<Input, unknown, never>
+      // SAFETY: recipe schemas are pure and fail only with SchemaError.
+      const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: Input) => Effect.Effect<Input, Schema.SchemaError, never>
       const decoded = yield* decode(input).pipe(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )

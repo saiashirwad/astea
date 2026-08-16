@@ -43,6 +43,11 @@ export interface PatternMismatch {
 
 export type PatternResult<Out> = PatternMatchResult<Out> | PatternMismatch
 
+type Binding<K extends string, Out> = { readonly [P in K]: Out }
+type TupleMatch<P extends ReadonlyArray<AnyPattern>> = {
+  [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never
+}
+
 const isPattern = <Out>(
   value: Pattern<Node, Out> | ReadonlyArray<AnyPattern>,
 ): value is Pattern<Node, Out> => "match" in value
@@ -91,8 +96,8 @@ export const predicate = <N extends Node = Node, Out = N>(
     Effect.sync(() => {
       const result = test(node)
       if (result === true) {
-        // SAFETY: predicate authors return true only when `node` is a valid Out
-        const out = node as unknown as Out
+        // SAFETY: predicate authors return true only when `node` is a valid Out.
+        const out = node as Out
         return matchSuccess(out)
       }
       if (result === false) return matchFailure
@@ -115,14 +120,14 @@ export const not = <N extends Node, Out>(
 export const bind = <K extends string, N extends Node, Out>(
   key: K,
   pattern: Pattern<N, Out>,
-): Pattern<N, { readonly [P in K]: Out }> => ({
+): Pattern<N, Binding<K, Out>> => ({
   kind: `bind(${key})`,
   match: (node, project) =>
     pattern.match(node, project).pipe(
       Effect.map((res) => {
         if (!res.matched) return matchFailure
-        const bound = { [key]: res.value } as { readonly [P in K]: Out }
-        // SAFETY: computed key K is preserved by the mapped object construction above
+        // SAFETY: computed key K is preserved by the mapped object construction.
+        const bound = { [key]: res.value } as Binding<K, Out> // oxlint-disable-line anti-slop/no-known-value-widening -- The named Binding contract retains K.
         return matchSuccess(bound, res.facts)
       }),
     ),
@@ -133,7 +138,7 @@ type AnyPattern = Pattern<Node, unknown>
 /** Matches an array of patterns against an array of nodes (e.g. call arguments). */
 export const tuple = <P extends ReadonlyArray<AnyPattern>>(
   patterns: P,
-): Pattern<Node, { [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never }> => ({
+): Pattern<Node, TupleMatch<P>> => ({
   kind: "tuple",
   match: (node, project) =>
     Effect.gen(function*() {
@@ -144,7 +149,7 @@ export const tuple = <P extends ReadonlyArray<AnyPattern>>(
       if (elements.length !== patterns.length) return matchFailure
 
       const values: Array<unknown> = []
-      const facts: Record<string, EvidenceFact> = {}
+      const facts = {} satisfies Record<string, EvidenceFact>
 
       for (let i = 0; i < patterns.length; i++) {
         const pattern = patterns[i]!
@@ -155,11 +160,9 @@ export const tuple = <P extends ReadonlyArray<AnyPattern>>(
         if (result.facts !== undefined) Object.assign(facts, result.facts)
       }
 
-      // SAFETY: values length and order match the pattern tuple contract
-      return matchSuccess(
-        values as { [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never },
-        facts,
-      )
+      // SAFETY: values length and order match the pattern tuple contract.
+      const tupleValues = values as TupleMatch<P> // oxlint-disable-line anti-slop/no-known-value-widening -- The named tuple contract is established by the loop.
+      return matchSuccess(tupleValues, facts)
     }),
 })
 
@@ -208,10 +211,11 @@ export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?
   match: (node, project) =>
     Effect.gen(function*() {
       if (!isCallExpression(node)) return matchFailure
-      const facts: Record<string, EvidenceFact> = {
+      const facts = {
         kind: SyntaxKind[node.kind] ?? node.kind,
-      }
+      } satisfies Record<string, EvidenceFact>
 
+      // SAFETY: without an expression pattern, the caller's default EOut is Node.
       let expressionVal: EOut = node.expression as EOut
       if (options?.expression !== undefined) {
         const expRes = yield* options.expression.match(node.expression, project)
@@ -220,6 +224,7 @@ export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?
         if (expRes.facts !== undefined) Object.assign(facts, expRes.facts)
       }
 
+      // SAFETY: without an argument pattern, the caller's default AOut is ReadonlyArray<Node>.
       let argsVal: AOut = node.arguments as AOut
       if (options?.arguments !== undefined) {
         const argumentPatterns = options.arguments

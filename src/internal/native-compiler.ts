@@ -20,8 +20,8 @@ export interface NativeCompilerService {
   readonly openSnapshot: (
     params?: UpdateSnapshotParams,
   ) => Effect.Effect<Snapshot, NativeCompilerError, Scope.Scope>
-  readonly getTiming: () => Effect.Effect<TimingInfo, NativeCompilerError>
-  readonly resetTiming: () => Effect.Effect<void, NativeCompilerError>
+  readonly getTiming: Effect.Effect<TimingInfo, NativeCompilerError>
+  readonly resetTiming: Effect.Effect<void, NativeCompilerError>
 }
 
 export class NativeCompiler extends Context.Service<NativeCompiler, NativeCompilerService>()(
@@ -42,11 +42,15 @@ export const make = (
       (snapshot) => Effect.promise(() => snapshot.dispose()),
     ))
 
-  const getTiming = Effect.fn("NativeCompiler.getTiming")(() =>
-    nativeRequest("getTimingInfo", () => api.getTimingInfo()))
+  const getTiming: Effect.Effect<TimingInfo, NativeCompilerError> = nativeRequest(
+    "getTimingInfo",
+    () => api.getTimingInfo(),
+  )
 
-  const resetTiming = Effect.fn("NativeCompiler.resetTiming")(() =>
-    nativeRequest("resetTimingInfo", () => api.resetTimingInfo()))
+  const resetTiming: Effect.Effect<void, NativeCompilerError> = nativeRequest(
+    "resetTimingInfo",
+    () => api.resetTimingInfo(),
+  )
 
   return NativeCompiler.of({ openSnapshot, getTiming, resetTiming })
 })

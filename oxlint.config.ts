@@ -19,6 +19,11 @@ export default defineConfig({
     "node_modules/**",
     "dist/**",
     "fixtures/**",
+    // Integration tests, executable bootstrap, and tours intentionally bridge
+    // promise/console-based Node APIs rather than the library's Effect boundary.
+    "src/**/*.test.ts",
+    "bin/**",
+    "examples/**",
   ],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },

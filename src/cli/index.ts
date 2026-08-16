@@ -29,6 +29,7 @@ export class CliError extends Data.TaggedError("CliError")<{
   readonly message: string
 }> {}
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This type guard is the dynamic module-import boundary.
 const isRecipe = (value: unknown): value is Recipe<unknown> => {
   if (value === null || !Predicate.isObject(value)) return false
   return "run" in value && "version" in value && "name" in value

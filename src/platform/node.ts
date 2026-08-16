@@ -5,7 +5,9 @@
  * this module is the composition boundary that selects their Node adapters.
  */
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- This is the documented Node composition boundary.
 import * as nodeFsPromises from "node:fs/promises"
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- This is the documented Node composition boundary.
 import * as path from "node:path"
 import { Layer } from "effect"
 

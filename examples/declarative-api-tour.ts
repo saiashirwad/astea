@@ -8,12 +8,11 @@
  * 4. In-Memory Virtual Overlays & Algebraic Recipes (`Recipe.pipe`, `Recipe.all`, `Recipe.branch`)
  * 5. Diagnostic Diffs & Declarative Policies (`Policy.noNewErrors`, `Policy.fixesError`, `Policy.idempotent`)
  */
-import { path as Path, nodeFsPromises as Fs } from "../src/platform/node.ts"
+import { nodeFsPromises as Fs } from "../src/platform/node.ts"
 import { fileURLToPath } from "node:url";
 import { Effect, Layer, Schema } from "effect";
 import {
   Application,
-  computeDiagnosticDiff,
   ConfiguredProject,
   Criterion,
   Draft,

@@ -1,6 +1,6 @@
 /** Canonical, serializable Transformation Plan envelope. */
 import { createHash } from "node:crypto"
-import { Data, Effect } from "effect"
+import { Data, Effect, Predicate, Schema } from "effect"
 
 export type Json = null | boolean | number | string | ReadonlyArray<Json> | { readonly [key: string]: Json }
 
@@ -91,7 +91,7 @@ const digest = (text: string): string => createHash("sha256").update(text).diges
 
 const canonicalize = (value: Json): Json => {
   if (Array.isArray(value)) return value.map(canonicalize)
-  if (value !== null && typeof value === "object") {
+  if (Predicate.isObject(value)) {
     return Object.fromEntries(Object.entries(value)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, child]) => [key, canonicalize(child)]))
@@ -179,22 +179,27 @@ export const finalizePlan = (
 
 export const serializePlan = (plan: TransformationPlan): string => canonicalJson(asJson(plan))
 
+const PlanEnvelope = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  planId: Schema.String,
+})
+
 export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanDecodeError> =>
-  Effect.try({
-    // SAFETY: JSON parsing returns unknown payload
-    try: () => JSON.parse(text) as unknown,
-    catch: () => new PlanDecodeError({ reason: "json" }),
-  }).pipe(Effect.flatMap((decoded) => Effect.gen(function*() {
-    if (
-      decoded === null || typeof decoded !== "object" ||
-      !("schemaVersion" in decoded) || decoded.schemaVersion !== 1 ||
-      !("planId" in decoded) || typeof decoded.planId !== "string"
-    ) return yield* new PlanDecodeError({ reason: "schema" })
-    // SAFETY: validated schemaVersion and planId fields
-    const plan = decoded as TransformationPlan
-    if (digest(canonicalJson(withoutId(plan))) !== plan.planId) {
-      return yield* new PlanDecodeError({ reason: "hash" })
-    }
-    return plan
-  })))
+  Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+    Effect.mapError(() => new PlanDecodeError({ reason: "json" })),
+    Effect.flatMap((decoded) =>
+      Schema.decodeUnknownEffect(PlanEnvelope)(decoded, { onExcessProperty: "preserve" }).pipe(
+        Effect.mapError(() => new PlanDecodeError({ reason: "schema" })),
+      )
+    ),
+    Effect.flatMap((decoded) => Effect.gen(function*() {
+      const planPayload: unknown = decoded
+      // SAFETY: the schema validates the plan envelope; preserved properties retain its full payload.
+      const plan = planPayload as TransformationPlan
+      if (digest(canonicalJson(withoutId(plan))) !== plan.planId) {
+        return yield* new PlanDecodeError({ reason: "hash" })
+      }
+      return plan
+    })),
+  )
 

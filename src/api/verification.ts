@@ -104,14 +104,12 @@ const collectDiagnostics = Effect.gen(function*() {
 
   for (const configured of snapshot.projects) {
     const project = yield* snapshot.project(configured)
-    const diags = yield* project.unsafeNative((nativeProject) =>
-      nativeRequest(
+    const diagnosticList = yield* project.unsafeNative((nativeProject) =>
+      nativeRequest<ReadonlyArray<NativeDiagnostic>>(
         "getSemanticDiagnostics",
         () => nativeProject.program.getSemanticDiagnostics(),
       )
     )
-    // SAFETY: TypeScript native diagnostics expose the NativeDiagnostic shape
-    const diagnosticList = diags as unknown as ReadonlyArray<NativeDiagnostic>
     for (const d of diagnosticList) {
       const message = diagnosticMessageText(d.messageText)
       allDiagnostics.push({
