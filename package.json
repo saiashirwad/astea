@@ -1,17 +1,13 @@
 {
-  "name": "teaform",
+  "name": "safemods",
   "version": "0.1.0",
-  "type": "module",
   "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
   "bin": {
-    "teaform": "./bin/teaform.ts"
+    "safemods": "./bin/safemods.ts"
   },
+  "type": "module",
   "exports": {
     ".": "./src/api/index.ts"
-  },
-  "packageManager": "pnpm@11.17.0",
-  "engines": {
-    "node": ">=24"
   },
   "scripts": {
     "check": "tsc --noEmit && oxlint",
@@ -34,5 +30,9 @@
     "oxlint-tsgolint": "^7.0.2001",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
-  }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.17.0"
 }

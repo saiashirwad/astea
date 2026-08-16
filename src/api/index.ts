@@ -1,5 +1,5 @@
 /**
- * teaform — Effect-native TypeScript 7 project transformations.
+ * safemods — Effect-native TypeScript 7 project transformations.
  *
  * The pipeline is the API:
  *

@@ -1,4 +1,4 @@
-import { ConfiguredProject, Draft, Policy, Query, Recipe, WorkspaceSnapshot } from "teaform";
+import { ConfiguredProject, Draft, Policy, Query, Recipe, WorkspaceSnapshot } from "safemods";
 import { Effect } from "effect";
 import { isStringLiteral } from "typescript/unstable/ast/is";
 

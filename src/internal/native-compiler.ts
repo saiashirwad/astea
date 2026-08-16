@@ -25,7 +25,7 @@ export interface NativeCompilerService {
 }
 
 export class NativeCompiler extends Context.Service<NativeCompiler, NativeCompilerService>()(
-  "@teaform/internal/NativeCompiler",
+  "@safemods/internal/NativeCompiler",
 ) {}
 
 export const make = (

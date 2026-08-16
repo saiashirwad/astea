@@ -6,11 +6,11 @@ const args = process.argv.slice(2)
 
 const printHelp = () => {
   console.log(`
-teaform — Effect-native TypeScript 7 Project Transformation Engine
+safemods — Effect-native TypeScript 7 Project Transformation Engine
 
 Usage:
-  teaform run <recipe.ts> [options]
-  teaform tool <recipe.ts>
+  safemods run <recipe.ts> [options]
+  safemods tool <recipe.ts>
 
 Options:
   --preview          Generate transformation preview without modifying disk (default)
@@ -65,6 +65,6 @@ Effect.runPromise(
     noColor,
   }),
 ).catch((err) => {
-  console.error("Error executing teaform recipe:", err)
+  console.error("Error executing safemods recipe:", err)
   process.exit(1)
 })

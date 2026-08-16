@@ -72,7 +72,7 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
   }
 
   return {
-    name: `teaform_${recipe.name.replace(/[^a-zA-Z0-9_]/g, "_")}`,
+    name: `safemods_${recipe.name.replace(/[^a-zA-Z0-9_]/g, "_")}`,
     description,
     schema: jsonSchema,
     execute: (rawInput, options = {}) =>
