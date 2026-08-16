@@ -11,8 +11,8 @@
 import { path as Path } from "../platform/node.ts"
 import { Effect, Predicate } from "effect"
 import { layer as nodeLayer } from "../platform/node.ts"
-import { nativeRequest, type NativeCompilerError } from "../internal/native-compiler.ts"
-import type { TransformationPlan } from "../internal/plan.ts"
+import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
+import type { TransformationPlan } from "../Plan/index.ts"
 import {
   type PlanPreview,
   type PolicyResult,
@@ -22,7 +22,7 @@ import {
   VerificationFailure,
   type VerifiedPlan,
   verifyPreview,
-} from "../internal/verification.ts"
+} from "./Engine.ts"
 import {
   computeDiagnosticDiff,
   type DiagnosticDiff,
@@ -40,7 +40,7 @@ import {
 export {
   StalePlanError,
   VerificationFailure,
-} from "../internal/verification.ts"
+} from "./Engine.ts"
 
 export type {
   ApplicationReceipt,
@@ -48,7 +48,7 @@ export type {
   PlanPreview,
   VerificationReceipt,
   VerifiedPlan,
-} from "../internal/verification.ts"
+} from "./Engine.ts"
 
 export type { DiagnosticDiff, DiagnosticRecord, PolicyEvaluationContext } from "../Policy/index.ts"
 
@@ -89,13 +89,13 @@ const absoluteTarget = (
  * and guarded range against the current workspace; a mismatch is a StalePlan.
  * Never writes.
  */
-const preview = (
+export const of = (
   plan: TransformationPlan,
 ): Effect.Effect<PlanPreview, StalePlanError | VerificationFailure, Workspace> =>
   Workspace.use((workspace) => previewPlan(plan, workspace.root).pipe(Effect.provide(nodeLayer)))
 
 export const Preview = {
-  of: preview,
+  of,
 }
 
 const collectDiagnostics = Effect.gen(function*() {
@@ -138,7 +138,7 @@ const collectDiagnostics = Effect.gen(function*() {
  * declares idempotence, a replay of the recipe that must yield zero edits).
  * Returns the process-local Verified Plan on success.
  */
-const verify = <Input, E, R>(
+export const verify = <Input, E, R>(
   plan: TransformationPlan,
   recipe: Recipe<Input, E, R>,
   input: Input,
@@ -154,7 +154,7 @@ const verify = <Input, E, R>(
 > =>
   Effect.gen(function*() {
     const workspace = yield* Workspace
-    const proposed = yield* preview(plan)
+    const proposed = yield* of(plan)
 
     const overlay: Record<string, string> = {}
     for (const file of proposed.files) {

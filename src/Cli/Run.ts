@@ -1,5 +1,5 @@
 /**
- * safemods CLI — Interactive command-line runner and inspection tool.
+ * Safemods CLI — interactive runner and inspection tool.
  */
 import { path as Path } from "../platform/node.ts"
 import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"
@@ -13,7 +13,7 @@ import type {
   AuditCriterionRecord,
   AuditFinding,
   AuditReport,
-} from "./audit.ts"
+} from "./Audit.ts"
 import {
   buildAuditReport,
   CliMatchFoundError,
@@ -21,8 +21,8 @@ import {
   renderAuditCsv,
   renderAuditJson,
   renderAuditText,
-} from "./audit.ts"
-import { renderDiagnosticDiff, renderPlanPreview } from "./diff.ts"
+} from "./Audit.ts"
+import { renderDiagnosticDiff, renderPlanPreview } from "./Diff.ts"
 import { recipeToAgentTool } from "../AgentTool/FromRecipe.ts"
 
 export type { AuditCriterionRecord, AuditFinding, AuditReport }
@@ -38,7 +38,7 @@ export {
 export interface CliOptions {
   readonly recipePath: string
   readonly input?: unknown
-  readonly cwd?: string
+  readonly cwd?: string | undefined
   readonly mode?: "preview" | "verify" | "apply" | "scan"
   readonly format?: "text" | "json" | "csv"
   readonly failOnMatch?: boolean

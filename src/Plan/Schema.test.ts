@@ -1,6 +1,6 @@
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Exit } from "effect"
-import { finalizePlan, parsePlan, serializePlan } from "../internal/plan.ts"
+import { finalizePlan, parsePlan, serializePlan } from "./index.ts"
 
 const input = {
   recipe: { name: "test", version: "1", implementationHash: "impl", options: null },

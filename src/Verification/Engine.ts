@@ -1,8 +1,7 @@
-/** Read-only preview/verification and separately authorized application. */
-import { randomUUID } from "node:crypto"
-import { Context, Data, Effect, FileSystem, Layer, Path } from "effect"
+/** Verification and application service engine. */
+import { Data, Effect, FileSystem, Path } from "effect"
 import { applyFileEdits, textHash } from "../Edit/index.ts"
-import type { TransformationPlan } from "./plan.ts"
+import type { TransformationPlan } from "../Plan/index.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{
   readonly planId: string
@@ -14,18 +13,6 @@ export class VerificationFailure extends Data.TaggedError("VerificationFailure")
   readonly planId: string
   readonly policy: "edits" | "matches" | "affected-files" | "diagnostics" | "idempotence"
   readonly detail: string
-}> {}
-
-export class ApplicationFailure extends Data.TaggedError("ApplicationFailure")<{
-  readonly planId: string
-  readonly cause: unknown
-  readonly rolledBack: boolean
-}> {}
-
-export class ApplicationIndeterminate extends Data.TaggedError("ApplicationIndeterminate")<{
-  readonly planId: string
-  readonly cause: unknown
-  readonly rollbackCause: unknown
 }> {}
 
 export interface FilePreview {
@@ -77,16 +64,6 @@ export interface VerifiedPlan {
   readonly plan: TransformationPlan
   readonly preview: PlanPreview
   readonly receipt: VerificationReceipt
-}
-
-export interface ApplicationReceipt {
-  readonly planId: string
-  readonly snapshotHash: string
-  readonly outputs: ReadonlyArray<{
-    readonly projectId: string
-    readonly fileName: string
-    readonly hash: string
-  }>
 }
 
 const absoluteFileName = (
@@ -267,120 +244,10 @@ export const verifyPreview = (
   return { [VerifiedPlanTypeId]: VerifiedPlanTypeId, plan, preview, receipt }
 })
 
-export interface PlanApplicationService {
-  readonly apply: (
-    verified: VerifiedPlan,
-  ) => Effect.Effect<ApplicationReceipt, StalePlanError | ApplicationFailure | ApplicationIndeterminate, FileSystem.FileSystem | Path.Path>
-}
-
-export class PlanApplication extends Context.Service<PlanApplication, PlanApplicationService>()(
-  "@safemods/internal/PlanApplication",
-) {}
-
-export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplication> => Layer.succeed(
+// Compatibility exports; application behavior lives in the Application/Node domains.
+export {
+  ApplicationFailure,
+  ApplicationIndeterminate,
   PlanApplication,
-  PlanApplication.of({
-    apply: Effect.fn("PlanApplication.apply")(function*(verified: VerifiedPlan) {
-      const { plan, preview } = verified
-      const staged: Array<{ readonly target: string; readonly temporary: string; readonly isDelete?: boolean }> = []
-      const applied: Array<FilePreview> = []
-
-      // Application revalidates the entire semantic input snapshot, not only
-      // files that happen to receive edits.
-      for (const source of plan.sources) {
-        const target = yield* absoluteFileName(plan, workspaceRoot, source.projectId, source.fileName)
-        const current = yield* FileSystem.FileSystem.use((fs) => fs.readFileString(target)).pipe(Effect.mapError(() => new StalePlanError({
-            planId: plan.planId,
-            projectId: source.projectId,
-            fileName: source.fileName,
-          })))
-        if (textHash(current) !== source.hash) {
-          return yield* new StalePlanError({
-            planId: plan.planId,
-            projectId: source.projectId,
-            fileName: source.fileName,
-          })
-        }
-      }
-
-      for (const file of preview.files) {
-        const target = yield* absoluteFileName(plan, workspaceRoot, file.projectId, file.fileName)
-        if (file.beforeText === "") {
-          // New file creation
-          const path = yield* Path.Path
-          const fs = yield* FileSystem.FileSystem
-          yield* fs.makeDirectory(path.dirname(target), { recursive: true }).pipe(
-            Effect.mapError((cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: false })),
-          )
-          const temporary = `${target}.safemods-${randomUUID()}.tmp`
-          yield* FileSystem.FileSystem.use((fs) => fs.writeFileString(temporary, file.afterText)).pipe(
-            Effect.mapError((cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true })),
-          )
-          staged.push({ target, temporary, isDelete: false })
-        } else if (file.afterText === "") {
-          // File deletion
-          staged.push({ target, temporary: "", isDelete: true })
-        } else {
-          const current = yield* FileSystem.FileSystem.use((fs) => fs.readFileString(target)).pipe(Effect.mapError(() => new StalePlanError({
-              planId: plan.planId,
-              projectId: file.projectId,
-              fileName: file.fileName,
-            })))
-          if (textHash(current) !== file.beforeHash) {
-            return yield* new StalePlanError({
-              planId: plan.planId,
-              projectId: file.projectId,
-              fileName: file.fileName,
-            })
-          }
-          const temporary = `${target}.safemods-${randomUUID()}.tmp`
-          yield* FileSystem.FileSystem.use((fs) => fs.writeFileString(temporary, file.afterText)).pipe(
-            Effect.mapError((cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true })),
-          )
-          staged.push({ target, temporary, isDelete: false })
-        }
-      }
-
-      const applyExit = yield* Effect.gen(function*() {
-          for (let index = 0; index < staged.length; index++) {
-            const item = staged[index]!
-            if (item.isDelete) {
-              yield* FileSystem.FileSystem.use((fs) => fs.remove(item.target, { force: true }))
-            } else {
-              yield* FileSystem.FileSystem.use((fs) => fs.rename(item.temporary, item.target))
-            }
-            applied.push(preview.files[index]!)
-          }
-      }).pipe(Effect.exit)
-
-      if (applyExit._tag === "Failure") {
-        const cause = applyExit.cause
-        const rollback = yield* Effect.gen(function*() {
-            for (const file of applied) {
-              const target = yield* absoluteFileName(plan, workspaceRoot, file.projectId, file.fileName)
-              yield* FileSystem.FileSystem.use((fs) => fs.writeFileString(target, file.beforeText))
-            }
-            for (const item of staged) yield* FileSystem.FileSystem.use((fs) => fs.remove(item.temporary, { force: true }))
-        }).pipe(Effect.exit)
-        if (rollback._tag === "Failure") {
-          return yield* new ApplicationIndeterminate({
-            planId: plan.planId,
-            cause,
-            rollbackCause: rollback.cause,
-          })
-        }
-        return yield* new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true })
-      }
-
-      return {
-        planId: plan.planId,
-        snapshotHash: plan.snapshotHash,
-        outputs: preview.files.map((file) => ({
-          projectId: file.projectId,
-          fileName: file.fileName,
-          hash: file.afterHash,
-        })),
-      }
-    }),
-  }),
-)
+} from "../Application/Model.ts"
+export type { ApplicationReceipt, PlanApplicationService } from "../Application/Model.ts"

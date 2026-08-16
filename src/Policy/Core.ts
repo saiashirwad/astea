@@ -6,15 +6,15 @@
  * merging; unset dimensions fall back to the system defaults (no new error
  * diagnostics, unbounded cardinality, idempotence not promised).
  */
-import type { PlanPolicies } from "../internal/plan.ts"
+import type { PlanPolicies } from "../Plan/index.ts"
 
 export interface DiagnosticRecord {
   readonly code: number | string
   readonly message: string
   readonly category: "error" | "warning" | "message" | "suggestion"
-  readonly fileName?: string
-  readonly start?: number
-  readonly length?: number
+  readonly fileName?: string | undefined
+  readonly start?: number | undefined
+  readonly length?: number | undefined
 }
 
 export interface DiagnosticDiff {
@@ -27,7 +27,7 @@ export interface PolicyEvaluationContext {
   readonly actualMatches: number
   readonly affectedFiles: number
   readonly diagnosticDiff: DiagnosticDiff
-  readonly replayEdits?: number
+  readonly replayEdits?: number | undefined
 }
 
 export interface VerificationRule {
@@ -39,11 +39,11 @@ export interface VerificationRule {
 export type CustomPolicyRule = VerificationRule
 
 export interface Policy {
-  readonly matchCount?: { readonly min?: number; readonly max?: number }
-  readonly maxAffectedFiles?: number
-  readonly diagnostics?: PlanPolicies["diagnostics"]
-  readonly idempotence?: PlanPolicies["idempotence"]
-  readonly rules?: ReadonlyArray<VerificationRule>
+  readonly matchCount?: { readonly min?: number | undefined; readonly max?: number | undefined } | undefined
+  readonly maxAffectedFiles?: number | undefined
+  readonly diagnostics?: PlanPolicies["diagnostics"] | undefined
+  readonly idempotence?: PlanPolicies["idempotence"] | undefined
+  readonly rules?: ReadonlyArray<VerificationRule> | undefined
 }
 
 export type PlanPolicy = Omit<Policy, "rules">

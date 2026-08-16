@@ -1,3 +1,4 @@
+/** Shared terminal styling tokens. */
 export const ANSI = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",

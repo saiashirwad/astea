@@ -42,8 +42,8 @@ import {
   isTypeAliasDeclaration,
 } from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
-import { type NativeCompilerError, nativeRequest } from "../internal/native-compiler.ts"
-import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
+import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
+import { isWithinProject, projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { EvidenceFact, QueryEvidence } from "../Evidence/Model.ts"
 import type { Pattern } from "../Pattern/index.ts"
 import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError, type SnapshotExpired } from "../Workspace/index.ts"
@@ -265,7 +265,7 @@ const evaluateMatcher = <Out, E, R>(
   project: ProjectSnapshot,
   fileName: string,
 ): Effect.Effect<
-  { readonly matched: boolean; readonly facts?: Readonly<Record<string, EvidenceFact>> },
+  { readonly matched: boolean; readonly facts?: Readonly<Record<string, EvidenceFact>> | undefined },
   E | ProjectSnapshotError,
   R
 > => {
@@ -363,7 +363,7 @@ const evaluateSibling = <Out, E, R>(
   project: ProjectSnapshot,
   fileName: string,
 ): Effect.Effect<
-  { readonly matched: boolean; readonly facts?: Readonly<Record<string, EvidenceFact>>; readonly node: Node },
+  { readonly matched: boolean; readonly facts?: Readonly<Record<string, EvidenceFact>> | undefined; readonly node: Node },
   E | ProjectSnapshotError,
   R
 > =>

@@ -24,23 +24,23 @@ export interface PlannedFileOperation {
   readonly kind: "create" | "delete" | "move"
   readonly projectId: string
   readonly path: string
-  readonly toPath?: string
-  readonly content?: string
-  readonly initialHash?: string
-  readonly evidenceIds?: ReadonlyArray<string>
+  readonly toPath?: string | undefined
+  readonly content?: string | undefined
+  readonly initialHash?: string | undefined
+  readonly evidenceIds?: ReadonlyArray<string> | undefined
 }
 
 export type { EvidenceRecord } from "../Evidence/Model.ts"
 
 export interface PlanPolicies {
-  readonly matchCount: { readonly min?: number; readonly max?: number }
-  readonly maxAffectedFiles?: number
+  readonly matchCount: { readonly min?: number | undefined; readonly max?: number | undefined }
+  readonly maxAffectedFiles?: number | undefined
   readonly diagnostics: "no-new-errors" | "exact-delta"
   readonly idempotence: "required" | "not-promised"
 }
 
 export interface PlanMeasurements {
-  readonly matches?: number
+  readonly matches?: number | undefined
 }
 
 export interface TransformationPlan {
@@ -61,10 +61,10 @@ export interface TransformationPlan {
   readonly sources: ReadonlyArray<SourceFingerprint>
   readonly snapshotHash: string
   readonly edits: ReadonlyArray<PlannedTextEdit>
-  readonly fileOperations?: ReadonlyArray<PlannedFileOperation>
+  readonly fileOperations?: ReadonlyArray<PlannedFileOperation> | undefined
   readonly evidence: ReadonlyArray<EvidenceRecord>
   readonly policies: PlanPolicies
-  readonly measurements?: PlanMeasurements
+  readonly measurements?: PlanMeasurements | undefined
 }
 
 export type PlanInput = Omit<TransformationPlan, "schemaVersion" | "planId" | "snapshotHash">
@@ -230,3 +230,6 @@ export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanD
       return plan
     })),
   )
+
+export const serialize = serializePlan
+export const parse = parsePlan

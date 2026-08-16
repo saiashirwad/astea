@@ -8,24 +8,25 @@
  */
 import { Effect, FileSystem, Path } from "effect"
 import {
+  PlanApplication,
   type ApplicationFailure,
   type ApplicationIndeterminate,
-  applicationLayer,
   type ApplicationReceipt,
-  PlanApplication,
+} from "./Model.ts"
+import {
   type StalePlanError,
   type VerifiedPlan,
-} from "../internal/verification.ts"
+} from "../Verification/Engine.ts"
 
 export { PlanApplication }
 export type { ApplicationReceipt, VerifiedPlan }
 
-export const Application = {
-  apply: (
+export const apply = (
     verified: VerifiedPlan,
   ): Effect.Effect<
     ApplicationReceipt,
     StalePlanError | ApplicationFailure | ApplicationIndeterminate,
     PlanApplication | FileSystem.FileSystem | Path.Path
-  > => PlanApplication.use((application) => application.apply(verified)),
-}
+  > => PlanApplication.use((application) => application.apply(verified))
+
+export const Application = { apply }

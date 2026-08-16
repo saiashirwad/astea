@@ -6,8 +6,73 @@
     "safemods": "./dist/bin/safemods.js"
   },
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./Application": {
+      "types": "./dist/src/Application/index.d.ts",
+      "default": "./dist/src/Application/index.js"
+    },
+    "./AgentTool": {
+      "types": "./dist/src/AgentTool/index.d.ts",
+      "default": "./dist/src/AgentTool/index.js"
+    },
+    "./Cli": {
+      "types": "./dist/src/Cli/index.d.ts",
+      "default": "./dist/src/Cli/index.js"
+    },
+    "./Draft": {
+      "types": "./dist/src/Draft/index.d.ts",
+      "default": "./dist/src/Draft/index.js"
+    },
+    "./Edit": {
+      "types": "./dist/src/Edit/index.d.ts",
+      "default": "./dist/src/Edit/index.js"
+    },
+    "./Pattern": {
+      "types": "./dist/src/Pattern/index.d.ts",
+      "default": "./dist/src/Pattern/index.js"
+    },
+    "./Plan": {
+      "types": "./dist/src/Plan/index.d.ts",
+      "default": "./dist/src/Plan/index.js"
+    },
+    "./Policy": {
+      "types": "./dist/src/Policy/index.d.ts",
+      "default": "./dist/src/Policy/index.js"
+    },
+    "./Precondition": {
+      "types": "./dist/src/Precondition/index.d.ts",
+      "default": "./dist/src/Precondition/index.js"
+    },
+    "./Preview": {
+      "types": "./dist/src/Preview/index.d.ts",
+      "default": "./dist/src/Preview/index.js"
+    },
+    "./Query": {
+      "types": "./dist/src/Query/index.d.ts",
+      "default": "./dist/src/Query/index.js"
+    },
+    "./Recipe": {
+      "types": "./dist/src/Recipe/index.d.ts",
+      "default": "./dist/src/Recipe/index.js"
+    },
+    "./Verification": {
+      "types": "./dist/src/Verification/index.d.ts",
+      "default": "./dist/src/Verification/index.js"
+    },
+    "./Workspace": {
+      "types": "./dist/src/Workspace/index.d.ts",
+      "default": "./dist/src/Workspace/index.js"
+    },
+    "./Node": {
+      "types": "./dist/src/Node/index.d.ts",
+      "default": "./dist/src/Node/index.js"
+    },
+    "./Compatibility": {
       "types": "./dist/src/api/index.d.ts",
       "default": "./dist/src/api/index.js"
     }
@@ -21,7 +86,7 @@
     "check": "pnpm typecheck && pnpm effect:check && pnpm lint && pnpm test",
     "check:fast": "pnpm typecheck && pnpm effect:check && pnpm lint",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint",
+    "lint": "oxlint && node tools/check-boundaries.mjs",
     "effect:check": "effect-tsgo diagnostics --project tsconfig.json",
     "prepare": "effect-tsgo patch --no-typescript --oxlint",
     "test": "vitest run src"

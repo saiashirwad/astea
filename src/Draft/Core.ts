@@ -32,9 +32,9 @@ import {
 } from "typescript/unstable/ast/is"
 import type { Symbol as NativeSymbol } from "typescript/unstable/async"
 import { textHash } from "../Edit/Hash.ts"
-import { type NativeCompilerError, nativeRequest } from "../internal/native-compiler.ts"
-import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
-import { projectRelativePath } from "../internal/project-path.ts"
+import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
+import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../Plan/index.ts"
+import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import { Query, type QueryContractError, type Selection } from "../Query/index.ts"
 import {
   isProjectFile,

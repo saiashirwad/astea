@@ -4,11 +4,19 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "isolatedModules": true,
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "safemods": ["./src/api/index.ts"]
+      "safemods": ["./src/index.ts"],
+      "safemods/*": ["./src/*/index.ts"]
     },
     "skipLibCheck": false,
     "types": ["node", "vitest/globals"],

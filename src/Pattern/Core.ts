@@ -56,8 +56,8 @@ import {
   isWhileStatement,
 } from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
-import { nativeRequest } from "../internal/native-compiler.ts"
-import { projectRelativePath } from "../internal/project-path.ts"
+import { nativeRequest } from "../Compiler/Service.ts"
+import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { EvidenceFact } from "../Evidence/Model.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
 

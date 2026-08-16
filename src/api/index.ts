@@ -15,8 +15,8 @@ export {
   renderDiagnosticDiff,
   renderFilePreview,
   renderPlanPreview,
-} from "../cli/diff.ts"
-export type { DiffOptions } from "../cli/diff.ts"
+} from "../Cli/Diff.ts"
+export type { DiffOptions } from "../Cli/Diff.ts"
 export {
   buildAuditReport,
   CliMatchFoundError,
@@ -24,12 +24,12 @@ export {
   renderAuditCsv,
   renderAuditJson,
   renderAuditText,
-} from "../cli/audit.ts"
+} from "../Cli/Audit.ts"
 export type {
   AuditCriterionRecord,
   AuditFinding,
   AuditReport,
-} from "../cli/audit.ts"
+} from "../Cli/Audit.ts"
 /** @deprecated Import from `safemods/AgentTool`. */
 export { recipeToAgentTool } from "../AgentTool/FromRecipe.ts"
 /** @deprecated Import from `safemods/AgentTool`. */

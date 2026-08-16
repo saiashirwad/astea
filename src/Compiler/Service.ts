@@ -1,4 +1,4 @@
-/** Scoped authority seam around TypeScript 7's native async client. */
+/** Scoped compiler service around TypeScript 7's native async client. */
 import { Context, Data, Effect, Layer, Scope } from "effect"
 import { API, type APIOptions, type Snapshot, type TimingInfo } from "typescript/unstable/async"
 import type { UpdateSnapshotParams } from "typescript/unstable/proto"
@@ -57,4 +57,3 @@ export const make = (
 
 export const layer = (options: APIOptions): Layer.Layer<NativeCompiler> =>
   Layer.effect(NativeCompiler, make(options))
-

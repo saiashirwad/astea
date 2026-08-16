@@ -27,10 +27,10 @@ type Assert<Value extends true> = Value
 
 // --- Type-level contract -------------------------------------------------
 
-type _RecipeInputInference = Assert<Equal<Parameters<typeof wrapTargetInput.run>[0], WrapTargetInput>>
+export type _RecipeInputInference = Assert<Equal<Parameters<typeof wrapTargetInput.run>[0], WrapTargetInput>>
 
 declare const _anyProject: Parameters<typeof Query.calls>[0]
-type _CallInference = Assert<Equal<
+export type _CallInference = Assert<Equal<
   ReturnType<typeof Query.calls> extends import("effect").Stream.Stream<infer S, infer _E, infer _R>
     ? S extends Selection<infer Node> ? Node : never
     : never,
@@ -40,8 +40,10 @@ type _CallInference = Assert<Equal<
 const _rawPlanIsNotApplicationAuthority = (plan: TransformationPlan) =>
   // @ts-expect-error — Application accepts only a Verified Plan
   Application.apply(plan)
+void _rawPlanIsNotApplicationAuthority
 
 const _verifiedPlanIsApplicationAuthority = (verified: VerifiedPlan) => Application.apply(verified)
+void _verifiedPlanIsApplicationAuthority
 
 // --- End-to-end pipeline ---------------------------------------------------
 

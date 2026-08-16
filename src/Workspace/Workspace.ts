@@ -23,8 +23,8 @@ import {
   NativeCompiler,
   type NativeCompilerError,
   nativeRequest,
-} from "../internal/native-compiler.ts"
-import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
+} from "../Compiler/Service.ts"
+import { isWithinProject, projectRelativePath } from "./ProjectPath.ts"
 
 export type { NativeCompilerError }
 
@@ -324,7 +324,8 @@ export const make = (
           params.openProjects = [...openProjects]
         }
         if (transition.changes !== undefined) {
-          params.fileChanges = toNativeChanges(transition.changes)
+          const fileChanges = toNativeChanges(transition.changes)
+          if (fileChanges !== undefined) params.fileChanges = fileChanges
         }
         const nativeSnapshot = yield* regionCompiler.openSnapshot(params).pipe(Effect.tap(() => Effect.sync(onOpened)))
 

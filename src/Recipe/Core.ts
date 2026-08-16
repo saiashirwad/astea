@@ -13,7 +13,7 @@ import { createHash } from "node:crypto"
 import { Data, Effect, Schema } from "effect"
 import { SYSTEM_VERSION } from "../generated/version.ts"
 import { EditConflict, InvalidEdit, applyFileEdits, textHash } from "../Edit/index.ts"
-import { NativeCompilerError } from "../internal/native-compiler.ts"
+import { NativeCompilerError } from "../Compiler/Service.ts"
 import {
   finalizePlan,
   type Json,
@@ -21,8 +21,8 @@ import {
   type PlannedTextEdit,
   type SourceFingerprint,
   type TransformationPlan,
-} from "../internal/plan.ts"
-import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
+} from "../Plan/index.ts"
+import { isWithinProject, projectRelativePath } from "../Workspace/ProjectPath.ts"
 import { Draft } from "../Draft/index.ts"
 import { type VerificationRule, Policy } from "../Policy/index.ts"
 import type { PlanPolicies } from "../Plan/index.ts"
@@ -65,7 +65,7 @@ export interface Recipe<Input = undefined, E = never, R = never> {
   readonly implementationHash: string
   readonly policies: PlanPolicies
   readonly rules: ReadonlyArray<VerificationRule>
-  readonly schema?: Schema.Schema<Input>
+  readonly schema?: Schema.Schema<Input> | undefined
   readonly run: (input: Input) => Effect.Effect<Draft, E, R | WorkspaceSnapshot | Workspace>
 }
 
@@ -92,7 +92,7 @@ export interface ScanningRecipe<Acc, Input = undefined, E = never, R = never> ex
 
 export interface ScanningRecipeDefinition<Acc, Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never> {
   readonly version: string
-  readonly schema?: Schema.Schema<Input>
+  readonly schema?: Schema.Schema<Input> | undefined
   /**
    * Digest of the recipe implementation, supplied by the build/release
    * process. Defaults to a name@version digest suitable for development only.
@@ -103,7 +103,7 @@ export interface ScanningRecipeDefinition<Acc, Input = undefined, E1 = never, R1
   readonly run: (accumulator: Acc, input: Input) => Effect.Effect<Draft, E2, R2 | WorkspaceSnapshot | Workspace>
 }
 
-const define = <Input = undefined, E = never, R = never>(
+export const define = <Input = undefined, E = never, R = never>(
   name: string,
   definition: RecipeDefinition<Input, E, R>,
 ): Recipe<Input, E, R> => {
@@ -125,7 +125,7 @@ const define = <Input = undefined, E = never, R = never>(
  * Phase 1 (`scan`) analyzes the workspace snapshot to build a global cross-file model/accumulator.
  * Phase 2 (`run`) receives the accumulator to execute transformations across files.
  */
-const scanning = <Acc, Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never>(
+export const scanning = <Acc, Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never>(
   name: string,
   definition: ScanningRecipeDefinition<Acc, Input, E1, R1, E2, R2>,
 ): ScanningRecipe<Acc, Input, E1 | E2, R1 | R2> => {
@@ -378,7 +378,7 @@ const fingerprintWorkspace = (
  * fingerprint the observed workspace, and finalize the durable plan.
  * No stage of `Recipe.run` writes project files.
  */
-const run = <Input, E, R>(
+export const run = <Input, E, R>(
   recipe: Recipe<Input, E, R>,
   input: Input,
   transition: SnapshotTransition = {},

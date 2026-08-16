@@ -1,5 +1,5 @@
 /**
- * High-fidelity Terminal Diff & Diagnostic Renderer.
+ * High-fidelity terminal diff and diagnostic renderer.
  *
  * Produces ANSI-colored unified diffs from before/after text buffers,
  * complete with line numbers, hunk headers, change summaries, and
@@ -7,7 +7,7 @@
  */
 import type { DiagnosticDiff } from "../Policy/index.ts"
 import type { FilePreview, PlanPreview } from "../Preview/index.ts"
-import { ANSI, colorize } from "./ansi.ts"
+import { ANSI, colorize } from "./Ansi.ts"
 
 export interface DiffOptions {
   readonly color?: boolean

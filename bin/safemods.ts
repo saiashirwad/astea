@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runCli } from "../src/cli/index.ts"
+import { runCli } from "../src/Cli/Run.ts"
 import { Effect } from "effect"
 
 const args = process.argv.slice(2)

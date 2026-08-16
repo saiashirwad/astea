@@ -1,4 +1,4 @@
-/** Filesystem-case-independent project-relative identity. */
+/** Workspace project-relative path identity. */
 import { path as Path } from "../platform/node.ts"
 
 export const isWithinProject = (projectRoot: string, fileName: string): boolean => {

@@ -1,8 +1,8 @@
 /**
- * safemods CLI — Read-only Search & Audit Report Generator and Formatters.
+ * Safemods CLI — read-only search and audit reporting.
  */
 import { Data, Effect, Predicate } from "effect"
-import type { Json, TransformationPlan } from "../internal/plan.ts"
+import type { Json, TransformationPlan } from "../Plan/index.ts"
 import type {
   FileNotFound,
   ProjectNotInSnapshot,
@@ -10,7 +10,7 @@ import type {
   ProjectSnapshotError,
   WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
-import { ANSI, colorize } from "./ansi.ts"
+import { ANSI, colorize } from "./Ansi.ts"
 
 export interface AuditCriterionRecord {
   readonly criterion: string
@@ -27,7 +27,7 @@ export interface AuditFinding {
   readonly startColumn: number
   readonly endLine: number
   readonly endColumn: number
-  readonly snippet?: string
+  readonly snippet?: string | undefined
   readonly criteria: ReadonlyArray<AuditCriterionRecord>
 }
 

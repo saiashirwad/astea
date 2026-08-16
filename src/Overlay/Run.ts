@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import type { EditConflict, InvalidEdit, TextEdit } from "../Edit/index.ts"
-import type { PlannedFileOperation } from "../internal/plan.ts"
+import type { PlannedFileOperation } from "../Plan/index.ts"
 import {
   type FileNotFound,
   type ProjectNotInSnapshot,

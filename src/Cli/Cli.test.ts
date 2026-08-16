@@ -1,4 +1,4 @@
-import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
+import { nodeFsPromises as Fs } from "../platform/node.ts"
 import { fileURLToPath } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -18,7 +18,7 @@ import {
   Workspace,
   WorkspaceSnapshot,
 } from "../api/index.ts"
-import { runCli } from "./index.ts"
+import { runCli } from "./Run.ts"
 
 const execFileAsync = promisify(execFile)
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))

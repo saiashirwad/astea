@@ -1,7 +1,7 @@
 import { path as Path } from "../platform/node.ts"
 import { Effect } from "effect"
 import { applyFileEdits, type EditConflict, type InvalidEdit, type TextEdit } from "../Edit/index.ts"
-import type { PlannedFileOperation } from "../internal/plan.ts"
+import type { PlannedFileOperation } from "../Plan/index.ts"
 import {
   FileNotFound,
   ProjectNotInSnapshot,

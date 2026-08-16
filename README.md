@@ -44,7 +44,7 @@ Existing JavaScript/TypeScript codemod tools force developers to choose between 
 pnpm add -D safemods effect typescript@7
 ```
 
-`effect` and `typescript` (v7+) are peer dependencies.
+`effect` and TypeScript 7 are installed as direct dependencies of `safemods`.
 
 ---
 
