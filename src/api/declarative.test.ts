@@ -122,6 +122,53 @@ describe("declarative transformations API", () => {
       }
     }, 60_000)
 
+    it("evaluates type assignability and type patterns declaratively", async () => {
+      const root = await Fs.mkdtemp("/tmp/teatime-types-")
+      await Fs.cp(fixtureSource, root, { recursive: true })
+
+      const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+      const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+
+      try {
+        await Effect.runPromise(
+          Effect.gen(function*() {
+            const workspace = yield* Workspace
+            yield* workspace.withSnapshot({}, Effect.gen(function*() {
+              const snapshot = yield* WorkspaceSnapshot
+              const project = yield* snapshot.project(app)
+
+              // 1. Query with type pattern matching
+              const typedCallPattern = Pattern.callExpression({
+                expression: Pattern.any,
+                arguments: Pattern.tuple([
+                  Pattern.bind("arg", Pattern.typed({ assignableTo: "number" })),
+                ]),
+              })
+
+              const matches = yield* Query.match(project, typedCallPattern).pipe(Query.collect)
+              expect(matches.length).toBeGreaterThan(0)
+
+              // 2. Query with typeAssignableTo criterion on identifiers
+              const numberArgs = yield* Query.identifiers(project).pipe(
+                Query.where(Query.typeAssignableTo("number")),
+                Query.collect,
+              )
+              expect(numberArgs.length).toBeGreaterThan(0)
+
+              // 3. Inspect type of node directly
+              const firstCall = matches[0]!.value.call
+              const callType = yield* Query.typeOf(project, firstCall)
+              expect(callType).toBeDefined()
+              const typeStr = yield* project.typeToString(callType!)
+              expect(typeStr).toContain("number")
+            }))
+          }).pipe(Effect.provide(workspaceLayer)),
+        )
+      } finally {
+        await Fs.rm(root, { recursive: true, force: true })
+      }
+    }, 60_000)
+
     it("evaluates algebraic criterion combinators (all, any, not)", async () => {
       const root = await Fs.mkdtemp("/tmp/teatime-criteria-")
       await Fs.cp(fixtureSource, root, { recursive: true })
@@ -356,6 +403,48 @@ describe("declarative transformations API", () => {
         const consumerContent = await Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
         expect(consumerContent).toContain("TargetInput")
         expect(consumerContent).toContain("/* keep this comment */ /* wrapped */ { value: 1 }")
+      } finally {
+        await Fs.rm(root, { recursive: true, force: true })
+      }
+    }, 60_000)
+    it("renames symbols across all declarations, imports, and usages with Draft.renameSymbol", async () => {
+      const root = await Fs.mkdtemp("/tmp/teatime-rename-")
+      await Fs.cp(fixtureSource, root, { recursive: true })
+
+      const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+      const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+      const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+
+      const renameRecipe = Recipe.define("rename-other-symbol", {
+        version: "1.0.0",
+        policies: [Policy.noNewErrors()],
+        run: () =>
+          Effect.gen(function*() {
+            const snapshot = yield* WorkspaceSnapshot
+            const project = yield* snapshot.project(app)
+            const otherSymbol = yield* project.symbolNamed("other", { within: "src/library.ts" })
+
+            return yield* Draft.renameSymbol(project, otherSymbol, "transformedOther")
+          }),
+      })
+
+      try {
+        const plan = await Effect.runPromise(
+          Recipe.run(renameRecipe, undefined).pipe(Effect.provide(workspaceLayer)),
+        )
+        expect(plan.edits.length).toBeGreaterThanOrEqual(2)
+
+        const verified = await Effect.runPromise(
+          Verification.verify(plan, renameRecipe, undefined).pipe(Effect.provide(workspaceLayer)),
+        )
+        await Effect.runPromise(Application.apply(verified).pipe(Effect.provide(mainLayer)))
+
+        const libContent = await Fs.readFile(Path.join(root, "src/library.ts"), "utf8")
+        const consumerContent = await Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+
+        expect(libContent).toContain("function transformedOther(value: number)")
+        expect(consumerContent).toContain("import { transformedOther, target as renamed }")
+        expect(consumerContent).toContain("transformedOther(2)")
       } finally {
         await Fs.rm(root, { recursive: true, force: true })
       }

@@ -25,8 +25,9 @@ import {
   isPropertyAssignment,
   isStringLiteral,
 } from "typescript/unstable/ast/is"
-import { SymbolFlags, type Symbol as NativeSymbol } from "typescript/unstable/async"
+import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
 import { nativeRequest } from "../prototype/native-compiler.ts"
+import { projectRelativePath } from "../prototype/project-path.ts"
 import type { EvidenceFact } from "./query.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "./workspace.ts"
 
@@ -289,6 +290,44 @@ export const objectLiteral = (options?: {
     }),
 })
 
+/** Matches a node based on its inferred TypeScript type. */
+export const typed = (options?: {
+  readonly assignableTo?: NativeType | "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void"
+  readonly typeString?: string | RegExp
+}): Pattern<Node, Node> => ({
+  kind: "typed",
+  match: (node, project) =>
+    Effect.gen(function*() {
+      const sourceFile = node.getSourceFile()
+      const pos = node.getStart(sourceFile)
+      const fileName = projectRelativePath(project.root, sourceFile.fileName)
+      const type = yield* project.typeAt(fileName, pos)
+      if (type === undefined) return matchFailure
+
+      if (options?.typeString !== undefined) {
+        const str = yield* project.typeToString(type)
+        const matches = typeof options.typeString === "string"
+          ? str === options.typeString
+          : options.typeString.test(str)
+        if (!matches) return matchFailure
+      }
+
+      if (options?.assignableTo !== undefined) {
+        let targetType: NativeType
+        if (typeof options.assignableTo === "string") {
+          targetType = yield* project.intrinsicType(options.assignableTo)
+        } else {
+          targetType = options.assignableTo
+        }
+        const assignable = yield* project.isTypeAssignableTo(type, targetType)
+        if (!assignable) return matchFailure
+      }
+
+      const str = yield* project.typeToString(type)
+      return matchSuccess(node, { type: str })
+    }),
+})
+
 export const Pattern = {
   any,
   predicate,
@@ -301,4 +340,5 @@ export const Pattern = {
   stringLiteral,
   numericLiteral,
   objectLiteral,
+  typed,
 }

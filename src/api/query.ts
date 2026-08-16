@@ -25,7 +25,7 @@ import {
   isImportDeclaration,
   isPropertyAccessExpression,
 } from "typescript/unstable/ast/is"
-import { SymbolFlags, type Symbol as NativeSymbol } from "typescript/unstable/async"
+import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
 import { type NativeCompilerError, nativeRequest } from "../prototype/native-compiler.ts"
 import { isWithinProject, projectRelativePath } from "../prototype/project-path.ts"
 import type { Pattern } from "./pattern.ts"
@@ -421,12 +421,93 @@ export const collect = <A, E, R>(
     ),
   )
 
+/** Find all occurrences across all files in the project that resolve to the given canonical symbol. */
+export const referencesTo = (
+  project: ProjectSnapshot,
+  symbol: NativeSymbol,
+): Query<Identifier, ProjectSnapshotError | QueryContractError> =>
+  identifiers(project).pipe(where(resolvesTo(symbol)))
+
+/** Inspect the computed TypeScript Type of a node. */
+export const typeOf = (
+  project: ProjectSnapshot,
+  node: Node,
+): Effect.Effect<NativeType | undefined, ProjectSnapshotError> => {
+  const sourceFile = node.getSourceFile()
+  const fileName = projectRelativePath(project.root, sourceFile.fileName)
+  const pos = node.getStart(sourceFile)
+  return project.typeAt(fileName, pos)
+}
+
+/** Admit nodes whose computed type is assignable to `target`. */
+export const typeAssignableTo = <A extends Node>(
+  target: NativeType | "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void",
+): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
+  id: `type-assignable-to:${typeof target === "string" ? target : "custom-type"}`,
+  select: (selections) =>
+    Effect.gen(function*() {
+      const facts = new Array<Readonly<Record<string, EvidenceFact>> | undefined>(selections.length)
+      for (let i = 0; i < selections.length; i++) {
+        const selection = selections[i]!
+        const node = selection.value
+        const sourceFile = node.getSourceFile()
+        const pos = node.getStart(sourceFile)
+        const nodeType = yield* selection.project.typeAt(selection.fileName, pos)
+        if (nodeType === undefined) continue
+
+        let expectedType: NativeType
+        if (typeof target === "string") {
+          expectedType = yield* selection.project.intrinsicType(target)
+        } else {
+          expectedType = target
+        }
+
+        const assignable = yield* selection.project.isTypeAssignableTo(nodeType, expectedType)
+        if (assignable) {
+          const typeStr = yield* selection.project.typeToString(nodeType)
+          facts[i] = { type: typeStr, assignableTo: typeof target === "string" ? target : "type" }
+        }
+      }
+      return facts
+    }),
+})
+
+/** Admit nodes whose computed type satisfies a custom predicate. */
+export const typeSatisfies = <A extends Node>(
+  id: string,
+  predicate: (type: NativeType, typeString: string) => boolean,
+): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
+  id: `type-satisfies:${id}`,
+  select: (selections) =>
+    Effect.gen(function*() {
+      const facts = new Array<Readonly<Record<string, EvidenceFact>> | undefined>(selections.length)
+      for (let i = 0; i < selections.length; i++) {
+        const selection = selections[i]!
+        const node = selection.value
+        const sourceFile = node.getSourceFile()
+        const pos = node.getStart(sourceFile)
+        const nodeType = yield* selection.project.typeAt(selection.fileName, pos)
+        if (nodeType === undefined) continue
+
+        const typeStr = yield* selection.project.typeToString(nodeType)
+        if (predicate(nodeType, typeStr)) {
+          facts[i] = { type: typeStr, predicate: id }
+        }
+      }
+      return facts
+    }),
+})
+
 export const Query = {
   nodes,
   calls,
   imports,
   identifiers,
   propertyAccesses,
+  referencesTo,
+  typeOf,
+  typeAssignableTo,
+  typeSatisfies,
   match,
   where,
   resolvesTo,

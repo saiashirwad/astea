@@ -8,10 +8,10 @@
  * 4. In-Memory Virtual Overlays & Algebraic Recipes (`Recipe.pipe`, `Recipe.all`, `Recipe.branch`)
  * 5. Diagnostic Diffs & Declarative Policies (`Policy.noNewErrors`, `Policy.fixesError`, `Policy.idempotent`)
  */
-import * as Fs from "node:fs/promises"
-import * as Path from "node:path"
-import { fileURLToPath } from "node:url"
-import { Effect, Layer, Schema } from "effect"
+import * as Fs from "node:fs/promises";
+import * as Path from "node:path";
+import { fileURLToPath } from "node:url";
+import { Effect, Layer, Schema } from "effect";
 import {
   Application,
   computeDiagnosticDiff,
@@ -27,9 +27,9 @@ import {
   Verification,
   Workspace,
   WorkspaceSnapshot,
-} from "../src/api/index.ts"
+} from "../src/api/index.ts";
 
-const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" });
 
 // -----------------------------------------------------------------------------
 // 1. Define a Typed Recipe with Input Schema
@@ -38,41 +38,35 @@ const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
 export const WrapOptionsSchema = Schema.Struct({
   propertyName: Schema.NonEmptyString,
   addTypeImport: Schema.Boolean,
-})
-export type WrapOptions = typeof WrapOptionsSchema.Type
+});
+export type WrapOptions = typeof WrapOptionsSchema.Type;
 
 export const wrapTargetRecipe = Recipe.define("wrap-target-call-sites", {
   version: "1.0.0",
   schema: WrapOptionsSchema,
-  policies: [
-    Policy.matches({ min: 1 }),
-    Policy.noNewErrors(),
-    Policy.idempotent(),
-  ],
+  policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
   run: (input: WrapOptions) =>
-    Effect.gen(function*() {
-      const snapshot = yield* WorkspaceSnapshot
-      const project = yield* snapshot.project(app)
-      const targetSymbol = yield* project.symbolNamed("target", { within: "src/library.ts" })
+    Effect.gen(function* () {
+      const snapshot = yield* WorkspaceSnapshot;
+      const project = yield* snapshot.project(app);
+      const targetSymbol = yield* project.symbolNamed("target", { within: "src/library.ts" });
 
       // Pattern: match call expressions resolving to `target`, extracting the single argument
       const callPattern = Pattern.callExpression({
         expression: Pattern.identifier({ resolvesTo: targetSymbol }),
-        arguments: Pattern.tuple([
-          Pattern.bind("arg", Pattern.not(Pattern.objectLiteral())),
-        ]),
-      })
+        arguments: Pattern.tuple([Pattern.bind("arg", Pattern.not(Pattern.objectLiteral()))]),
+      });
 
-      const matches = yield* Query.match(project, callPattern).pipe(Query.collect)
+      const matches = yield* Query.match(project, callPattern).pipe(Query.collect);
 
       // Propose edits using high-fidelity draft combinator
       const wrapDraft = yield* Draft.replaceEach(matches, ({ value: matched }) => {
-        const argNode = matched.args[0]!.arg
+        const argNode = matched.args[0]!.arg;
         return {
           node: argNode,
           text: `{ ${input.propertyName}: ${argNode.getText(argNode.getSourceFile())} }`,
-        }
-      })
+        };
+      });
 
       // Optionally add named import to consumer files
       const importDraft = input.addTypeImport
@@ -80,11 +74,11 @@ export const wrapTargetRecipe = Recipe.define("wrap-target-call-sites", {
             module: "./library.js",
             name: "TargetInput",
           })
-        : Draft.empty
+        : Draft.empty;
 
-      return Draft.concat(wrapDraft, importDraft)
+      return Draft.concat(wrapDraft, importDraft);
     }),
-})
+});
 
 // -----------------------------------------------------------------------------
 // 2. Multi-Stage Pipeline Composition with Recipe.pipe
@@ -94,82 +88,75 @@ export const cleanupRecipe = Recipe.define("cleanup-deprecated", {
   version: "1.0.0",
   policies: [Policy.noNewErrors()],
   run: () =>
-    Effect.gen(function*() {
-      const snapshot = yield* WorkspaceSnapshot
-      const project = yield* snapshot.project(app)
+    Effect.gen(function* () {
+      const snapshot = yield* WorkspaceSnapshot;
+      const project = yield* snapshot.project(app);
 
-      // Query declarations with @deprecated JSDoc tag
       const deprecatedCalls = yield* Query.calls(project).pipe(
         Query.where(
-          Criterion.all(
-            Query.hasJSDocTag("deprecated"),
-            Criterion.not(Query.textMatches(/keep/)),
-          ),
+          Criterion.all(Query.hasJSDocTag("deprecated"), Criterion.not(Query.textMatches(/keep/))),
         ),
         Query.collect,
-      )
+      );
 
-      return yield* Draft.replaceEach(deprecatedCalls, () => "/* removed deprecated call */")
+      return yield* Draft.replaceEach(deprecatedCalls, () => "/* removed deprecated call */");
     }),
-})
+});
 
 // Chaining recipes purely in memory using TypeScript 7 virtual overlays
-export const fullMigrationPipeline = Recipe.pipe(
-  wrapTargetRecipe,
-  cleanupRecipe,
-)
+export const fullMigrationPipeline = Recipe.pipe(wrapTargetRecipe, cleanupRecipe);
 
 // -----------------------------------------------------------------------------
 // 3. Execution Pipeline (Query → Plan → Preview → Verify → Apply)
 // -----------------------------------------------------------------------------
 
-export const runTour = Effect.gen(function*() {
-  const input: WrapOptions = { propertyName: "value", addTypeImport: true }
+export const runTour = Effect.gen(function* () {
+  const input: WrapOptions = { propertyName: "value", addTypeImport: true };
 
   // Step 1: Run recipe to create durable, content-addressed Transformation Plan
-  const plan = yield* Recipe.run(wrapTargetRecipe, input)
-  console.log(`[Plan Created] ID: ${plan.planId}, Edits: ${plan.edits.length}`)
+  const plan = yield* Recipe.run(wrapTargetRecipe, input);
+  console.log(`[Plan Created] ID: ${plan.planId}, Edits: ${plan.edits.length}`);
 
   // Step 2: Generate read-only Preview
-  const preview = yield* Preview.of(plan)
-  console.log(`[Preview Generated] Files affected: ${preview.files.length}`)
+  const preview = yield* Preview.of(plan);
+  console.log(`[Preview Generated] Files affected: ${preview.files.length}`);
 
   // Step 3: Verify plan against isolated virtual compiler authority
-  const verified = yield* Verification.verify(plan, wrapTargetRecipe, input)
+  const verified = yield* Verification.verify(plan, wrapTargetRecipe, input);
   console.log(
     `[Verification Passed] Diagnostic Delta: ${verified.receipt.diagnosticDelta}, Idempotence: ${verified.receipt.idempotenceChecked}`,
-  )
+  );
   console.log(
     `[Diagnostic Diff] Introduced: ${verified.diagnosticDiff.introduced.length}, Resolved: ${verified.diagnosticDiff.resolved.length}`,
-  )
+  );
 
   // Step 4: Explicit Application (the ONLY filesystem write)
-  const receipt = yield* Application.apply(verified)
-  console.log(`[Application Applied] Confirmed output files: ${receipt.outputs.length}`)
+  const receipt = yield* Application.apply(verified);
+  console.log(`[Application Applied] Confirmed output files: ${receipt.outputs.length}`);
 
-  return receipt
-})
+  return receipt;
+});
 
 // -----------------------------------------------------------------------------
 // 4. Standalone Runner with Temporary Fixture
 // -----------------------------------------------------------------------------
 
 async function main() {
-  const fixtureSource = fileURLToPath(new URL("../fixtures/recipe/", import.meta.url))
-  const tmpRoot = await Fs.mkdtemp("/tmp/teatime-example-")
-  await Fs.cp(fixtureSource, tmpRoot, { recursive: true })
+  const fixtureSource = fileURLToPath(new URL("../fixtures/recipe/", import.meta.url));
+  const tmpRoot = await Fs.mkdtemp("/tmp/teatime-example-");
+  await Fs.cp(fixtureSource, tmpRoot, { recursive: true });
 
-  const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: tmpRoot })
-  const appLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+  const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: tmpRoot });
+  const appLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer));
 
   try {
-    await Effect.runPromise(runTour.pipe(Effect.provide(appLayer)))
-    console.log("Tour completed successfully!")
+    await Effect.runPromise(runTour.pipe(Effect.provide(appLayer)));
+    console.log("Tour completed successfully!");
   } finally {
-    await Fs.rm(tmpRoot, { recursive: true, force: true })
+    await Fs.rm(tmpRoot, { recursive: true, force: true });
   }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(console.error)
+  main().catch(console.error);
 }

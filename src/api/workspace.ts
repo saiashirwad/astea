@@ -10,7 +10,12 @@
 import * as Path from "node:path"
 import { Context, Data, Effect, Layer, Semaphore } from "effect"
 import type { SourceFile } from "typescript/unstable/ast"
-import type { APIOptions, Project as NativeProject, Symbol as NativeSymbol } from "typescript/unstable/async"
+import type {
+  APIOptions,
+  Project as NativeProject,
+  Symbol as NativeSymbol,
+  Type as NativeType,
+} from "typescript/unstable/async"
 import { SymbolFlags } from "typescript/unstable/async"
 import type { FileChanges } from "typescript/unstable/proto"
 import { applyFileEdits, type EditConflict, type InvalidEdit, type TextEdit } from "../prototype/edits.ts"
@@ -119,6 +124,22 @@ export interface ProjectSnapshot {
     name: string,
     options: { readonly within: string },
   ) => Effect.Effect<NativeSymbol, SymbolNotFound | ProjectSnapshotError>
+  /** Resolve the type at a position in a project-relative file. */
+  readonly typeAt: (
+    fileName: string,
+    position: number,
+  ) => Effect.Effect<NativeType | undefined, ProjectSnapshotError>
+  /** String representation of a type. */
+  readonly typeToString: (type: NativeType) => Effect.Effect<string, ProjectSnapshotError>
+  /** Check if `fromType` is assignable to `toType`. */
+  readonly isTypeAssignableTo: (
+    fromType: NativeType,
+    toType: NativeType,
+  ) => Effect.Effect<boolean, ProjectSnapshotError>
+  /** Intrinsic native types. */
+  readonly intrinsicType: (
+    kind: "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void",
+  ) => Effect.Effect<NativeType, ProjectSnapshotError>
   /** Explicitly unstable escape hatch. Native values remain region-bound. */
   readonly unsafeNative: <A, E, R>(
     use: (project: NativeProject) => Effect.Effect<A, E, R>,
@@ -312,6 +333,50 @@ export const make = (
             },
           )
 
+          const typeAt = Effect.fn("ProjectSnapshot.typeAt")(function*(fileName: string, position: number) {
+            yield* ensureActive
+            const types = yield* nativeRequest(
+              "getTypeAtPosition",
+              () => nativeProject.checker.getTypeAtPosition(Path.resolve(projectRoot, fileName), [position]),
+            )
+            return types[0]
+          })
+
+          const typeToString = Effect.fn("ProjectSnapshot.typeToString")(function*(type: NativeType) {
+            yield* ensureActive
+            return yield* nativeRequest(
+              "typeToString",
+              () => nativeProject.checker.typeToString(type),
+            )
+          })
+
+          const isTypeAssignableTo = Effect.fn("ProjectSnapshot.isTypeAssignableTo")(
+            function*(fromType: NativeType, toType: NativeType) {
+              yield* ensureActive
+              return yield* nativeRequest(
+                "isTypeAssignableTo",
+                () => nativeProject.checker.isTypeAssignableTo(fromType, toType),
+              )
+            },
+          )
+
+          const intrinsicType = Effect.fn("ProjectSnapshot.intrinsicType")(
+            function*(kind: "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void") {
+              yield* ensureActive
+              return yield* nativeRequest("getIntrinsicType", () => {
+                switch (kind) {
+                  case "string": return nativeProject.checker.getStringType()
+                  case "number": return nativeProject.checker.getNumberType()
+                  case "boolean": return nativeProject.checker.getBooleanType()
+                  case "any": return nativeProject.checker.getAnyType()
+                  case "unknown": return nativeProject.checker.getUnknownType()
+                  case "never": return nativeProject.checker.getNeverType()
+                  case "void": return nativeProject.checker.getVoidType()
+                }
+              })
+            },
+          )
+
           const unsafeNative: ProjectSnapshot["unsafeNative"] = (use) =>
             Effect.andThen(ensureActive, Effect.suspend(() => use(nativeProject)))
 
@@ -325,6 +390,10 @@ export const make = (
             semanticDiagnosticCount,
             symbolAt,
             symbolNamed,
+            typeAt,
+            typeToString,
+            isTypeAssignableTo,
+            intrinsicType,
             unsafeNative,
           } satisfies ProjectSnapshot
         })

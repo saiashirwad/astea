@@ -25,11 +25,12 @@ import {
   isPropertyAssignment,
   isStringLiteral,
 } from "typescript/unstable/ast/is"
+import type { Symbol as NativeSymbol } from "typescript/unstable/async"
 import { textHash } from "../prototype/edits.ts"
 import { type NativeCompilerError, nativeRequest } from "../prototype/native-compiler.ts"
 import type { EvidenceRecord, PlannedTextEdit } from "../prototype/plan.ts"
 import { projectRelativePath } from "../prototype/project-path.ts"
-import type { Selection } from "./query.ts"
+import { Query, type QueryContractError, type Selection } from "./query.ts"
 import type { FileNotFound, ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "./workspace.ts"
 
 /** An edit in pre-finalization form; identical in shape to its durable counterpart. */
@@ -638,6 +639,17 @@ export const objectLiteral = {
     ),
 }
 
+/** Rename a symbol across all its declarations, imports, and reference occurrences in the project. */
+export const renameSymbol = (
+  project: ProjectSnapshot,
+  symbol: NativeSymbol,
+  newName: string,
+): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
+  Effect.gen(function*() {
+    const references = yield* Query.collect(Query.referencesTo(project, symbol))
+    return yield* replaceEach(references, () => newName)
+  })
+
 export const Draft = {
   empty,
   concat,
@@ -648,6 +660,7 @@ export const Draft = {
   insertAfter,
   print,
   replaceEach,
+  renameSymbol,
   imports,
   args,
   objectLiteral,
