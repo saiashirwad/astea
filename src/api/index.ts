@@ -1,5 +1,5 @@
 /**
- * teatime — Effect-native TypeScript 7 project transformations.
+ * teamod — Effect-native TypeScript 7 project transformations.
  *
  * The pipeline is the API:
  *

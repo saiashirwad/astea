@@ -29,7 +29,7 @@ import type { PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
 
 export type { NativeCompilerError }
 
-const ConfiguredProjectTypeId: unique symbol = Symbol.for("@teatime/ConfiguredProject")
+const ConfiguredProjectTypeId: unique symbol = Symbol.for("@teamod/ConfiguredProject")
 
 /**
  * A stable project identity within a Workspace. `id` is the durable identity
@@ -155,7 +155,7 @@ export interface WorkspaceSnapshotService {
 }
 
 export class WorkspaceSnapshot extends Context.Service<WorkspaceSnapshot, WorkspaceSnapshotService>()(
-  "@teatime/WorkspaceSnapshot",
+  "@teamod/WorkspaceSnapshot",
 ) {}
 
 export interface WorkspaceService {
@@ -179,7 +179,7 @@ export interface WorkspaceService {
 }
 
 export class Workspace extends Context.Service<Workspace, WorkspaceService>()(
-  "@teatime/Workspace",
+  "@teamod/Workspace",
 ) {
   static readonly layerWithoutDependencies = (
     definition: WorkspaceDefinition,

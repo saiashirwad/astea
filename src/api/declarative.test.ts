@@ -38,7 +38,7 @@ const withFixture = <A, E, R>(
 ): Effect.Effect<A, unknown, Exclude<R, Workspace>> =>
   Effect.acquireUseRelease(
     Effect.tryPromise(async () => {
-      const root = await Fs.mkdtemp("/tmp/teatime-decl-")
+      const root = await Fs.mkdtemp("/tmp/teamod-decl-")
       await Fs.cp(fixtureSource, root, { recursive: true })
       return root
     }),
@@ -750,7 +750,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           })
 
           const tool = recipeToAgentTool(sampleRecipe, "Sample codemod tool")
-          expect(tool.name).toBe("teatime_agent_tool_sample")
+          expect(tool.name).toBe("teamod_agent_tool_sample")
           expect(tool.description).toBe("Sample codemod tool")
           expect(tool.schema).toBeDefined()
 

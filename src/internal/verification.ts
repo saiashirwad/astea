@@ -70,7 +70,7 @@ export interface VerificationReceipt {
 }
 
 // SAFETY: nominal brand symbol creation
-const VerifiedPlanTypeId: unique symbol = Symbol.for("@teatime/internal/VerifiedPlan") as never
+const VerifiedPlanTypeId: unique symbol = Symbol.for("@teamod/internal/VerifiedPlan") as never
 
 export interface VerifiedPlan {
   readonly [VerifiedPlanTypeId]: typeof VerifiedPlanTypeId
@@ -284,7 +284,7 @@ export interface PlanApplicationService {
 }
 
 export class PlanApplication extends Context.Service<PlanApplication, PlanApplicationService>()(
-  "@teatime/internal/PlanApplication",
+  "@teamod/internal/PlanApplication",
 ) {}
 
 export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplication> => Layer.succeed(
@@ -322,7 +322,7 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
           yield* fs.makeDirectory(path.dirname(target), { recursive: true }).pipe(
             Effect.mapError((cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: false })),
           )
-          const temporary = `${target}.teatime-${randomUUID()}.tmp`
+          const temporary = `${target}.teamod-${randomUUID()}.tmp`
           yield* FileSystem.FileSystem.use((fs) => fs.writeFileString(temporary, file.afterText)).pipe(
             Effect.mapError((cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true })),
           )
@@ -343,7 +343,7 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
               fileName: file.fileName,
             })
           }
-          const temporary = `${target}.teatime-${randomUUID()}.tmp`
+          const temporary = `${target}.teamod-${randomUUID()}.tmp`
           yield* FileSystem.FileSystem.use((fs) => fs.writeFileString(temporary, file.afterText)).pipe(
             Effect.mapError((cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true })),
           )

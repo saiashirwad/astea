@@ -1,11 +1,10 @@
 {
-  "name": "teatime",
+  "name": "teamod",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
   "bin": {
-    "teatime": "./bin/teatime.ts"
+    "teamod": "./bin/teamod.ts"
   },
   "exports": {
     ".": "./src/api/index.ts"

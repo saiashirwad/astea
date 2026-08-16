@@ -1,10 +1,10 @@
-# Teatime
+# Teamod
 
 Semantic TypeScript codemods you can preview, verify, and apply with confidence.
 
 Codemods are easy to write. Reliable codemods are not.
 
-Teatime is an Effect-native transformation engine for TypeScript 7. It lets developers and coding agents find code by meaning, propose surgical edits, preview the exact diff, verify compiler impact, and only then write to disk.
+Teamod is an Effect-native transformation engine for TypeScript 7. It lets developers and coding agents find code by meaning, propose surgical edits, preview the exact diff, verify compiler impact, and only then write to disk.
 
 ```text
 Snapshot → Query → Draft → Plan → Preview → Verify → Apply
@@ -12,7 +12,7 @@ Snapshot → Query → Draft → Plan → Preview → Verify → Apply
 
 Everything before `Apply` is read-only. `Application.apply` is the single write boundary, and it only accepts a verified plan.
 
-## Why Teatime
+## Why Teamod
 
 - **Semantic, not textual** — match resolved symbols, types, references, and typed AST patterns instead of relying on string search.
 - **Surgical by default** — guarded text edits preserve comments, formatting, and every byte outside the intended range.
@@ -27,11 +27,11 @@ Everything before `Apply` is read-only. `Application.apply` is the single write 
 - Node.js 24+
 - pnpm 11+
 
-Teatime is currently developed from source:
+Teamod is currently developed from source:
 
 ```sh
-git clone https://github.com/saiashirwad/teatime.git
-cd teatime
+git clone https://github.com/saiashirwad/teamod.git
+cd teamod
 pnpm install
 ```
 
@@ -55,7 +55,7 @@ import {
   Query,
   Recipe,
   WorkspaceSnapshot,
-} from "teatime"
+} from "teamod"
 
 const app = ConfiguredProject.make({
   id: "app",
@@ -104,17 +104,17 @@ Recipes are ordinary TypeScript modules exporting a `Recipe` as the default expo
 
 ```sh
 # Generate an exact diff without writing to disk.
-node bin/teatime.ts run ./recipe.ts \
+node bin/teamod.ts run ./recipe.ts \
   --cwd ./my-project \
   --preview
 
 # Preview and verify diagnostics, policies, and idempotence.
-node bin/teatime.ts run ./recipe.ts \
+node bin/teamod.ts run ./recipe.ts \
   --cwd ./my-project \
   --verify
 
 # Verify first, then apply the verified plan.
-node bin/teatime.ts run ./recipe.ts \
+node bin/teamod.ts run ./recipe.ts \
   --cwd ./my-project \
   --apply
 ```
@@ -124,7 +124,7 @@ Pass schema-backed recipe input with `--input '<json>'`. Use `--no-color` for pl
 To inspect a recipe as an agent-facing tool:
 
 ```sh
-node bin/teatime.ts tool ./recipe.ts
+node bin/teamod.ts tool ./recipe.ts
 ```
 
 ## Runnable examples
@@ -133,17 +133,17 @@ All examples are included in `pnpm typecheck`.
 
 ```sh
 # Preview a small, safe single-file edit.
-node bin/teatime.ts run ./examples/preview-add-call.ts \
+node bin/teamod.ts run ./examples/preview-add-call.ts \
   --cwd ./fixtures/basic \
   --preview
 
 # Rename a declaration and all semantic references, including aliases and re-exports.
-node bin/teatime.ts run ./examples/rename-symbol.ts \
+node bin/teamod.ts run ./examples/rename-symbol.ts \
   --cwd ./fixtures/stress \
   --preview
 
 # Rewrite an import source while preserving the comment inside its import clause.
-node bin/teatime.ts run ./examples/migrate-import.ts \
+node bin/teamod.ts run ./examples/migrate-import.ts \
   --cwd ./fixtures/stress \
   --preview
 ```

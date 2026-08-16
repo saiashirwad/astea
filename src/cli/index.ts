@@ -1,5 +1,5 @@
 /**
- * teatime CLI — Interactive command-line runner and inspection tool.
+ * teamod CLI — Interactive command-line runner and inspection tool.
  */
 import { path as Path } from "../platform/node.ts"
 import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"

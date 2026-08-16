@@ -6,11 +6,11 @@ const args = process.argv.slice(2)
 
 const printHelp = () => {
   console.log(`
-teatime — Effect-native TypeScript 7 Project Transformation Engine
+teamod — Effect-native TypeScript 7 Project Transformation Engine
 
 Usage:
-  teatime run <recipe.ts> [options]
-  teatime tool <recipe.ts>
+  teamod run <recipe.ts> [options]
+  teamod tool <recipe.ts>
 
 Options:
   --preview          Generate transformation preview without modifying disk (default)
@@ -65,6 +65,6 @@ Effect.runPromise(
     noColor,
   }),
 ).catch((err) => {
-  console.error("Error executing teatime recipe:", err)
+  console.error("Error executing teamod recipe:", err)
   process.exit(1)
 })
