@@ -1,6 +1,6 @@
 {
   "name": "safemods",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
   "bin": {
     "safemods": "./bin/safemods.ts"
