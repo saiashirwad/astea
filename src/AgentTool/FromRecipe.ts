@@ -8,7 +8,7 @@ import { Data, Effect, Layer, Schema } from "effect"
 import { Application, layerNode as planApplicationLayerNode } from "../api/application.ts"
 import { Recipe, type Recipe as RecipeModel } from "../api/recipe.ts"
 import { Preview, Verification } from "../api/verification.ts"
-import { Workspace, type WorkspaceSnapshot } from "../api/workspace.ts"
+import { Workspace, type WorkspaceSnapshot } from "../Workspace/index.ts"
 
 export type ToolAction = "create" | "delete" | "modify"
 

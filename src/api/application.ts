@@ -17,7 +17,7 @@ import {
   type StalePlanError,
   type VerifiedPlan,
 } from "../internal/verification.ts"
-import { Workspace } from "./workspace.ts"
+import { Workspace } from "../Workspace/index.ts"
 
 export { PlanApplication }
 export type { ApplicationReceipt, VerifiedPlan }

@@ -9,7 +9,7 @@ import type {
   ProjectSnapshot,
   ProjectSnapshotError,
   WorkspaceSnapshotService,
-} from "../api/workspace.ts"
+} from "../Workspace/index.ts"
 
 const ANSI = {
   reset: "\x1b[0m",

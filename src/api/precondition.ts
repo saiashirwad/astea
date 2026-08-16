@@ -6,7 +6,7 @@
  * and type-checker operations.
  */
 import { Effect, Predicate } from "effect"
-import type { ProjectFile, ProjectSnapshot, ProjectSnapshotError } from "./workspace.ts"
+import type { ProjectFile, ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
 
 export interface FilePrecondition<E = never, R = never> {
   readonly _tag: "FilePrecondition"

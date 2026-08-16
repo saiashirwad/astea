@@ -7,7 +7,7 @@ import {
   type ProjectSnapshotError,
   Workspace,
   WorkspaceSnapshot,
-} from "../api/workspace.ts"
+} from "../Workspace/index.ts"
 import { materialize } from "./Materialize.ts"
 
 export const run = <A, E, R>(

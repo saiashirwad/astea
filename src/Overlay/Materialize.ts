@@ -7,7 +7,7 @@ import {
   ProjectNotInSnapshot,
   type ProjectSnapshotError,
   type WorkspaceSnapshotService,
-} from "../api/workspace.ts"
+} from "../Workspace/index.ts"
 
 /** Materialize planned changes as an absolute-path virtual source map. */
 export const materialize = (

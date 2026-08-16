@@ -22,7 +22,7 @@ import {
   type TransformationPlan,
 } from "../internal/plan.ts"
 import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
-import { Draft } from "./draft.ts"
+import { Draft } from "../Draft/index.ts"
 import { type VerificationRule, Policy } from "./policy.ts"
 import type { PlanPolicies } from "./plan.ts"
 import { overlay } from "../Overlay/index.ts"
@@ -35,7 +35,7 @@ import {
   type SnapshotTransition,
   type WorkspaceSnapshotService,
   FileNotFound,
-} from "./workspace.ts"
+} from "../Workspace/index.ts"
 
 /**
  * Toolchain identity recorded in every plan. Candidate-pass constant:

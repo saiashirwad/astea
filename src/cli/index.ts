@@ -6,7 +6,7 @@ import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from 
 import { Application, layerNode as planApplicationLayerNode } from "../api/application.ts"
 import { type Recipe, Recipe as RecipeApi } from "../api/recipe.ts"
 import { Preview, Verification } from "../api/verification.ts"
-import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../api/workspace.ts"
+import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import type {
   AuditCriterionRecord,
   AuditFinding,

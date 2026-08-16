@@ -35,7 +35,7 @@ import {
   WorkspaceSnapshot,
   type ProjectNotInSnapshot,
   type SnapshotExpired,
-} from "./workspace.ts"
+} from "../Workspace/index.ts"
 
 export {
   StalePlanError,
