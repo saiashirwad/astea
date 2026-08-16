@@ -1,257 +1,294 @@
 # safemods
 
-> **Type-directed, transactional codemod and verification engine for TypeScript 7+ projects, built on Effect.**
+Type-aware codemods for TypeScript 7 projects.
 
-`safemods` enables safe, automated, large-scale TypeScript refactorings and cross-package API migrations. It uses the TypeScript 7 Compiler API to track symbols across renamed imports, re-exports, and barrel files, drafts range-bounded edits that preserve trivia and formatting, verifies them against compiler diagnostics and idempotency policies in virtual memory, and applies them atomically with automatic rollback.
+`safemods` uses the TypeScript compiler to find code by meaning, not just by
+syntax. A recipe can follow a symbol through imports, aliases, and re-exports,
+then propose small text edits without mutating the compiler AST or reprinting
+whole files.
 
+Planning, previewing, and verification are read-only. Writing is a separate
+step that accepts only a verified plan.
+
+```text
+query -> draft -> plan -> preview -> verify -> apply
 ```
-Query ──▶ Draft ──▶ Plan ──▶ Preview ──▶ Verify (In-Memory Compiler) ──▶ Apply (Atomic / Rollback)
-```
-
----
-
-## Why safemods?
-
-Existing JavaScript/TypeScript codemod tools force developers to choose between **semantic precision** and **destructive side effects**:
-
-- **Syntax-only tools (`jscodeshift`, `ast-grep`, `GritQL`)** are fast, but blind to types. They cannot differentiate between `UserService.get(...)`, `Map.prototype.get(...)`, and `redis.get(...)`. Running a method rename with regex or AST patterns inevitably corrupts unrelated code.
-- **Imperative AST wrappers (`ts-morph`)** are type-aware, but mutate internal compiler representations eagerly in place. Mutations invalidate parent/child node references (causing _"forgotten node"_ errors), destroy formatting trivia on reprint, and provide no rollback mechanism when a multi-file migration fails midway.
-
-**`safemods` is the OpenRewrite / LibCST of the TypeScript ecosystem.** It treats transformations as **pure, content-addressed data pipelines**:
-
-| Feature                        | `jscodeshift` / `recast` | `ast-grep` / `GritQL` | `ts-morph`          | `safemods`                                            |
-| :----------------------------- | :----------------------- | :-------------------- | :------------------ | :---------------------------------------------------- |
-| **Engine / Parser**            | Babel / Recast AST       | Tree-sitter           | TypeScript AST      | **TypeScript 7 Compiler API**                         |
-| **Type-Aware Queries**         | ❌ None                  | ❌ None               | ✅ `TypeChecker`    | ✅ **Exact Symbol Resolution Streams**                |
-| **Cross-File Import Tracking** | ❌ Blind                 | ❌ Blind              | ⚠️ Manual lookup    | ✅ **Automatic (Barrels, Aliases, Re-exports)**       |
-| **Edit Model**                 | Full-file AST reprint    | Tree-sitter patches   | Mutable AST nodes   | ✅ **Hash-guarded range text edits**                  |
-| **Multi-Phase Staging**        | ❌ File writes required  | ❌ None               | ❌ Reload project   | ✅ **Virtual In-Memory Overlays**                     |
-| **Compiler Verification**      | ❌ None                  | ❌ None               | ❌ Manual           | ✅ **`Policy.noNewErrors()` & `Policy.idempotent()`** |
-| **Transactional Rollback**     | ❌ Per-file writes       | ❌ None               | ❌ Direct disk save | ✅ **Staged writes + Automatic Rollback**             |
-
----
 
 ## Requirements
 
-- **TypeScript**: 7.0 or higher (minimum requirement)
-- **Node.js**: 24 or higher
+- Node.js 24 or newer
+- TypeScript 7
+- ESM
 
----
-
-## Installation
+## Install
 
 ```sh
 pnpm add -D safemods effect typescript@7
 ```
 
-`effect` and TypeScript 7 are installed as direct dependencies of `safemods`.
+Recipes commonly import `effect` and the TypeScript AST API directly, so both
+packages should be available in the project that contains your recipes.
 
----
+## Quick start
 
-## Quick Example: API Migration Recipe
-
-A recipe finds nodes in your project, drafts replacements, and declares verification policies.
+This recipe renames one declaration and every reference that resolves to the
+same TypeScript symbol:
 
 ```ts
+// rename-old-name.ts
 import { Effect } from "effect"
-import { isObjectLiteralExpression } from "typescript/unstable/ast/is"
 import * as Draft from "safemods/Draft"
 import * as Policy from "safemods/Policy"
-import * as Query from "safemods/Query"
 import * as Recipe from "safemods/Recipe"
 import { ConfiguredProject, WorkspaceSnapshot } from "safemods/Workspace"
 
-// 1. Declare the project boundary
 const app = ConfiguredProject.make({
   id: "app",
   config: "tsconfig.json",
 })
 
-export default Recipe.define("wrap-target-input", {
+export default Recipe.define("rename-old-name", {
   version: "1.0.0",
-
-  // 2. Declarative Verification Policies
-  policies: [
-    Policy.matches({ min: 1 }), // Guard against 0-match silent runs
-    Policy.noNewErrors(), // Reject if any new TS error is introduced
-    Policy.idempotent(), // Re-running against output must yield 0 edits
-  ],
-
-  // 3. Transformation Logic
+  policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
   run: () =>
     Effect.gen(function* () {
       const snapshot = yield* WorkspaceSnapshot
       const project = yield* snapshot.project(app)
 
-      // Resolve the exact declaration symbol across imports and re-exports
-      const targetSymbol = yield* project.symbolNamed("target", {
+      return yield* Draft.renameSymbolNamed(project, "oldName", "newName", {
         within: "src/library.ts",
-      })
-
-      // Query call sites resolving strictly to targetSymbol
-      const calls = yield* Query.calls(project).pipe(
-        Query.where(
-          Query.resolvesTo(targetSymbol, {
-            location: (call) => call.expression,
-          }),
-        ),
-        Query.filter(
-          ({ value: call }) =>
-            call.arguments.length === 1 && !isObjectLiteralExpression(call.arguments[0]!),
-        ),
-        Query.collect,
-      )
-
-      // Draft range-guarded replacements
-      return yield* Draft.replaceEach(calls, ({ value: call }) => {
-        const argument = call.arguments[0]!
-        return {
-          node: argument,
-          text: `{ value: ${argument.getText()} }`,
-        }
       })
     }),
 })
 ```
 
----
+Preview the exact changes:
 
-## Core Capabilities
+```sh
+pnpm exec safemods run ./rename-old-name.ts --cwd ./path/to/project
+```
 
-### 1. In-Memory Multi-Phase Overlays (`snapshot.overlay`)
+Verify the preview against the TypeScript compiler and the recipe's policies:
 
-Multi-phase transformations (e.g. migrating an exported function signature in a library and subsequently refactoring downstream call sites across consuming files) run inside a virtual compiler overlay without writing intermediate states to disk:
+```sh
+pnpm exec safemods run ./rename-old-name.ts --cwd ./path/to/project --verify
+```
+
+Apply it:
+
+```sh
+pnpm exec safemods run ./rename-old-name.ts --cwd ./path/to/project --apply
+```
+
+`--apply` includes verification. The CLI uses `tsconfig.json` in `--cwd` and
+loads the first exported recipe it finds, preferring a default export or an
+export named `recipe`.
+
+## Capabilities
+
+| Area                    | What is available                                                                                                                                                                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace               | Immutable snapshots of one or more configured TypeScript projects, symbol and type lookup, file dependency queries, and explicit snapshot transitions.                                                                                                            |
+| Query                   | Streams of calls, imports, identifiers, property accesses, arbitrary node kinds, symbol references, and structural pattern matches. Queries can be scoped by file and filtered by text, argument count, type, symbol, JSDoc, export status, or AST relationships. |
+| Pattern                 | Composable matchers for expressions, declarations, control flow, tuples, bindings, predicates, and computed TypeScript types.                                                                                                                                     |
+| Precondition            | Fast file filtering by path, text, or imported module before doing AST or type-checker work.                                                                                                                                                                      |
+| Draft                   | Guarded text replacement, insertion, removal, and printing, plus helpers for imports, call arguments, object literals, interfaces, classes, functions, symbol renames, and unused imports.                                                                        |
+| File operations         | Create, delete, and move files. Moving a file also updates matching relative imports.                                                                                                                                                                             |
+| Recipe                  | Schema-validated inputs, two-phase scans, sequential or concurrent composition, conditional branches, and in-memory handoff between recipe stages.                                                                                                                |
+| Plan and Preview        | Deterministic, serializable, content-addressed plans and exact read-only previews.                                                                                                                                                                                |
+| Policy and Verification | Match bounds, affected-file limits, diagnostic diffs, diagnostic-code rules, custom checks, and idempotence.                                                                                                                                                      |
+| Application             | Stale-plan checks, staged writes, rollback, and receipts for successfully committed output.                                                                                                                                                                       |
+| CLI and AgentTool       | Human-readable diffs, JSON/CSV audit reports, CI-friendly match detection, recipe JSON Schema export, and a programmatic agent-tool adapter.                                                                                                                      |
+
+The root package exports the main domains as namespaces:
 
 ```ts
-import * as Draft from "safemods/Draft"
-import * as Overlay from "safemods/Overlay"
-import { WorkspaceSnapshot } from "safemods/Workspace"
+import {
+  Application,
+  Draft,
+  Overlay,
+  Pattern,
+  Policy,
+  Precondition,
+  Preview,
+  Query,
+  Recipe,
+  Verification,
+  Workspace,
+} from "safemods"
+```
 
-// Phase 1: Update declaration in library.ts
-const draft1 =
-  yield *
-  Draft.imports.addNamed(project, "src/library.ts", {
-    module: "./types.js",
-    name: "NewConfig",
-  })
+Each domain is also available as a subpath, such as `safemods/Query`.
+Lower-level `Edit`, `Evidence`, and `Plan` modules are public as well. Node
+runtime layers, CLI helpers, and the agent adapter live at `safemods/Node`,
+`safemods/Cli`, and `safemods/AgentTool`.
 
-// Phase 2: Query downstream files inside the compiler overlay
-return (
-  yield *
-  Overlay.run(
-    draft1,
-    Effect.gen(function* () {
-      const overlaySnapshot = yield* WorkspaceSnapshot
-      const overlayProject = yield* overlaySnapshot.project(app)
-      // Downstream files now see NewConfig resolved by TypeScript!
-      return yield* Draft.concat(draft1 /* Phase 2 edits */)
-    }),
-  )
+## Querying code
+
+Queries return Effect streams of `Selection` values. A selection contains the
+typed compiler node, its project and source range, and evidence describing why
+it matched.
+
+```ts
+const matchingCalls = Query.calls(project).pipe(
+  Query.where(Query.resolvesTo(target, { location: (call) => call.expression })),
+  Query.withArgCount(1),
+  Query.within("src/**/*.ts"),
 )
 ```
 
-### 2. High-Fidelity Syntactic Draft Combinators
+The built-in query sources are `nodes`, `calls`, `imports`, `identifiers`,
+`propertyAccesses`, `referencesTo`, and `match`. Semantic criteria include
+`resolvesTo`, `typeAssignableTo`, `typeSatisfies`, `hasJSDocTag`, and
+`isExported`. `inside`, `has`, `precedes`, and `follows` cover common AST
+relationships.
 
-All syntactic operations operate on minimal range slices guarded by cryptographic old-text hashes, preserving indentation, comments, and project formatting:
+For structural matching, `Pattern` includes expression, declaration, and
+control-flow matchers along with `bind`, `tuple`, `not`, and custom predicates.
+Use `Precondition.filesMatching` to narrow a project to likely files before
+running a query.
+
+## Drafting changes
+
+The basic draft operations are `replace`, `remove`, `insertBefore`,
+`insertAfter`, `replaceEach`, and `print`. Higher-level helpers cover common
+TypeScript edits:
 
 ```ts
-// 1. Manage named imports while preserving quote styles and multiline formatting
-yield * Draft.imports.addNamed(project, "src/index.ts", { module: "effect", name: "Option" })
-yield * Draft.imports.removeNamed(project, "src/index.ts", { module: "./legacy.js", name: "oldFn" })
-
-// 2. Wrap or reorder function call arguments without altering trivia
-yield * Draft.args.wrap(project, callNode, 0, (text) => `{ value: ${text} }`)
-yield * Draft.args.reorder(project, callNode, [1, 0])
-
-// 3. Insert or modify object literal fields with inferred indentation
-yield * Draft.objectLiteral.setField(project, objectNode, "timeoutMs", "5000")
+Draft.imports.addNamed(project, "src/index.ts", {
+  module: "effect",
+  name: "Option",
+})
+Draft.args.wrap(project, call, 0, (argument) => `{ value: ${argument} }`)
+Draft.objectLiteral.setField(project, options, "timeoutMs", "5_000")
+Draft.files.move(project, "src/old.ts", "src/new.ts")
 ```
 
-### 3. Declarative Policy Engine
+Each helper returns an Effect that produces a `Draft`. Combine drafts with
+`Draft.concat` before returning from the recipe.
 
-Enforce strict invariants across the entire workspace before any files are modified:
+Every text edit records its expected source hash. Bytes outside the edited
+ranges are left alone, including comments and formatting. Overlapping or
+otherwise invalid edits are rejected while the plan is built.
 
-- **`Policy.noNewErrors()`** &mdash; Computes diagnostic diffs (`introduced`, `resolved`, `unchanged`) to guarantee no new compiler errors.
-- **`Policy.idempotent()`** &mdash; Replays the recipe against the proposed output to ensure a second run produces zero further edits.
-- **`Policy.matches({ min, max })` / `Policy.exactly(n)`** &mdash; Guardrails against over- or under-matching.
-- **`Policy.atMostFiles(n)`** &mdash; Caps the affected file blast radius.
-- **`Policy.fixesError(code)`** &mdash; Asserts that specific TypeScript diagnostic codes are actively resolved.
+## Composing recipes
 
-### 4. Transactional Writes with Automatic Rollback
+- `Recipe.pipe(a, b)` runs stages in order. Later stages query an in-memory
+  overlay containing earlier changes.
+- `Recipe.all([a, b])` runs independent recipes concurrently and merges their
+  drafts.
+- `Recipe.branch(...)` and `Recipe.when(...)` choose work from the current
+  snapshot.
+- `Recipe.scanning(...)` separates a workspace-wide analysis pass from the
+  transformation pass.
+- `Overlay.run(draft, effect)` exposes any draft as a new in-memory compiler
+  snapshot without writing it.
 
-`PlanApplication` is strictly isolated from planning:
-
-1. Re-validates source file hashes to prevent applying against stale files (`StalePlanError`).
-2. Stages changes to temporary files (`${file}.safemods-${uuid}.tmp`).
-3. Commits changes via atomic filesystem renames.
-4. If any failure occurs during writing or renaming, all staged files are cleaned up, modified files are restored from their original contents, and `rolledBack: true` is reported.
-
----
-
-## CLI
+Recipes may declare an Effect `Schema` for typed input. Pass input through the
+CLI as JSON:
 
 ```sh
-# 1. Preview colored diffs in terminal (Read-Only)
-safemods run ./recipe.ts --cwd ./my-project
-
-# 2. Run in-memory compiler verification without writing to disk
-safemods run ./recipe.ts --cwd ./my-project --verify
-
-# 3. Verify and atomically apply changes with rollback protection
-safemods run ./recipe.ts --cwd ./my-project --apply
+pnpm exec safemods run ./recipe.ts --input '{"property":"value"}'
 ```
 
-### Parametric Recipes & AI Agent Tool Calling
+## Verification and application
 
-Recipes can accept typed parameters using `@effect/schema` and export structured schemas for AI coding agents:
+The safety boundary is enforced by the API, not by CLI convention:
+
+1. `Recipe.run` creates a plan and fingerprints the configured projects.
+2. `Preview.of` materializes the proposed bytes without writing them.
+3. `Verification.verify` compiles the proposed state in memory and evaluates
+   the plan policies.
+4. `Application.apply` accepts the resulting `VerifiedPlan`; it does not accept
+   a raw plan.
+
+Verification compares proposed diagnostics with the baseline, so an existing
+error does not fail `Policy.noNewErrors()` unless the change introduces a new
+error. `Policy.idempotent()` reruns the recipe over its proposed output and
+requires the second run to produce no changes.
+
+Immediately before applying, safemods checks that the plan still matches the
+workspace snapshot. Writes are staged and moved into place. If a commit fails,
+the application layer attempts to restore the original files; if recovery
+cannot be confirmed, it reports an indeterminate application instead of a
+success receipt.
+
+## CLI reference
 
 ```sh
-# Run with JSON input
-safemods run ./recipe.ts --cwd ./my-project --input '{"key": "value"}'
+# Preview a plan (the default run mode)
+safemods run ./recipe.ts [--cwd ./project] [--input '{...}']
 
-# Export JSON Schema for LLM tool calling
+# Preview and verify
+safemods run ./recipe.ts --verify
+
+# Preview, verify, and apply
+safemods run ./recipe.ts --apply
+
+# Report matched selections without writing
+safemods scan ./recipe.ts
+safemods scan ./recipe.ts --format json
+safemods scan ./recipe.ts --format csv
+
+# Useful for CI audits: exit 1 when the recipe finds a match
+safemods scan ./recipe.ts --fail-on-match
+
+# Print the recipe's agent-tool descriptor and JSON Schema
 safemods tool ./recipe.ts
 ```
 
----
+Use `--no-color` or the `NO_COLOR` environment variable for plain output.
 
-## Programmatic Usage
+## Programmatic use
 
-Recipes can also be executed directly within an Effect workflow:
+The same pipeline can run inside an Effect application:
 
 ```ts
+import { Effect, Layer } from "effect"
 import * as Application from "safemods/Application"
+import { applicationLayerNode } from "safemods/Node"
 import * as Preview from "safemods/Preview"
 import * as Recipe from "safemods/Recipe"
 import * as Verification from "safemods/Verification"
+import { ConfiguredProject, Workspace } from "safemods/Workspace"
+import recipe from "./rename-old-name.ts"
 
-const pipeline = Effect.gen(function* () {
-  // 1. Build immutable transformation plan
-  const plan = yield* Recipe.run(myRecipe, input)
+const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: "/path/to/project" })
+const runtimeLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
-  // 2. Materialize exact proposed bytes without writing
+const program = Effect.gen(function* () {
+  const plan = yield* Recipe.run(recipe, undefined)
   const preview = yield* Preview.of(plan)
-
-  // 3. Verify in-memory compiler diagnostics and policies
-  const verified = yield* Verification.verify(plan, myRecipe, input)
-
-  // 4. Staged atomic filesystem commit with rollback
+  const verified = yield* Verification.verify(plan, recipe, undefined)
   const receipt = yield* Application.apply(verified)
-  return receipt
+
+  return { preview, receipt }
 })
+
+await Effect.runPromise(program.pipe(Effect.provide(runtimeLayer)))
 ```
 
----
+For read-only use, provide `workspaceLayer` and stop before application. A
+programmatic workspace may contain multiple configured projects; the current
+CLI opens the single `tsconfig.json` project described above.
 
 ## Development
 
 ```sh
+pnpm install
 pnpm check
-pnpm test
 ```
 
-### Examples & References
+`pnpm check` runs formatting, TypeScript and Effect diagnostics, linting,
+tests, and a packed-package smoke test. `pnpm build` creates the ESM package in
+`dist`.
 
-- [API Tour](./examples/declarative-api-tour.ts) &mdash; Comprehensive walkthrough of available queries and combinators.
-- [Examples Guide](./examples/README.md) &mdash; In-depth architectural tour and pattern examples.
-- [Context & Architecture](./CONTEXT.md) &mdash; Project terminology and architectural model.
+More examples:
+
+- [Rename a symbol](./examples/rename-symbol.ts)
+- [Migrate an import](./examples/migrate-import.ts)
+- [Query and replace a call argument](./examples/preview-add-call.ts)
+- [Full API tour](./examples/declarative-api-tour.ts)
+- [Architecture](./ARCHITECTURE.md)
+- [Domain terminology](./CONTEXT.md)
