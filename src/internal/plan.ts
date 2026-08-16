@@ -1,6 +1,7 @@
 /** Canonical, serializable Transformation Plan envelope. */
 import { createHash } from "node:crypto"
 import { Data, Effect, Predicate, Schema } from "effect"
+import type { EvidenceRecord } from "../Evidence/Model.ts"
 
 export type Json = null | boolean | number | string | ReadonlyArray<Json> | { readonly [key: string]: Json }
 
@@ -35,11 +36,7 @@ export interface PlannedFileOperation {
   readonly evidenceIds?: ReadonlyArray<string>
 }
 
-export interface EvidenceRecord {
-  readonly id: string
-  readonly kind: string
-  readonly facts: { readonly [key: string]: Json }
-}
+export type { EvidenceRecord } from "../Evidence/Model.ts"
 
 export interface PlanPolicies {
   readonly matchCount: { readonly min?: number; readonly max?: number }
@@ -202,4 +199,3 @@ export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanD
       return plan
     })),
   )
-

@@ -30,8 +30,10 @@ export type {
   AuditFinding,
   AuditReport,
 } from "../cli/audit.ts"
-export { recipeToAgentTool } from "../cli/tool.ts"
-export type { AgentTool } from "../cli/tool.ts"
+/** @deprecated Import from `safemods/AgentTool`. */
+export { recipeToAgentTool } from "../AgentTool/FromRecipe.ts"
+/** @deprecated Import from `safemods/AgentTool`. */
+export type { AgentTool } from "../AgentTool/FromRecipe.ts"
 export {
   Application,
   layerNode as planApplicationLayerNode,

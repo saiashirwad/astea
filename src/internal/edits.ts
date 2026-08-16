@@ -1,9 +1,6 @@
 /** Deterministic minimal text edits with explicit native fragment printing. */
 import { createHash } from "node:crypto"
 import { Data, Effect } from "effect"
-import type { Node } from "typescript/unstable/ast"
-import { nativeRequest, type NativeCompilerError } from "./native-compiler.ts"
-import type { ProjectSnapshot } from "../api/workspace.ts"
 
 export interface TextEdit {
   readonly projectConfigFileName: string
@@ -100,10 +97,3 @@ export const applyFileEdits = (
   }
   return output
 })
-
-export const printNativeFragment = (
-  project: ProjectSnapshot,
-  node: Node,
-): Effect.Effect<string, NativeCompilerError | import("../api/workspace.ts").SnapshotExpired> =>
-  project.unsafeNative((nativeProject) =>
-    nativeRequest("print native fragment", () => nativeProject.emitter.printNode(node)))

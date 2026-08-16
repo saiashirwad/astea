@@ -1,5 +1,5 @@
 /**
- * Agent Tool Protocol — bridge recipes into LLM-callable tools.
+ * AgentTool domain — bridge recipes into LLM-callable tools.
  *
  * Turns any `Recipe` into a typed, validated agent tool conforming
  * to standard LLM function-calling protocols (OpenAI / MCP / Anthropic).

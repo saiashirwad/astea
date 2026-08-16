@@ -58,7 +58,7 @@ import {
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
 import { nativeRequest } from "../internal/native-compiler.ts"
 import { projectRelativePath } from "../internal/project-path.ts"
-import type { EvidenceFact } from "./query.ts"
+import type { EvidenceFact } from "../Evidence/Model.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "./workspace.ts"
 
 export interface PatternMatchResult<Out> {

@@ -44,6 +44,7 @@ import {
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
 import { type NativeCompilerError, nativeRequest } from "../internal/native-compiler.ts"
 import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
+import type { EvidenceFact, QueryEvidence } from "../Evidence/Model.ts"
 import type { Pattern } from "./pattern.ts"
 import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError, type SnapshotExpired } from "./workspace.ts"
 
@@ -97,13 +98,7 @@ const resolveScope = (
   )
 }
 
-export type EvidenceFact = string | number | boolean | null
-
-/** Deterministic facts explaining why a Selection qualified. */
-export interface QueryEvidence {
-  readonly criterion: string
-  readonly facts: Readonly<Record<string, EvidenceFact>>
-}
+export type { EvidenceFact, QueryEvidence } from "../Evidence/Model.ts"
 
 /**
  * An occurrence admitted by a query: the snapshot-scoped native value, its

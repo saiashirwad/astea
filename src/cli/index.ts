@@ -21,7 +21,7 @@ import {
   renderAuditText,
 } from "./audit.ts"
 import { renderDiagnosticDiff, renderPlanPreview } from "./diff.ts"
-import { recipeToAgentTool } from "./tool.ts"
+import { recipeToAgentTool } from "../AgentTool/FromRecipe.ts"
 
 export type { AuditCriterionRecord, AuditFinding, AuditReport }
 export {
