@@ -224,13 +224,14 @@ export const replaceEach = <A extends Node, E = never, R = never>(
       Effect.flatMap((proposed) => {
         if (isDraft(proposed)) {
           const evidenceId =
-            `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}`
+            `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
           const evidence = proposed.evidence.length > 0
             ? proposed.evidence
             : [{
               id: evidenceId,
               kind: "selection",
               facts: {
+                projectId: selection.project.project.id,
                 fileName: selection.fileName,
                 start: selection.start,
                 end: selection.end,
@@ -249,7 +250,7 @@ export const replaceEach = <A extends Node, E = never, R = never>(
         const node = isTextReplacement(proposed) ? selection.value : proposed.node
         const text = isTextReplacement(proposed) ? proposed : proposed.text
         const evidenceId =
-          `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}`
+          `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
         return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
           Effect.map((edit): Draft => ({
             edits: [edit],
@@ -257,6 +258,7 @@ export const replaceEach = <A extends Node, E = never, R = never>(
               id: evidenceId,
               kind: "selection",
               facts: {
+                projectId: selection.project.project.id,
                 fileName: selection.fileName,
                 start: selection.start,
                 end: selection.end,
@@ -272,6 +274,42 @@ export const replaceEach = <A extends Node, E = never, R = never>(
       }),
     )
   }).pipe(Effect.map((drafts) => concat(...drafts)))
+
+// =============================================================================
+// Read-only Audit Evidence
+// =============================================================================
+
+/**
+ * Record query selections as search/audit evidence without proposing any file edits.
+ * Enables read-only codebase audits, inventorying, and migration sizing.
+ */
+export const audit = <A extends Node>(
+  selections: ReadonlyArray<Selection<A>>,
+): Draft => {
+  const evidence: Array<EvidenceRecord> = selections.map((selection) => {
+    const evidenceId =
+      `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
+    return {
+      id: evidenceId,
+      kind: "selection",
+      facts: {
+        projectId: selection.project.project.id,
+        fileName: selection.fileName,
+        start: selection.start,
+        end: selection.end,
+        criteria: selection.evidence.map((item) => ({
+          criterion: item.criterion,
+          facts: { ...item.facts },
+        })),
+      },
+    }
+  })
+  return {
+    edits: [],
+    evidence,
+    matches: selections.length,
+  }
+}
 
 // =============================================================================
 // File Lifecycle Operations
@@ -1266,6 +1304,7 @@ export const cleanUnused = (
 export const Draft = {
   empty,
   concat,
+  audit,
   replace,
   replaceWith,
   replaceArgument,

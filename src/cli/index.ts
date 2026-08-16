@@ -12,15 +12,41 @@ import {
   Recipe as RecipeApi,
   Verification,
   Workspace,
+  WorkspaceSnapshot,
 } from "../api/index.ts"
+import type {
+  AuditCriterionRecord,
+  AuditFinding,
+  AuditReport,
+} from "./audit.ts"
+import {
+  buildAuditReport,
+  CliMatchFoundError,
+  computeLineAndColumn,
+  renderAuditCsv,
+  renderAuditJson,
+  renderAuditText,
+} from "./audit.ts"
 import { renderDiagnosticDiff, renderPlanPreview } from "./diff.ts"
 import { recipeToAgentTool } from "./tool.ts"
+
+export type { AuditCriterionRecord, AuditFinding, AuditReport }
+export {
+  buildAuditReport,
+  CliMatchFoundError,
+  computeLineAndColumn,
+  renderAuditCsv,
+  renderAuditJson,
+  renderAuditText,
+}
 
 export interface CliOptions {
   readonly recipePath: string
   readonly input?: unknown
   readonly cwd?: string
-  readonly mode?: "preview" | "verify" | "apply"
+  readonly mode?: "preview" | "verify" | "apply" | "scan"
+  readonly format?: "text" | "json" | "csv"
+  readonly failOnMatch?: boolean
   readonly toolSchema?: boolean
   readonly noColor?: boolean
 }
@@ -107,7 +133,7 @@ const loadRecipe = (resolvedRecipe: string): Effect.Effect<Recipe<unknown>, CliE
 
 const JsonText = Schema.fromJsonString(Schema.Unknown)
 
-export const runCli = (options: CliOptions): Effect.Effect<void, CliError> =>
+export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliMatchFoundError> =>
   Effect.gen(function*() {
     const targetCwd = options.cwd !== undefined
       ? Path.resolve(process.cwd(), options.cwd)
@@ -136,7 +162,33 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError> =>
     const useColor = options.noColor !== true && Option.isNone(noColorConfig)
 
     yield* Effect.gen(function*() {
+      const workspace = yield* Workspace
       const plan = yield* RecipeApi.run(recipe, options.input)
+
+      if (options.mode === "scan") {
+        const report = yield* workspace.withSnapshot({}, Effect.gen(function*() {
+          const snapshot = yield* WorkspaceSnapshot
+          return yield* buildAuditReport(plan, snapshot)
+        }))
+
+        const format = options.format ?? "text"
+        if (format === "json") {
+          yield* Console.log(renderAuditJson(report))
+        } else if (format === "csv") {
+          yield* Console.log(renderAuditCsv(report))
+        } else {
+          yield* Console.log(renderAuditText(report, { color: useColor }))
+        }
+
+        if (options.failOnMatch === true && report.totalMatches > 0) {
+          return yield* new CliMatchFoundError({
+            matches: report.totalMatches,
+            files: report.totalFiles,
+          })
+        }
+        return
+      }
+
       const preview = yield* Preview.of(plan)
 
       yield* Console.log(renderPlanPreview(preview, { color: useColor }))
@@ -154,6 +206,17 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError> =>
       }
     }).pipe(
       Effect.provide(workspaceLayer),
-      Effect.mapError((cause) => new CliError({ message: formatCliError(cause) })),
+      Effect.mapError((cause) => {
+        if (
+          cause !== null &&
+          Predicate.isObject(cause) &&
+          "_tag" in cause &&
+          cause._tag === "CliMatchFoundError"
+        ) {
+          // SAFETY: Tag check confirms CliMatchFoundError shape.
+          return cause as CliMatchFoundError
+        }
+        return new CliError({ message: formatCliError(cause) })
+      }),
     )
   })
