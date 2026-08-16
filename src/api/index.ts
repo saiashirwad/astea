@@ -48,7 +48,7 @@ export type {
   PolicyEvaluationContext,
 } from "./policy.ts"
 export { Criterion, Query, QueryContractError } from "./query.ts"
-export type { EvidenceFact, QueryEvidence, Selection } from "./query.ts"
+export type { EvidenceFact, ProjectScope, QueryEvidence, Selection } from "./query.ts"
 export { Recipe, RecipeInputError, TOOLCHAIN } from "./recipe.ts"
 export type { RecipeDefinition } from "./recipe.ts"
 export { Preview, StalePlanError, Verification, VerificationFailure } from "./verification.ts"
@@ -58,7 +58,9 @@ export {
   ConfiguredProject,
   DuplicateConfiguredProject,
   FileNotFound,
+  isProjectFile,
   overlay,
+  ProjectFileTypeSymbol,
   ProjectNotInSnapshot,
   SnapshotExpired,
   SymbolNotFound,
@@ -67,6 +69,7 @@ export {
 } from "./workspace.ts"
 export type {
   NativeCompilerError,
+  ProjectFile,
   ProjectSnapshot,
   ProjectSnapshotError,
   SnapshotTransition,

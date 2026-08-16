@@ -8,7 +8,7 @@
  * generation. `ConfiguredProject` and `ProjectSnapshot` are plain values.
  */
 import { path as Path } from "../platform/node.ts"
-import { Context, Data, Effect, Layer, Option, Semaphore } from "effect"
+import { Context, Data, Effect, Layer, Option, Predicate, Semaphore } from "effect"
 import type { SourceFile } from "typescript/unstable/ast"
 import type {
   APIOptions,
@@ -26,6 +26,7 @@ import {
   nativeRequest,
 } from "../internal/native-compiler.ts"
 import type { PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
+import { projectRelativePath } from "../internal/project-path.ts"
 
 export type { NativeCompilerError }
 
@@ -96,6 +97,36 @@ export class FileNotFound extends Data.TaggedError("FileNotFound")<{
 
 export type ProjectSnapshotError = NativeCompilerError | SnapshotExpired
 
+export const ProjectFileTypeSymbol = Symbol.for("@safemods/ProjectFile")
+
+/**
+ * A validated reference to an existing source file in a Project Snapshot.
+ * Bundles file existence proof, project identity, and scoped queries together.
+ */
+export interface ProjectFile {
+  readonly [ProjectFileTypeSymbol]: true
+  readonly project: ProjectSnapshot
+  readonly path: string
+  readonly sourceFile: Effect.Effect<SourceFile, FileNotFound | ProjectSnapshotError>
+  readonly sourceText: Effect.Effect<string, FileNotFound | ProjectSnapshotError>
+  readonly symbolNamed: (
+    name: string,
+  ) => Effect.Effect<NativeSymbol, SymbolNotFound | ProjectSnapshotError>
+  readonly findSymbolNamed: (
+    name: string,
+  ) => Effect.Effect<Option.Option<NativeSymbol>, ProjectSnapshotError>
+  readonly symbolAt: (
+    position: number,
+  ) => Effect.Effect<NativeSymbol | undefined, ProjectSnapshotError>
+  readonly typeAt: (
+    position: number,
+  ) => Effect.Effect<NativeType | undefined, ProjectSnapshotError>
+}
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Type guard boundary for ProjectFile handles.
+export const isProjectFile = (value: unknown): value is ProjectFile =>
+  Predicate.isObject(value) && ProjectFileTypeSymbol in value
+
 /**
  * A checked view of one Configured Project within a particular Workspace
  * Snapshot. All native values reached through it are valid only while the
@@ -109,6 +140,16 @@ export interface ProjectSnapshot {
   readonly sourceFileNames: Effect.Effect<ReadonlyArray<string>, ProjectSnapshotError>
   readonly sourceFile: (fileName: string) => Effect.Effect<SourceFile | undefined, ProjectSnapshotError>
   readonly sourceText: (fileName: string) => Effect.Effect<string, FileNotFound | ProjectSnapshotError>
+  /** Retrieve a validated reference to an existing file, failing fast if absent. */
+  readonly file: (
+    fileName: string,
+  ) => Effect.Effect<ProjectFile, FileNotFound | ProjectSnapshotError>
+  /** Look up an optional validated reference to a file. */
+  readonly findFile: (
+    fileName: string,
+  ) => Effect.Effect<Option.Option<ProjectFile>, ProjectSnapshotError>
+  /** All source files in the project as validated ProjectFile references. */
+  readonly files: Effect.Effect<ReadonlyArray<ProjectFile>, ProjectSnapshotError>
   readonly semanticDiagnosticCount: Effect.Effect<number, ProjectSnapshotError>
   /** Resolve the symbol at a position in a project-relative file. */
   readonly symbolAt: (
@@ -418,13 +459,59 @@ export const make = (
           const unsafeNative: ProjectSnapshot["unsafeNative"] = (use) =>
             Effect.andThen(ensureActive, Effect.suspend(() => use(nativeProject)))
 
-          return {
+          const makeProjectFile = (selfSnapshot: ProjectSnapshot, relativePath: string): ProjectFile => ({
+            [ProjectFileTypeSymbol]: true,
+            project: selfSnapshot,
+            path: relativePath,
+            sourceFile: selfSnapshot.sourceFile(relativePath).pipe(
+              Effect.flatMap((sf) =>
+                sf !== undefined
+                  ? Effect.succeed(sf)
+                  : Effect.fail(new FileNotFound({ projectId: configured.id, fileName: relativePath }))
+              ),
+            ),
+            sourceText: selfSnapshot.sourceText(relativePath),
+            symbolNamed: (name: string) => selfSnapshot.symbolNamed(name, { within: relativePath }),
+            findSymbolNamed: (name: string) => selfSnapshot.findSymbolNamed(name, { within: relativePath }),
+            symbolAt: (position: number) => selfSnapshot.symbolAt(relativePath, position),
+            typeAt: (position: number) => selfSnapshot.typeAt(relativePath, position),
+          })
+
+          const file = Effect.fn("ProjectSnapshot.file")(function*(fileName: string) {
+            yield* ensureActive
+            const rel = projectRelativePath(projectRoot, Path.resolve(projectRoot, fileName))
+            const absolute = Path.resolve(projectRoot, rel)
+            const sf = yield* nativeRequest(
+              "getSourceFile",
+              () => nativeProject.program.getSourceFile(absolute),
+            )
+            if (sf === undefined) {
+              return yield* new FileNotFound({ projectId: configured.id, fileName: rel })
+            }
+            return makeProjectFile(snapshotView, rel)
+          })
+
+          const findFile = Effect.fn("ProjectSnapshot.findFile")(function*(fileName: string) {
+            return yield* file(fileName).pipe(
+              Effect.map(Option.some),
+              Effect.catchTag("FileNotFound", () => Effect.succeed(Option.none())),
+            )
+          })
+
+          const files: ProjectSnapshot["files"] = sourceFileNames.pipe(
+            Effect.map((names) => names.map((name) => makeProjectFile(snapshotView, projectRelativePath(projectRoot, name)))),
+          )
+
+          const snapshotView: ProjectSnapshot = {
             project: configured,
             root: projectRoot,
             rootFiles: nativeProject.rootFiles,
             sourceFileNames,
             sourceFile,
             sourceText,
+            file,
+            findFile,
+            files,
             semanticDiagnosticCount,
             symbolAt,
             symbolNamed,
@@ -434,7 +521,9 @@ export const make = (
             isTypeAssignableTo,
             intrinsicType,
             unsafeNative,
-          } satisfies ProjectSnapshot
+          }
+
+          return snapshotView
         })
 
         const snapshotService = WorkspaceSnapshot.of({

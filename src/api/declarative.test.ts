@@ -355,6 +355,67 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
+    effect("supports validated ProjectFile handles with fail-fast lookup and scoped operations", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          const fileRecipe = Recipe.define("use-project-file", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+
+                // 1. Validated file lookup (fails fast with FileNotFound if missing)
+                const consumerFile = yield* project.file("src/consumer.ts")
+                expect(consumerFile.path).toBe("src/consumer.ts")
+
+                // 2. Optional file lookup
+                const maybeFile = yield* project.findFile("src/nonexistent.ts")
+                expect(maybeFile._tag).toBe("None")
+
+                // 3. Scoped symbol lookup from file
+                const libraryFile = yield* project.file("src/library.ts")
+                const targetSymbol = yield* libraryFile.symbolNamed("target")
+                expect(targetSymbol.name).toBe("target")
+
+                // 4. Scoped query directly on ProjectFile
+                const callsInConsumer = yield* Query.calls(consumerFile).pipe(
+                  Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
+                  Query.collect,
+                )
+                expect(callsInConsumer.length).toBe(1)
+
+                // 5. Scoped import addition on ProjectFile
+                const importDraft = yield* Draft.imports.addNamed(consumerFile, {
+                  module: "./library.js",
+                  name: "TargetInput",
+                })
+
+                // 6. Scoped argument replacement
+                const replaceDraft = yield* Draft.replaceEach(callsInConsumer, ({ project: p, value: call }) =>
+                  Draft.wrapArgument(p, call, 0, (arg) => `{ value: ${arg} }`)
+                )
+
+                return Draft.concat(importDraft, replaceDraft)
+              }),
+          })
+
+          const plan = yield* Recipe.run(fileRecipe, undefined)
+          const verified = yield* Verification.verify(plan, fileRecipe, undefined)
+          yield* Application.apply(verified).pipe(
+            Effect.provide(planApplicationLayerNode),
+          )
+
+          const consumerContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+          )
+          expect(consumerContent).toContain("TargetInput")
+          expect(consumerContent).toContain("renamed(/* keep this comment */ { value: 1 })")
+        })
+      ),
+      60_000,
+    )
+
     effect("composes concurrent recipes with Recipe.all and executes conditionally with Recipe.branch", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {

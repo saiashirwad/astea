@@ -29,7 +29,29 @@ import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } fro
 import { type NativeCompilerError, nativeRequest } from "../internal/native-compiler.ts"
 import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
 import type { Pattern } from "./pattern.ts"
-import type { ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "./workspace.ts"
+import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError, type SnapshotExpired } from "./workspace.ts"
+
+export type ProjectScope = ProjectSnapshot | ProjectFile
+
+export interface ResolvedProjectScope {
+  readonly project: ProjectSnapshot
+  readonly fileNames: Stream.Stream<string, ProjectSnapshotError>
+}
+
+const resolveScope = (
+  scope: ProjectScope,
+): ResolvedProjectScope => {
+  if (isProjectFile(scope)) {
+    return {
+      project: scope.project,
+      fileNames: Stream.make(Path.resolve(scope.project.root, scope.path)),
+    }
+  }
+  return {
+    project: scope,
+    fileNames: Stream.fromIterableEffect(scope.sourceFileNames),
+  }
+}
 
 export type EvidenceFact = string | number | boolean | null
 
@@ -198,10 +220,11 @@ const collectNodes = <A extends Node>(
 
 /** All descendant nodes of the given kind, in every file the project checks. */
 export const nodes = <A extends Node>(
-  project: ProjectSnapshot,
+  target: ProjectScope,
   guard: (node: Node) => node is A,
-): Query<A, ProjectSnapshotError> =>
-  Stream.fromIterableEffect(project.sourceFileNames).pipe(
+): Query<A, ProjectSnapshotError> => {
+  const { project, fileNames } = resolveScope(target)
+  return fileNames.pipe(
     Stream.flatMap((fileName) =>
       Stream.fromEffect(project.unsafeNative((nativeProject) =>
         nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
@@ -211,27 +234,29 @@ export const nodes = <A extends Node>(
       sourceFile === undefined ? Stream.empty : Stream.fromIterable(collectNodes(project, sourceFile, guard))
     ),
   )
+}
 
-export const calls = (project: ProjectSnapshot): Query<CallExpression, ProjectSnapshotError> =>
-  nodes(project, isCallExpression)
+export const calls = (target: ProjectScope): Query<CallExpression, ProjectSnapshotError> =>
+  nodes(target, isCallExpression)
 
-export const imports = (project: ProjectSnapshot): Query<ImportDeclaration, ProjectSnapshotError> =>
-  nodes(project, isImportDeclaration)
+export const imports = (target: ProjectScope): Query<ImportDeclaration, ProjectSnapshotError> =>
+  nodes(target, isImportDeclaration)
 
-export const identifiers = (project: ProjectSnapshot): Query<Identifier, ProjectSnapshotError> =>
-  nodes(project, isIdentifier)
+export const identifiers = (target: ProjectScope): Query<Identifier, ProjectSnapshotError> =>
+  nodes(target, isIdentifier)
 
 export const propertyAccesses = (
-  project: ProjectSnapshot,
+  target: ProjectScope,
 ): Query<PropertyAccessExpression, ProjectSnapshotError> =>
-  nodes(project, isPropertyAccessExpression)
+  nodes(target, isPropertyAccessExpression)
 
 /** Structural pattern matching query. */
 export const match = <Out>(
-  project: ProjectSnapshot,
+  target: ProjectScope,
   pattern: Pattern<Node, Out>,
-): Query<Out, ProjectSnapshotError> =>
-  Stream.fromIterableEffect(project.sourceFileNames).pipe(
+): Query<Out, ProjectSnapshotError> => {
+  const { project, fileNames } = resolveScope(target)
+  return fileNames.pipe(
     Stream.flatMap((fileName) =>
       Stream.fromEffect(project.unsafeNative((nativeProject) =>
         nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
@@ -277,6 +302,7 @@ export const match = <Out>(
       )
     }),
   )
+}
 
 /** Admit only selections the criterion produces evidence for. */
 export const where = <A, E2, R2>(
@@ -443,16 +469,17 @@ export const collect = <A, E, R>(
 
 /** Find all occurrences across all files in the project that resolve to the given canonical symbol. */
 export const referencesTo = (
-  project: ProjectSnapshot,
+  target: ProjectScope,
   symbol: NativeSymbol,
 ): Query<Identifier, ProjectSnapshotError | QueryContractError> =>
-  identifiers(project).pipe(where(resolvesTo(symbol)))
+  identifiers(target).pipe(where(resolvesTo(symbol)))
 
 /** Inspect the computed TypeScript Type of a node. */
 export const typeOf = (
-  project: ProjectSnapshot,
+  target: ProjectScope,
   node: Node,
 ): Effect.Effect<NativeType | undefined, ProjectSnapshotError> => {
+  const project = isProjectFile(target) ? target.project : target
   const sourceFile = node.getSourceFile()
   const fileName = projectRelativePath(project.root, sourceFile.fileName)
   const pos = node.getStart(sourceFile)
@@ -530,10 +557,16 @@ export const typeSatisfies = <A extends Node>(
     }),
 })
 
-/** Filter selections to only those whose project-relative fileName matches a glob pattern, suffix, or RegExp. */
+/** Filter selections to only those whose project-relative fileName matches a glob pattern, suffix, RegExp, or ProjectFile. */
 export const within = <A>(
-  pattern: string | RegExp,
+  pattern: string | RegExp | ProjectFile,
 ) => <E, R>(query: Query<A, E, R>): Query<A, E, R> => {
+  if (isProjectFile(pattern)) {
+    return Stream.filter(query, (selection) =>
+      selection.project.project.id === pattern.project.project.id &&
+      selection.fileName === pattern.path
+    )
+  }
   const predicate = Predicate.isString(pattern)
     ? (fileName: string) => {
         if (pattern.includes("*")) {

@@ -36,7 +36,14 @@ import { type NativeCompilerError, nativeRequest } from "../internal/native-comp
 import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
 import { projectRelativePath } from "../internal/project-path.ts"
 import { Query, type QueryContractError, type Selection } from "./query.ts"
-import type { FileNotFound, ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "./workspace.ts"
+import {
+  isProjectFile,
+  type FileNotFound,
+  type ProjectFile,
+  type ProjectSnapshot,
+  type ProjectSnapshotError,
+  type SnapshotExpired,
+} from "./workspace.ts"
 
 /** An edit in pre-finalization form; identical in shape to its durable counterpart. */
 export type ProposedEdit = PlannedTextEdit
@@ -396,14 +403,27 @@ export interface AddNamedImportOptions {
   readonly alias?: string
 }
 
+export interface AddNamedImportFn {
+  (file: ProjectFile, options: AddNamedImportOptions): Effect.Effect<Draft, ProjectSnapshotError>
+  (project: ProjectSnapshot, fileName: string, options: AddNamedImportOptions): Effect.Effect<Draft, ProjectSnapshotError>
+}
+
 export const imports = {
   /** Add a named import to a source file. */
-  addNamed: (
-    project: ProjectSnapshot,
-    fileName: string,
-    options: AddNamedImportOptions,
-  ): Effect.Effect<Draft, ProjectSnapshotError> =>
-    Effect.gen(function*() {
+  // SAFETY: Overloaded implementation handles ProjectFile and (ProjectSnapshot, fileName) argument signatures.
+  addNamed: ((
+    projectOrFile: ProjectSnapshot | ProjectFile,
+    fileNameOrOptions: string | AddNamedImportOptions,
+    maybeOptions?: AddNamedImportOptions,
+  ): Effect.Effect<Draft, ProjectSnapshotError> => {
+    const isFile = isProjectFile(projectOrFile)
+    const project = isFile ? projectOrFile.project : projectOrFile
+    // SAFETY: When projectOrFile is not a ProjectFile, fileNameOrOptions is guaranteed to be the string path.
+    const fileName = isFile ? projectOrFile.path : (fileNameOrOptions as string)
+    // SAFETY: When projectOrFile is a ProjectFile, fileNameOrOptions is the options object; otherwise options is in maybeOptions.
+    const options = isFile ? (fileNameOrOptions as AddNamedImportOptions) : maybeOptions!
+
+    return Effect.gen(function*() {
       const source = yield* project.sourceFile(fileName)
       if (source === undefined) {
         return empty
@@ -466,7 +486,9 @@ export const imports = {
           }
         })
       )
-    }),
+    })
+    // SAFETY: Overloaded implementation handles ProjectFile and (ProjectSnapshot, fileName) argument signatures.
+  }) as AddNamedImportFn,
 
   /** Remove a named import from an import declaration. */
   removeNamed: (
@@ -1172,18 +1194,31 @@ export const renameSymbol = (
     return yield* replaceEach(references, () => newName)
   })
 
+export interface RenameSymbolNamedFn {
+  (file: ProjectFile, oldName: string, newName: string): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError>
+  (
+    project: ProjectSnapshot,
+    oldName: string,
+    newName: string,
+    options: { readonly within: string },
+  ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError>
+}
+
 /**
- * Convenience helper to find and rename a symbol by name in a project-relative file.
+ * Convenience helper to find and rename a symbol by name in a project-relative file or ProjectFile.
  * Returns `Draft.empty` if the symbol is not found (providing natural idempotency).
  */
-export const renameSymbolNamed = (
-  project: ProjectSnapshot,
+export const renameSymbolNamed: RenameSymbolNamedFn = (
+  projectOrFile: ProjectSnapshot | ProjectFile,
   oldName: string,
   newName: string,
-  options: { readonly within: string },
+  maybeOptions?: { readonly within: string },
 ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
   Effect.gen(function*() {
-    const symbolOption = yield* project.findSymbolNamed(oldName, options)
+    const isFile = isProjectFile(projectOrFile)
+    const project = isFile ? projectOrFile.project : projectOrFile
+    const within = isFile ? projectOrFile.path : maybeOptions!.within
+    const symbolOption = yield* project.findSymbolNamed(oldName, { within })
     if (Option.isNone(symbolOption)) {
       return empty
     }
