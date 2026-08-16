@@ -3,9 +3,11 @@
  */
 import { path as Path } from "../platform/node.ts"
 import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"
-import { Application, layerNode as planApplicationLayerNode } from "../api/application.ts"
-import { type Recipe, Recipe as RecipeApi } from "../api/recipe.ts"
-import { Preview, Verification } from "../api/verification.ts"
+import { Application } from "../Application/index.ts"
+import { applicationLayerNode as planApplicationLayerNode } from "../Node/index.ts"
+import { type Recipe, Recipe as RecipeApi } from "../Recipe/index.ts"
+import { Preview } from "../Preview/index.ts"
+import { Verification } from "../Verification/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import type {
   AuditCriterionRecord,

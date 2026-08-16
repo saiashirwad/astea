@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "node tools/generate-version.mjs && rm -rf dist && tsc -p tsconfig.build.json",
     "prepack": "pnpm build",
     "check": "pnpm typecheck && pnpm effect:check && pnpm lint && pnpm test",
     "check:fast": "pnpm typecheck && pnpm effect:check && pnpm lint",

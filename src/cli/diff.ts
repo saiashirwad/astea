@@ -5,23 +5,9 @@
  * complete with line numbers, hunk headers, change summaries, and
  * diagnostic delta badges.
  */
-import type { DiagnosticDiff } from "../api/policy.ts"
-import type { FilePreview, PlanPreview } from "../api/verification.ts"
-
-const ANSI = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  cyan: "\x1b[36m",
-  yellow: "\x1b[33m",
-  magenta: "\x1b[35m",
-  gray: "\x1b[90m",
-}
-
-const colorize = (text: string, color: string, enabled = true): string =>
-  enabled ? `${color}${text}${ANSI.reset}` : text
+import type { DiagnosticDiff } from "../Policy/index.ts"
+import type { FilePreview, PlanPreview } from "../Preview/index.ts"
+import { ANSI, colorize } from "./ansi.ts"
 
 export interface DiffOptions {
   readonly color?: boolean

@@ -5,9 +5,11 @@
  * to standard LLM function-calling protocols (OpenAI / MCP / Anthropic).
  */
 import { Data, Effect, Layer, Schema } from "effect"
-import { Application, layerNode as planApplicationLayerNode } from "../api/application.ts"
-import { Recipe, type Recipe as RecipeModel } from "../api/recipe.ts"
-import { Preview, Verification } from "../api/verification.ts"
+import { Application } from "../Application/index.ts"
+import { applicationLayerNode as planApplicationLayerNode } from "../Node/index.ts"
+import { Recipe, type Recipe as RecipeModel } from "../Recipe/index.ts"
+import { Preview } from "../Preview/index.ts"
+import { Verification } from "../Verification/index.ts"
 import { Workspace, type WorkspaceSnapshot } from "../Workspace/index.ts"
 
 export type ToolAction = "create" | "delete" | "modify"
