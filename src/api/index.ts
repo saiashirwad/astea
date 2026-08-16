@@ -120,6 +120,7 @@ export {
   WorkspaceSnapshot,
 } from "./workspace.ts"
 export type {
+  DependencyGraphOptions,
   NativeCompilerError,
   ProjectFile,
   ProjectSnapshot,

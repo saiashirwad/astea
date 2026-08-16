@@ -47,26 +47,54 @@ import { isWithinProject, projectRelativePath } from "../internal/project-path.t
 import type { Pattern } from "./pattern.ts"
 import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError, type SnapshotExpired } from "./workspace.ts"
 
-export type ProjectScope = ProjectSnapshot | ProjectFile
+export type ProjectScope = ProjectSnapshot | ProjectFile | ReadonlyArray<ProjectFile>
 
-export interface ResolvedProjectScope {
+export interface TargetFileScope {
   readonly project: ProjectSnapshot
-  readonly fileNames: Stream.Stream<string, ProjectSnapshotError>
+  readonly fileName: string
 }
+
+const isProjectFileArray = (
+  value: ProjectScope,
+): value is ReadonlyArray<ProjectFile> => Array.isArray(value)
 
 const resolveScope = (
   scope: ProjectScope,
-): ResolvedProjectScope => {
-  if (isProjectFile(scope)) {
-    return {
-      project: scope.project,
-      fileNames: Stream.make(Path.resolve(scope.project.root, scope.path)),
+): Stream.Stream<TargetFileScope, ProjectSnapshotError> => {
+  if (isProjectFileArray(scope)) {
+    if (scope.length === 0) {
+      return Stream.empty
     }
+    const seen = new Set<string>()
+    const uniqueFiles: Array<TargetFileScope> = []
+    for (const f of scope) {
+      const key = `${f.project.project.id}:${f.path}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        uniqueFiles.push({
+          project: f.project,
+          fileName: Path.resolve(f.project.root, f.path),
+        })
+      }
+    }
+    return Stream.fromIterable(uniqueFiles)
   }
-  return {
-    project: scope,
-    fileNames: Stream.fromIterableEffect(scope.sourceFileNames),
+  if (isProjectFile(scope)) {
+    return Stream.make({
+      project: scope.project,
+      fileName: Path.resolve(scope.project.root, scope.path),
+    })
   }
+  return Stream.fromIterableEffect(
+    scope.sourceFileNames.pipe(
+      Effect.map((fileNames) =>
+        fileNames.map((fileName) => ({
+          project: scope,
+          fileName,
+        }))
+      ),
+    ),
+  )
 }
 
 export type EvidenceFact = string | number | boolean | null
@@ -612,19 +640,18 @@ const collectNodes = <A extends Node>(
 export const nodes = <A extends Node>(
   target: ProjectScope,
   guard: (node: Node) => node is A,
-): Query<A, ProjectSnapshotError> => {
-  const { project, fileNames } = resolveScope(target)
-  return fileNames.pipe(
-    Stream.flatMap((fileName) =>
+): Query<A, ProjectSnapshotError> =>
+  resolveScope(target).pipe(
+    Stream.flatMap(({ project, fileName }) =>
       Stream.fromEffect(project.unsafeNative((nativeProject) =>
         nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
-      ))
-    ),
-    Stream.flatMap((sourceFile) =>
-      sourceFile === undefined ? Stream.empty : Stream.fromIterable(collectNodes(project, sourceFile, guard))
+      )).pipe(
+        Stream.flatMap((sourceFile) =>
+          sourceFile === undefined ? Stream.empty : Stream.fromIterable(collectNodes(project, sourceFile, guard))
+        ),
+      )
     ),
   )
-}
 
 export const calls = (target: ProjectScope): Query<CallExpression, ProjectSnapshotError> =>
   nodes(target, isCallExpression)
@@ -644,55 +671,54 @@ export const propertyAccesses = (
 export const match = <Out>(
   target: ProjectScope,
   pattern: Pattern<Node, Out>,
-): Query<Out, ProjectSnapshotError> => {
-  const { project, fileNames } = resolveScope(target)
-  return fileNames.pipe(
-    Stream.flatMap((fileName) =>
+): Query<Out, ProjectSnapshotError> =>
+  resolveScope(target).pipe(
+    Stream.flatMap(({ project, fileName }) =>
       Stream.fromEffect(project.unsafeNative((nativeProject) =>
         nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
-      ))
-    ),
-    Stream.flatMap((sourceFile) => {
-      if (sourceFile === undefined) return Stream.empty
-      const candidateNodes: Array<Node> = []
-      const visit = (node: Node) => {
-        candidateNodes.push(node)
-        node.forEachChild((child) => {
-          visit(child)
-          return undefined
-        })
-      }
-      visit(sourceFile)
-
-      return Stream.fromIterable(candidateNodes).pipe(
-        Stream.mapEffect((node) =>
-          pattern.match(node, project).pipe(
-            Effect.map((result): Selection<Out> | undefined => {
-              if (!result.matched) return undefined
-              const fileName = isWithinProject(project.root, sourceFile.fileName)
-                ? projectRelativePath(project.root, sourceFile.fileName)
-                : sourceFile.fileName
-              return {
-                value: result.value,
-                project,
-                fileName,
-                start: node.getStart(sourceFile),
-                end: node.getEnd(),
-                evidence: [{
-                  criterion: pattern.kind ?? "pattern-match",
-                  facts: result.facts === undefined
-                    ? { kind: SyntaxKind[node.kind] ?? node.kind }
-                    : { kind: SyntaxKind[node.kind] ?? node.kind, ...result.facts },
-                }],
-              }
+      )).pipe(
+        Stream.flatMap((sourceFile) => {
+          if (sourceFile === undefined) return Stream.empty
+          const candidateNodes: Array<Node> = []
+          const visit = (node: Node) => {
+            candidateNodes.push(node)
+            node.forEachChild((child) => {
+              visit(child)
+              return undefined
             })
+          }
+          visit(sourceFile)
+
+          return Stream.fromIterable(candidateNodes).pipe(
+            Stream.mapEffect((node) =>
+              pattern.match(node, project).pipe(
+                Effect.map((result): Selection<Out> | undefined => {
+                  if (!result.matched) return undefined
+                  const relFileName = isWithinProject(project.root, sourceFile.fileName)
+                    ? projectRelativePath(project.root, sourceFile.fileName)
+                    : sourceFile.fileName
+                  return {
+                    value: result.value,
+                    project,
+                    fileName: relFileName,
+                    start: node.getStart(sourceFile),
+                    end: node.getEnd(),
+                    evidence: [{
+                      criterion: pattern.kind ?? "pattern-match",
+                      facts: result.facts === undefined
+                        ? { kind: SyntaxKind[node.kind] ?? node.kind }
+                        : { kind: SyntaxKind[node.kind] ?? node.kind, ...result.facts },
+                    }],
+                  }
+                })
+              )
+            ),
+            Stream.filter((selection): selection is Selection<Out> => selection !== undefined),
           )
-        ),
-        Stream.filter((selection): selection is Selection<Out> => selection !== undefined),
+        }),
       )
-    }),
+    ),
   )
-}
 
 /** Admit only selections the criterion produces evidence for. */
 export const where = <A, E2, R2>(
@@ -866,7 +892,7 @@ export const referencesTo = (
 
 /** Inspect the computed TypeScript Type of a node. */
 export const typeOf = (
-  target: ProjectScope,
+  target: ProjectSnapshot | ProjectFile,
   node: Node,
 ): Effect.Effect<NativeType | undefined, ProjectSnapshotError> => {
   const project = isProjectFile(target) ? target.project : target

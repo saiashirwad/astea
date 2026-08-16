@@ -99,6 +99,14 @@ export type ProjectSnapshotError = NativeCompilerError | SnapshotExpired
 
 export const ProjectFileTypeSymbol = Symbol.for("@safemods/ProjectFile")
 
+export interface DependencyGraphOptions {
+  /**
+   * Whether to recursively traverse indirect / transitive file references
+   * (e.g. through intermediate barrel files or re-exports). Defaults to `false`.
+   */
+  readonly transitive?: boolean
+}
+
 /**
  * A validated reference to an existing source file in a Project Snapshot.
  * Bundles file existence proof, project identity, and scoped queries together.
@@ -121,6 +129,20 @@ export interface ProjectFile {
   readonly typeAt: (
     position: number,
   ) => Effect.Effect<NativeType | undefined, ProjectSnapshotError>
+  /**
+   * Files in the project that import or reference this file (dependents / consumers).
+   * When `transitive: true`, recursively traverses the dependent graph (e.g. through barrel re-exports).
+   */
+  readonly referencingFiles: (
+    options?: DependencyGraphOptions,
+  ) => Effect.Effect<ReadonlyArray<ProjectFile>, ProjectSnapshotError>
+  /**
+   * Files in the project that this file imports or references (upstream dependencies).
+   * When `transitive: true`, recursively traverses the dependency graph.
+   */
+  readonly referencedFiles: (
+    options?: DependencyGraphOptions,
+  ) => Effect.Effect<ReadonlyArray<ProjectFile>, ProjectSnapshotError>
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Type guard boundary for ProjectFile handles.
@@ -456,8 +478,119 @@ export const make = (
             },
           )
 
+interface ProjectDependencyGraph {
+  readonly forward: Map<string, Set<string>>
+  readonly reverse: Map<string, Set<string>>
+}
+
+const traverseGraph = (
+  adj: Map<string, Set<string>>,
+  startPath: string,
+  transitive: boolean,
+): ReadonlyArray<string> => {
+  if (!transitive) {
+    const direct = adj.get(startPath)
+    if (direct === undefined || direct.size === 0) return []
+    return [...direct].sort()
+  }
+  const visited = new Set<string>([startPath])
+  const queue = [...(adj.get(startPath) ?? [])]
+  const result: Array<string> = []
+  for (const next of queue) {
+    if (!visited.has(next)) {
+      visited.add(next)
+      result.push(next)
+    }
+  }
+  let head = 0
+  while (head < result.length) {
+    const curr = result[head++]!
+    const neighbors = adj.get(curr)
+    if (neighbors !== undefined) {
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor)
+          result.push(neighbor)
+        }
+      }
+    }
+  }
+  return result.sort()
+}
+
           const unsafeNative: ProjectSnapshot["unsafeNative"] = (use) =>
             Effect.andThen(ensureActive, Effect.suspend(() => use(nativeProject)))
+
+          let memoizedGraph: ProjectDependencyGraph | undefined = undefined
+
+          const getDependencyGraph = Effect.gen(function*() {
+            yield* ensureActive
+            if (memoizedGraph !== undefined) {
+              return memoizedGraph
+            }
+
+            const allFileNames = yield* nativeRequest("getSourceFileNames", () => nativeProject.program.getSourceFileNames())
+            const canonicalMap = new Map<string, string>()
+            const projectFiles: Array<{ fn: string; rel: string; sf: SourceFile }> = []
+
+            for (const fn of allFileNames) {
+              const sf = yield* nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fn))
+              if (sf === undefined) continue
+              const isDefault = yield* nativeRequest("isSourceFileDefaultLibrary", () => nativeProject.program.isSourceFileDefaultLibrary(sf))
+              const isExternal = yield* nativeRequest("isSourceFileFromExternalLibrary", () => nativeProject.program.isSourceFileFromExternalLibrary(sf))
+              if (!isDefault && !isExternal) {
+                const rel = projectRelativePath(projectRoot, fn)
+                canonicalMap.set(Path.resolve(fn).toLowerCase(), rel)
+                projectFiles.push({ fn, rel, sf })
+              }
+            }
+
+            const forward = new Map<string, Set<string>>()
+            const reverse = new Map<string, Set<string>>()
+            for (const { rel } of projectFiles) {
+              forward.set(rel, new Set())
+              reverse.set(rel, new Set())
+            }
+
+            for (const { fn, rel, sf } of projectFiles) {
+              if (sf.imports !== undefined && sf.imports.length > 0) {
+                const syms = yield* nativeRequest("getSymbolAtLocation", () => nativeProject.checker.getSymbolAtLocation(sf.imports))
+                const symArray = Array.isArray(syms) ? syms : [syms]
+                for (const sym of symArray) {
+                  if (sym === undefined) continue
+                  const decls = [sym.valueDeclaration, ...(sym.declarations ?? [])].filter(
+                    (d): d is NonNullable<typeof d> => d !== undefined,
+                  )
+                  for (const d of decls) {
+                    if (d.path !== undefined) {
+                      const targetRel = canonicalMap.get(Path.resolve(d.path).toLowerCase())
+                      if (targetRel !== undefined && targetRel !== rel) {
+                        forward.get(rel)?.add(targetRel)
+                        reverse.get(targetRel)?.add(rel)
+                      }
+                    }
+                  }
+                }
+              }
+
+              if (sf.referencedFiles !== undefined && sf.referencedFiles.length > 0) {
+                for (const ref of sf.referencedFiles) {
+                  if (ref.fileName !== undefined) {
+                    const absRef = Path.resolve(Path.dirname(fn), ref.fileName)
+                    const targetRel = canonicalMap.get(absRef.toLowerCase())
+                    if (targetRel !== undefined && targetRel !== rel) {
+                      forward.get(rel)?.add(targetRel)
+                      reverse.get(targetRel)?.add(rel)
+                    }
+                  }
+                }
+              }
+            }
+
+            const graph: ProjectDependencyGraph = { forward, reverse }
+            memoizedGraph = graph
+            return graph
+          })
 
           const makeProjectFile = (selfSnapshot: ProjectSnapshot, relativePath: string): ProjectFile => ({
             [ProjectFileTypeSymbol]: true,
@@ -475,6 +608,20 @@ export const make = (
             findSymbolNamed: (name: string) => selfSnapshot.findSymbolNamed(name, { within: relativePath }),
             symbolAt: (position: number) => selfSnapshot.symbolAt(relativePath, position),
             typeAt: (position: number) => selfSnapshot.typeAt(relativePath, position),
+            referencingFiles: (options?: DependencyGraphOptions) =>
+              Effect.gen(function*() {
+                yield* ensureActive
+                const graph = yield* getDependencyGraph
+                const paths = traverseGraph(graph.reverse, relativePath, options?.transitive ?? false)
+                return paths.map((p) => makeProjectFile(selfSnapshot, p))
+              }),
+            referencedFiles: (options?: DependencyGraphOptions) =>
+              Effect.gen(function*() {
+                yield* ensureActive
+                const graph = yield* getDependencyGraph
+                const paths = traverseGraph(graph.forward, relativePath, options?.transitive ?? false)
+                return paths.map((p) => makeProjectFile(selfSnapshot, p))
+              }),
           })
 
           const file = Effect.fn("ProjectSnapshot.file")(function*(fileName: string) {

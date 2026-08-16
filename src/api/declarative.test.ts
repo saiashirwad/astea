@@ -1031,6 +1031,136 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
+    effect("ProjectFile navigation resolves direct and transitive referencing/referenced file graphs", () =>
+      withFixture((_root, app) =>
+        Effect.gen(function*() {
+          const workspace = yield* Workspace
+          yield* workspace.withSnapshot({}, Effect.gen(function*() {
+            const snapshot = yield* WorkspaceSnapshot
+            const project = yield* snapshot.project(app)
+
+            const libraryFile = yield* project.file("src/library.ts")
+            const barrelFile = yield* project.file("src/barrel.ts")
+            const consumerFile = yield* project.file("src/consumer.ts")
+            const reexportConsumerFile = yield* project.file("src/reexport-consumer.ts")
+
+            // Direct referencing files (downstream dependents/importers)
+            const libraryDirectReferencing = yield* libraryFile.referencingFiles()
+            expect(libraryDirectReferencing.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+              "src/consumer.ts",
+            ])
+
+            const barrelDirectReferencing = yield* barrelFile.referencingFiles()
+            expect(barrelDirectReferencing.map((f) => f.path)).toEqual([
+              "src/reexport-consumer.ts",
+            ])
+
+            // Transitive referencing files (through barrels / re-exports)
+            const libraryTransitiveReferencing = yield* libraryFile.referencingFiles({ transitive: true })
+            expect(libraryTransitiveReferencing.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+              "src/consumer.ts",
+              "src/reexport-consumer.ts",
+            ])
+
+            // Direct referenced files (upstream dependencies)
+            const reexportDirectReferenced = yield* reexportConsumerFile.referencedFiles()
+            expect(reexportDirectReferenced.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+            ])
+
+            const consumerDirectReferenced = yield* consumerFile.referencedFiles()
+            expect(consumerDirectReferenced.map((f) => f.path)).toEqual([
+              "src/library.ts",
+            ])
+
+            // Transitive referenced files
+            const reexportTransitiveReferenced = yield* reexportConsumerFile.referencedFiles({ transitive: true })
+            expect(reexportTransitiveReferenced.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+              "src/library.ts",
+            ])
+
+            // Querying directly over the dependency slice: ReadonlyArray<ProjectFile>
+            const targetSymbol = yield* libraryFile.symbolNamed("target")
+            const callsInSlice = yield* Query.calls(libraryDirectReferencing).pipe(
+              Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
+              Query.collect,
+            )
+            expect(callsInSlice.length).toBe(1)
+            expect(callsInSlice[0]?.fileName).toBe("src/consumer.ts")
+
+            // Empty ProjectScope slice should return empty stream without erroring
+            const emptyCalls = yield* Query.calls([]).pipe(Query.collect)
+            expect(emptyCalls).toEqual([])
+
+            // Match query on a slice
+            const fnDeclsInSlice = yield* Query.match(
+              [libraryFile, consumerFile],
+              Pattern.functionDeclaration({ exported: true }),
+            ).pipe(Query.collect)
+            expect(fnDeclsInSlice.length).toBe(2)
+            expect(fnDeclsInSlice.map((d) => d.fileName)).toEqual(["src/library.ts", "src/library.ts"])
+
+            // Deduplication when duplicate ProjectFiles are passed into Query
+            const callsWithDuplicates = yield* Query.calls([consumerFile, consumerFile]).pipe(
+              Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
+              Query.collect,
+            )
+            expect(callsWithDuplicates.length).toBe(1)
+          }))
+        })
+      ),
+      60_000,
+    )
+
+    effect("ProjectFile navigation handles circular dependencies safely with cycle protection", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          // Add a circular import: library.ts imports consumer.ts while consumer.ts imports library.ts
+          yield* Effect.tryPromise(() =>
+            Fs.writeFile(
+              Path.join(root, "src/library.ts"),
+              `import "./consumer.js"\nexport function target(input: number): number { return input + 1 }\n`,
+              "utf8",
+            )
+          )
+
+          const workspace = yield* Workspace
+          yield* workspace.withSnapshot({}, Effect.gen(function*() {
+            const snapshot = yield* WorkspaceSnapshot
+            const project = yield* snapshot.project(app)
+
+            const libraryFile = yield* project.file("src/library.ts")
+            const consumerFile = yield* project.file("src/consumer.ts")
+
+            // Direct referencing
+            const libReferencing = yield* libraryFile.referencingFiles()
+            expect(libReferencing.map((f) => f.path)).toContain("src/consumer.ts")
+
+            const consumerReferencing = yield* consumerFile.referencingFiles()
+            expect(consumerReferencing.map((f) => f.path)).toContain("src/library.ts")
+
+            // Transitive referencing with cycle (A -> B -> A): should terminate and exclude the source file itself
+            const libTransitive = yield* libraryFile.referencingFiles({ transitive: true })
+            expect(libTransitive.map((f) => f.path)).not.toContain("src/library.ts")
+            expect(libTransitive.map((f) => f.path)).toContain("src/consumer.ts")
+
+            const consumerTransitive = yield* consumerFile.referencingFiles({ transitive: true })
+            expect(consumerTransitive.map((f) => f.path)).not.toContain("src/consumer.ts")
+            expect(consumerTransitive.map((f) => f.path)).toContain("src/library.ts")
+
+            // Transitive referenced with cycle
+            const libTransitiveReferenced = yield* libraryFile.referencedFiles({ transitive: true })
+            expect(libTransitiveReferenced.map((f) => f.path)).not.toContain("src/library.ts")
+            expect(libTransitiveReferenced.map((f) => f.path)).toContain("src/consumer.ts")
+          }))
+        })
+      ),
+      60_000,
+    )
+
     effect("composes concurrent recipes with Recipe.all and executes conditionally with Recipe.branch", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
