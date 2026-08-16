@@ -1,12 +1,19 @@
 # safemods
 
-Type-directed codemods for TypeScript projects, built on Effect.
+Type-directed codemods for TypeScript 7+ projects, built on Effect.
 
-`safemods` uses the TypeScript type checker to find exact symbol references across renamed imports, re-exports, and barrel files. Transformations produce range-bounded edits that are validated against type-checking and idempotency policies before anything is written to disk.
+`safemods` uses the TypeScript 7 type checker to find exact symbol references across renamed imports, re-exports, and barrel files. Transformations produce range-bounded edits that are validated against type-checking and idempotency policies before anything is written to disk.
 
 ```
 Query → Draft → Plan → Preview → Verify → Apply
 ```
+
+---
+
+## Requirements
+
+- **TypeScript**: 7.0 or higher (minimum requirement)
+- **Node.js**: 24 or higher
 
 ---
 
@@ -16,7 +23,7 @@ Query → Draft → Plan → Preview → Verify → Apply
 pnpm add -D safemods effect typescript@7
 ```
 
-> **Note:** Requires Node 24+ and TypeScript 7+. `effect` and `typescript` are peer dependencies.
+`effect` and `typescript` (v7+) are peer dependencies.
 
 ---
 
