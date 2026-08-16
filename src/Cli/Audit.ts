@@ -52,10 +52,7 @@ export class CliMatchFoundError extends Data.TaggedError("CliMatchFoundError")<{
 }> {}
 
 /** Compute 1-based line number and 1-based character column from 0-based character offset. */
-export const computeLineAndColumn = (
-  text: string,
-  pos: number,
-): SourceLocation => {
+export const computeLineAndColumn = (text: string, pos: number): SourceLocation => {
   const clampedPos = Math.max(0, Math.min(pos, text.length))
   let line = 1
   let lastLineStart = 0
@@ -74,7 +71,7 @@ export const buildAuditReport = (
   plan: TransformationPlan,
   snapshot: WorkspaceSnapshotService,
 ): Effect.Effect<AuditReport, ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound> =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const findings: Array<AuditFinding> = []
     const projectCache = new Map<string, ProjectSnapshot>()
 
@@ -83,7 +80,7 @@ export const buildAuditReport = (
         const facts = record.facts
         const projectId = Predicate.isString(facts.projectId)
           ? facts.projectId
-          : plan.projects[0]?.id ?? "app"
+          : (plan.projects[0]?.id ?? "app")
         const fileName = Predicate.isString(facts.fileName) ? facts.fileName : ""
         const start = Predicate.isNumber(facts.start) ? facts.start : 0
         const end = Predicate.isNumber(facts.end) ? facts.end : start
@@ -99,9 +96,9 @@ export const buildAuditReport = (
 
         let sourceText = ""
         if (project && fileName) {
-          sourceText = yield* project.sourceText(fileName).pipe(
-            Effect.catchTag("FileNotFound", () => Effect.succeed("")),
-          )
+          sourceText = yield* project
+            .sourceText(fileName)
+            .pipe(Effect.catchTag("FileNotFound", () => Effect.succeed("")))
         }
 
         const startLoc = computeLineAndColumn(sourceText, start)
@@ -111,9 +108,16 @@ export const buildAuditReport = (
         const rawCriteria = Array.isArray(facts.criteria) ? facts.criteria : []
         const criteria: Array<AuditCriterionRecord> = []
         for (const item of rawCriteria) {
-          if (Predicate.isObject(item) && "criterion" in item && Predicate.isString(item.criterion)) {
+          if (
+            Predicate.isObject(item) &&
+            "criterion" in item &&
+            Predicate.isString(item.criterion)
+          ) {
             // SAFETY: item.facts is treated as a JSON dictionary if present.
-            const itemFacts = (Predicate.isObject(item.facts) ? item.facts : {}) as Record<string, Json>
+            const itemFacts = (Predicate.isObject(item.facts) ? item.facts : {}) as Record<
+              string,
+              Json
+            >
             criteria.push({
               criterion: item.criterion,
               facts: itemFacts,
@@ -168,8 +172,20 @@ export const renderAuditText = (
   const useColor = options.color ?? true
   const lines: Array<string> = []
 
-  lines.push(colorize(`Audit Report: ${report.recipe.name} [v${report.recipe.version}]`, ANSI.bold, useColor))
-  lines.push(colorize(`Found ${report.totalMatches} match(es) across ${report.totalFiles} file(s)`, ANSI.dim, useColor))
+  lines.push(
+    colorize(
+      `Audit Report: ${report.recipe.name} [v${report.recipe.version}]`,
+      ANSI.bold,
+      useColor,
+    ),
+  )
+  lines.push(
+    colorize(
+      `Found ${report.totalMatches} match(es) across ${report.totalFiles} file(s)`,
+      ANSI.dim,
+      useColor,
+    ),
+  )
   lines.push("")
 
   if (report.findings.length === 0) {
@@ -192,13 +208,17 @@ export const renderAuditText = (
     lines.push(colorize(`📄 ${fileKey}`, ANSI.bold + ANSI.cyan, useColor))
     for (const f of fileFindings) {
       const location = colorize(`  line ${f.startLine}:${f.startColumn}`, ANSI.yellow, useColor)
-      const criteriaStr = f.criteria.length > 0
-        ? colorize(` [${f.criteria.map((c) => c.criterion).join(", ")}]`, ANSI.dim, useColor)
-        : ""
+      const criteriaStr =
+        f.criteria.length > 0
+          ? colorize(` [${f.criteria.map((c) => c.criterion).join(", ")}]`, ANSI.dim, useColor)
+          : ""
       lines.push(`${location}${criteriaStr}`)
       if (f.snippet) {
         const snippetLines = f.snippet.split("\n")
-        const truncated = snippetLines.slice(0, 3).map((l) => `    ${l.trim()}`).join("\n")
+        const truncated = snippetLines
+          .slice(0, 3)
+          .map((l) => `    ${l.trim()}`)
+          .join("\n")
         lines.push(colorize(truncated, ANSI.gray, useColor))
       }
     }
@@ -209,11 +229,10 @@ export const renderAuditText = (
 }
 
 /** Format AuditReport as structured JSON string. */
-export const renderAuditJson = (report: AuditReport): string =>
-  JSON.stringify(report, null, 2)
+export const renderAuditJson = (report: AuditReport): string => JSON.stringify(report, null, 2)
 
 const escapeCsv = (str: string): string => {
-  if (str.includes(",") || str.includes("\"") || str.includes("\n") || str.includes("\r")) {
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`
   }
   return str
@@ -221,7 +240,8 @@ const escapeCsv = (str: string): string => {
 
 /** Format AuditReport as CSV table. */
 export const renderAuditCsv = (report: AuditReport): string => {
-  const header = "project,file,start_line,start_col,end_line,end_col,start_offset,end_offset,criteria,snippet"
+  const header =
+    "project,file,start_line,start_col,end_line,end_col,start_offset,end_offset,criteria,snippet"
   const rows = report.findings.map((f) => {
     const criteriaSummary = f.criteria.map((c) => c.criterion).join(";")
     const snippetClean = f.snippet ? f.snippet.replace(/\r?\n/g, " ") : ""

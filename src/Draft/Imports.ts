@@ -3,7 +3,13 @@ import type { ImportDeclaration } from "typescript/unstable/ast"
 import { isImportDeclaration, isNamedImports, isStringLiteral } from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
-import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError, type SnapshotExpired } from "../Workspace/index.ts"
+import {
+  isProjectFile,
+  type ProjectFile,
+  type ProjectSnapshot,
+  type ProjectSnapshotError,
+  type SnapshotExpired,
+} from "../Workspace/index.ts"
 import { empty, type Draft } from "./Model.ts"
 
 // // =============================================================================
@@ -16,7 +22,11 @@ export interface AddNamedImportOptions {
 
 export interface AddNamedImportFn {
   (file: ProjectFile, options: AddNamedImportOptions): Effect.Effect<Draft, ProjectSnapshotError>
-  (project: ProjectSnapshot, fileName: string, options: AddNamedImportOptions): Effect.Effect<Draft, ProjectSnapshotError>
+  (
+    project: ProjectSnapshot,
+    fileName: string,
+    options: AddNamedImportOptions,
+  ): Effect.Effect<Draft, ProjectSnapshotError>
 }
 
 export const imports = {
@@ -34,7 +44,7 @@ export const imports = {
     // SAFETY: When projectOrFile is a ProjectFile, fileNameOrOptions is the options object; otherwise options is in maybeOptions.
     const options = isFile ? (fileNameOrOptions as AddNamedImportOptions) : maybeOptions!
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const source = yield* project.sourceFile(fileName)
       if (source === undefined) {
         return empty
@@ -61,15 +71,17 @@ export const imports = {
                     const last = named.elements[named.elements.length - 1]!
                     const insertPos = last.getEnd()
                     return {
-                      edits: [{
-                        projectId: project.project.id,
-                        fileName: projectRelativePath(project.root, source.fileName),
-                        start: insertPos,
-                        end: insertPos,
-                        expectedTextHash: textHash(""),
-                        newText: `, ${importName}`,
-                        evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
-                      }],
+                      edits: [
+                        {
+                          projectId: project.project.id,
+                          fileName: projectRelativePath(project.root, source.fileName),
+                          start: insertPos,
+                          end: insertPos,
+                          expectedTextHash: textHash(""),
+                          newText: `, ${importName}`,
+                          evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
+                        },
+                      ],
                       evidence: [],
                       matches: 1,
                     }
@@ -83,19 +95,21 @@ export const imports = {
           const importText = `import { ${importName} } from "${options.module}";\n`
 
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, source.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: importText,
-              evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, source.fileName),
+                start: insertPos,
+                end: insertPos,
+                expectedTextHash: textHash(""),
+                newText: importText,
+                evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
-        })
+        }),
       )
     })
     // SAFETY: Overloaded implementation handles ProjectFile and (ProjectSnapshot, fileName) argument signatures.
@@ -116,7 +130,9 @@ export const imports = {
 
         const named = clause.namedBindings
         const elements = named.elements
-        const targetIndex = elements.findIndex((el) => el.name.text === name || el.propertyName?.text === name)
+        const targetIndex = elements.findIndex(
+          (el) => el.name.text === name || el.propertyName?.text === name,
+        )
 
         if (targetIndex === -1) return empty
 
@@ -126,15 +142,17 @@ export const imports = {
           const start = declaration.getFullStart()
           const end = declaration.getEnd()
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start,
-              end,
-              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-              newText: "",
-              evidenceIds: [`import:removeNamed:${name}`],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, sourceFile.fileName),
+                start,
+                end,
+                expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+                newText: "",
+                evidenceIds: [`import:removeNamed:${name}`],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
@@ -153,19 +171,21 @@ export const imports = {
         }
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start,
-            end,
-            expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-            newText: "",
-            evidenceIds: [`import:removeNamed:${name}`],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+              newText: "",
+              evidenceIds: [`import:removeNamed:${name}`],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 
   /** Update an import module specifier source path. */
@@ -186,19 +206,21 @@ export const imports = {
         const end = specifier.getEnd()
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start,
-            end,
-            expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-            newText: newSpecifierText,
-            evidenceIds: [`import:update-source:${newModule}`],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+              newText: newSpecifierText,
+              evidenceIds: [`import:update-source:${newModule}`],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 
   /** Organize, group, deduplicate, and sort all imports in a file deterministically. */
@@ -206,7 +228,7 @@ export const imports = {
     project: ProjectSnapshot,
     fileName: string,
   ): Effect.Effect<Draft, ProjectSnapshotError> =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const source = yield* project.sourceFile(fileName)
       if (source === undefined) return empty
 
@@ -227,7 +249,10 @@ export const imports = {
           const end = lastDecl.getEnd()
 
           // Group by module
-          const byModule = new Map<string, { isTypeOnly: boolean; defaultImport?: string; namedImports: Set<string> }>()
+          const byModule = new Map<
+            string,
+            { isTypeOnly: boolean; defaultImport?: string; namedImports: Set<string> }
+          >()
           for (const decl of importDecls) {
             if (isStringLiteral(decl.moduleSpecifier)) {
               const mod = decl.moduleSpecifier.text
@@ -241,7 +266,9 @@ export const imports = {
                 if (clause.name) existing.defaultImport = clause.name.text
                 if (clause.namedBindings && isNamedImports(clause.namedBindings)) {
                   for (const el of clause.namedBindings.elements) {
-                    const specText = el.propertyName ? `${el.propertyName.text} as ${el.name.text}` : el.name.text
+                    const specText = el.propertyName
+                      ? `${el.propertyName.text} as ${el.name.text}`
+                      : el.name.text
                     existing.namedImports.add(specText)
                   }
                 }
@@ -250,8 +277,11 @@ export const imports = {
           }
 
           // Partition into: 1. Built-in node modules, 2. External packages, 3. Relative/internal
-          const isBuiltin = (m: string) => m.startsWith("node:") || ["fs", "path", "crypto", "os", "util", "events", "url"].includes(m)
-          const isRelative = (m: string) => m.startsWith(".") || m.startsWith("/") || m.startsWith("@/")
+          const isBuiltin = (m: string) =>
+            m.startsWith("node:") ||
+            ["fs", "path", "crypto", "os", "util", "events", "url"].includes(m)
+          const isRelative = (m: string) =>
+            m.startsWith(".") || m.startsWith("/") || m.startsWith("@/")
 
           const modules = [...byModule.keys()]
           const builtins = modules.filter(isBuiltin).sort()
@@ -259,34 +289,42 @@ export const imports = {
           const internal = modules.filter(isRelative).sort()
 
           const renderGroup = (mods: Array<string>) =>
-            mods.map((mod) => {
-              const entry = byModule.get(mod)!
-              const parts: Array<string> = []
-              if (entry.defaultImport) parts.push(entry.defaultImport)
-              if (entry.namedImports.size > 0) {
-                const sortedNamed = [...entry.namedImports].sort()
-                parts.push(`{ ${sortedNamed.join(", ")} }`)
-              }
-              return `import ${parts.join(", ")} from "${mod}";`
-            }).join("\n")
+            mods
+              .map((mod) => {
+                const entry = byModule.get(mod)!
+                const parts: Array<string> = []
+                if (entry.defaultImport) parts.push(entry.defaultImport)
+                if (entry.namedImports.size > 0) {
+                  const sortedNamed = [...entry.namedImports].sort()
+                  parts.push(`{ ${sortedNamed.join(", ")} }`)
+                }
+                return `import ${parts.join(", ")} from "${mod}";`
+              })
+              .join("\n")
 
-          const groups = [renderGroup(builtins), renderGroup(external), renderGroup(internal)].filter(Boolean)
+          const groups = [
+            renderGroup(builtins),
+            renderGroup(external),
+            renderGroup(internal),
+          ].filter(Boolean)
           const formattedImports = groups.join("\n\n")
 
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, source.fileName),
-              start,
-              end,
-              expectedTextHash: textHash(source.text.slice(start, end)),
-              newText: formattedImports,
-              evidenceIds: ["import:organize"],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, source.fileName),
+                start,
+                end,
+                expectedTextHash: textHash(source.text.slice(start, end)),
+                newText: formattedImports,
+                evidenceIds: ["import:organize"],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
-        })
+        }),
       )
     }),
 }

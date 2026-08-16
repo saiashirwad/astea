@@ -1,7 +1,4 @@
-export {
-  recipeToAgentTool,
-  ToolExecutionError,
-} from "./FromRecipe.ts"
+export { recipeToAgentTool, ToolExecutionError } from "./FromRecipe.ts"
 export type {
   AgentTool,
   AgentToolResult,

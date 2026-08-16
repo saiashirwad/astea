@@ -7,20 +7,20 @@
  * no evidence ID strings, no toolchain literals, no fingerprint loops. The
  * body reads as intent.
  */
-import { Effect } from "effect";
-import { isObjectLiteralExpression } from "typescript/unstable/ast/is";
-import * as Draft from "../Draft/index.ts";
-import * as Policy from "../Policy/index.ts";
-import * as Query from "../Query/index.ts";
-import * as Recipe from "../Recipe/index.ts";
-import { type ConfiguredProject, WorkspaceSnapshot } from "../Workspace/index.ts";
+import { Effect } from "effect"
+import { isObjectLiteralExpression } from "typescript/unstable/ast/is"
+import * as Draft from "../Draft/index.ts"
+import * as Policy from "../Policy/index.ts"
+import * as Query from "../Query/index.ts"
+import * as Recipe from "../Recipe/index.ts"
+import { type ConfiguredProject, WorkspaceSnapshot } from "../Workspace/index.ts"
 
 export interface WrapTargetInput {
-  readonly project: ConfiguredProject;
+  readonly project: ConfiguredProject
   /** Project-relative file declaring the target symbol. */
-  readonly declarationFile: string;
+  readonly declarationFile: string
   /** Property name used to wrap each argument. */
-  readonly property: string;
+  readonly property: string
 }
 
 export const wrapTargetInput = Recipe.define("wrap-target-input", {
@@ -28,10 +28,10 @@ export const wrapTargetInput = Recipe.define("wrap-target-input", {
   policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
   run: (input: WrapTargetInput) =>
     Effect.gen(function* () {
-      const snapshot = yield* WorkspaceSnapshot;
-      const project = yield* snapshot.project(input.project);
+      const snapshot = yield* WorkspaceSnapshot
+      const project = yield* snapshot.project(input.project)
 
-      const target = yield* project.symbolNamed("target", { within: input.declarationFile });
+      const target = yield* project.symbolNamed("target", { within: input.declarationFile })
 
       const matches = yield* Query.calls(project).pipe(
         Query.where(Query.resolvesTo(target, { location: (call) => call.expression })),
@@ -40,11 +40,11 @@ export const wrapTargetInput = Recipe.define("wrap-target-input", {
             call.arguments.length === 1 && !isObjectLiteralExpression(call.arguments[0]!),
         ),
         Query.collect,
-      );
+      )
 
       return yield* Draft.replaceEach(matches, ({ value: call }) => {
-        const argument = call.arguments[0]!;
-        return { node: argument, text: `{ ${input.property}: ${argument.getText()} }` };
-      });
+        const argument = call.arguments[0]!
+        return { node: argument, text: `{ ${input.property}: ${argument.getText()} }` }
+      })
     }),
-});
+})

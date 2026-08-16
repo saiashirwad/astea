@@ -38,18 +38,26 @@ export const makeDependencyGraphNavigation = <E>(options: {
   const { nativeProject, projectRoot, ensureActive } = options
   let memoizedGraph: ProjectDependencyGraph | undefined
 
-  const getDependencyGraph = Effect.gen(function*() {
+  const getDependencyGraph = Effect.gen(function* () {
     yield* ensureActive
     if (memoizedGraph !== undefined) return memoizedGraph
 
-    const allFileNames = yield* nativeRequest("getSourceFileNames", () => nativeProject.program.getSourceFileNames())
+    const allFileNames = yield* nativeRequest("getSourceFileNames", () =>
+      nativeProject.program.getSourceFileNames(),
+    )
     const canonicalMap = new Map<string, string>()
     const projectFiles: Array<{ fn: string; rel: string; sf: SourceFile }> = []
     for (const fn of allFileNames) {
-      const sf = yield* nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fn))
+      const sf = yield* nativeRequest("getSourceFile", () =>
+        nativeProject.program.getSourceFile(fn),
+      )
       if (sf === undefined) continue
-      const isDefault = yield* nativeRequest("isSourceFileDefaultLibrary", () => nativeProject.program.isSourceFileDefaultLibrary(sf))
-      const isExternal = yield* nativeRequest("isSourceFileFromExternalLibrary", () => nativeProject.program.isSourceFileFromExternalLibrary(sf))
+      const isDefault = yield* nativeRequest("isSourceFileDefaultLibrary", () =>
+        nativeProject.program.isSourceFileDefaultLibrary(sf),
+      )
+      const isExternal = yield* nativeRequest("isSourceFileFromExternalLibrary", () =>
+        nativeProject.program.isSourceFileFromExternalLibrary(sf),
+      )
       if (!isDefault && !isExternal) {
         const rel = projectRelativePath(projectRoot, fn)
         canonicalMap.set(Path.resolve(fn).toLowerCase(), rel)
@@ -72,11 +80,14 @@ export const makeDependencyGraphNavigation = <E>(options: {
     }
     for (const { fn, rel, sf } of projectFiles) {
       if (sf.imports !== undefined && sf.imports.length > 0) {
-        const symbols = yield* nativeRequest("getSymbolAtLocation", () => nativeProject.checker.getSymbolAtLocation(sf.imports))
+        const symbols = yield* nativeRequest("getSymbolAtLocation", () =>
+          nativeProject.checker.getSymbolAtLocation(sf.imports),
+        )
         for (const symbol of Array.isArray(symbols) ? symbols : [symbols]) {
           if (symbol === undefined) continue
           const declarations = [symbol.valueDeclaration, ...(symbol.declarations ?? [])].filter(
-            (declaration): declaration is NonNullable<typeof declaration> => declaration !== undefined,
+            (declaration): declaration is NonNullable<typeof declaration> =>
+              declaration !== undefined,
           )
           for (const declaration of declarations) {
             if (declaration.path !== undefined) {
@@ -87,7 +98,10 @@ export const makeDependencyGraphNavigation = <E>(options: {
       }
       for (const reference of sf.referencedFiles ?? []) {
         if (reference.fileName !== undefined) {
-          addEdge(rel, canonicalMap.get(Path.resolve(Path.dirname(fn), reference.fileName).toLowerCase()))
+          addEdge(
+            rel,
+            canonicalMap.get(Path.resolve(Path.dirname(fn), reference.fileName).toLowerCase()),
+          )
         }
       }
     }
@@ -97,7 +111,7 @@ export const makeDependencyGraphNavigation = <E>(options: {
   })
 
   return (relativePath: string, direction: "forward" | "reverse", transitive: boolean) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* ensureActive
       const graph = yield* getDependencyGraph
       return traverseGraph(graph[direction], relativePath, transitive)

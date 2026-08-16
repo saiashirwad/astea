@@ -3,8 +3,18 @@ import { Effect } from "effect"
 import { isImportDeclaration, isStringLiteral } from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
 import type { QueryContractError } from "../Query/index.ts"
-import { InvalidProjectRelativePath, parseProjectRelativePath, projectRelativePath, type ProjectRelativePath } from "../Workspace/ProjectPath.ts"
-import type { FileNotFound, ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "../Workspace/index.ts"
+import {
+  InvalidProjectRelativePath,
+  parseProjectRelativePath,
+  projectRelativePath,
+  type ProjectRelativePath,
+} from "../Workspace/ProjectPath.ts"
+import type {
+  FileNotFound,
+  ProjectSnapshot,
+  ProjectSnapshotError,
+  SnapshotExpired,
+} from "../Workspace/index.ts"
 import { concat, type Draft, type ProposedEdit } from "./Model.ts"
 
 // // =============================================================================
@@ -16,21 +26,25 @@ export const files = {
     relativePath: string,
     content: string,
   ): Effect.Effect<Draft, SnapshotExpired | InvalidProjectRelativePath> =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const path = yield* checkedPath(relativePath)
       return yield* project.unsafeNative(() =>
         Effect.sync((): Draft => ({
-        edits: [],
-        fileOperations: [{
-          kind: "create",
-          projectId: project.project.id,
-          path,
-          content,
-          evidenceIds: [`file:create:${path}`],
-        }],
-        evidence: [{ id: `file:create:${path}`, kind: "file-operation", facts: { kind: "create", path } }],
-        matches: 1,
-        }))
+          edits: [],
+          fileOperations: [
+            {
+              kind: "create",
+              projectId: project.project.id,
+              path,
+              content,
+              evidenceIds: [`file:create:${path}`],
+            },
+          ],
+          evidence: [
+            { id: `file:create:${path}`, kind: "file-operation", facts: { kind: "create", path } },
+          ],
+          matches: 1,
+        })),
       )
     }),
 
@@ -39,22 +53,26 @@ export const files = {
     project: ProjectSnapshot,
     relativePath: string,
   ): Effect.Effect<Draft, ProjectSnapshotError | FileNotFound | InvalidProjectRelativePath> =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const path = yield* checkedPath(relativePath)
       const source = yield* project.sourceText(path)
       return yield* project.unsafeNative(() =>
         Effect.sync((): Draft => ({
           edits: [],
-          fileOperations: [{
-            kind: "delete",
-            projectId: project.project.id,
-          path,
-          initialHash: textHash(source),
-            evidenceIds: [`file:delete:${path}`],
-          }],
-          evidence: [{ id: `file:delete:${path}`, kind: "file-operation", facts: { kind: "delete", path } }],
+          fileOperations: [
+            {
+              kind: "delete",
+              projectId: project.project.id,
+              path,
+              initialHash: textHash(source),
+              evidenceIds: [`file:delete:${path}`],
+            },
+          ],
+          evidence: [
+            { id: `file:delete:${path}`, kind: "file-operation", facts: { kind: "delete", path } },
+          ],
           matches: 1,
-        }))
+        })),
       )
     }),
 
@@ -63,24 +81,35 @@ export const files = {
     project: ProjectSnapshot,
     fromPath: string,
     toPath: string,
-  ): Effect.Effect<Draft, ProjectSnapshotError | FileNotFound | QueryContractError | InvalidProjectRelativePath> =>
-    Effect.gen(function*() {
+  ): Effect.Effect<
+    Draft,
+    ProjectSnapshotError | FileNotFound | QueryContractError | InvalidProjectRelativePath
+  > =>
+    Effect.gen(function* () {
       const sourcePath = yield* checkedPath(fromPath)
       const targetPath = yield* checkedPath(toPath)
       const source = yield* project.sourceText(sourcePath)
       const moveEvidence = `file:move:${sourcePath}->${targetPath}`
       const fileOpDraft: Draft = {
         edits: [],
-        fileOperations: [{
-          kind: "move",
-          projectId: project.project.id,
-          path: sourcePath,
-          toPath: targetPath,
-          content: source,
-          initialHash: textHash(source),
-          evidenceIds: [moveEvidence],
-        }],
-        evidence: [{ id: moveEvidence, kind: "file-operation", facts: { kind: "move", path: sourcePath, toPath: targetPath } }],
+        fileOperations: [
+          {
+            kind: "move",
+            projectId: project.project.id,
+            path: sourcePath,
+            toPath: targetPath,
+            content: source,
+            initialHash: textHash(source),
+            evidenceIds: [moveEvidence],
+          },
+        ],
+        evidence: [
+          {
+            id: moveEvidence,
+            kind: "file-operation",
+            facts: { kind: "move", path: sourcePath, toPath: targetPath },
+          },
+        ],
         matches: 1,
       }
 
@@ -103,8 +132,15 @@ export const files = {
             if (isStringLiteral(specifier)) {
               const specText = specifier.text
               const fileDir = Path.dirname(relFile)
-              const resolvedImport = Path.normalize(Path.join(fileDir, specText)).replace(/\.(ts|tsx|js|jsx)$/, "")
-              if (resolvedImport === fromBase || resolvedImport === `./${fromBase}` || resolvedImport === sourcePath) {
+              const resolvedImport = Path.normalize(Path.join(fileDir, specText)).replace(
+                /\.(ts|tsx|js|jsx)$/,
+                "",
+              )
+              if (
+                resolvedImport === fromBase ||
+                resolvedImport === `./${fromBase}` ||
+                resolvedImport === sourcePath
+              ) {
                 let newRel = Path.relative(fileDir, toBase)
                 if (!newRel.startsWith(".")) newRel = `./${newRel}`
                 const ext = specText.endsWith(".js") ? ".js" : specText.endsWith(".ts") ? ".ts" : ""
@@ -130,18 +166,22 @@ export const files = {
 
       const importDraft: Draft = {
         edits: importEdits,
-        evidence: importEdits.flatMap((edit) => edit.evidenceIds.map((id) => ({
-          id,
-          kind: "file-import-rewrite",
-          facts: { fileName: edit.fileName, target: targetPath },
-        }))),
+        evidence: importEdits.flatMap((edit) =>
+          edit.evidenceIds.map((id) => ({
+            id,
+            kind: "file-import-rewrite",
+            facts: { fileName: edit.fileName, target: targetPath },
+          })),
+        ),
         matches: importEdits.length,
       }
       return concat(fileOpDraft, importDraft)
     }),
 }
 
-const checkedPath = (value: string): Effect.Effect<ProjectRelativePath, InvalidProjectRelativePath> => {
+const checkedPath = (
+  value: string,
+): Effect.Effect<ProjectRelativePath, InvalidProjectRelativePath> => {
   const path = parseProjectRelativePath(value)
   return path === undefined
     ? Effect.fail(new InvalidProjectRelativePath({ path: value }))

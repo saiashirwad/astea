@@ -14,20 +14,20 @@ Query ──▶ Draft ──▶ Plan ──▶ Preview ──▶ Verify (In-Memo
 
 Existing JavaScript/TypeScript codemod tools force developers to choose between **semantic precision** and **destructive side effects**:
 
-* **Syntax-only tools (`jscodeshift`, `ast-grep`, `GritQL`)** are fast, but blind to types. They cannot differentiate between `UserService.get(...)`, `Map.prototype.get(...)`, and `redis.get(...)`. Running a method rename with regex or AST patterns inevitably corrupts unrelated code.
-* **Imperative AST wrappers (`ts-morph`)** are type-aware, but mutate internal compiler representations eagerly in place. Mutations invalidate parent/child node references (causing *"forgotten node"* errors), destroy formatting trivia on reprint, and provide no rollback mechanism when a multi-file migration fails midway.
+- **Syntax-only tools (`jscodeshift`, `ast-grep`, `GritQL`)** are fast, but blind to types. They cannot differentiate between `UserService.get(...)`, `Map.prototype.get(...)`, and `redis.get(...)`. Running a method rename with regex or AST patterns inevitably corrupts unrelated code.
+- **Imperative AST wrappers (`ts-morph`)** are type-aware, but mutate internal compiler representations eagerly in place. Mutations invalidate parent/child node references (causing _"forgotten node"_ errors), destroy formatting trivia on reprint, and provide no rollback mechanism when a multi-file migration fails midway.
 
 **`safemods` is the OpenRewrite / LibCST of the TypeScript ecosystem.** It treats transformations as **pure, content-addressed data pipelines**:
 
-| Feature | `jscodeshift` / `recast` | `ast-grep` / `GritQL` | `ts-morph` | `safemods` |
-| :--- | :--- | :--- | :--- | :--- |
-| **Engine / Parser** | Babel / Recast AST | Tree-sitter | TypeScript AST | **TypeScript 7 Compiler API** |
-| **Type-Aware Queries** | ❌ None | ❌ None | ✅ `TypeChecker` | ✅ **Exact Symbol Resolution Streams** |
-| **Cross-File Import Tracking** | ❌ Blind | ❌ Blind | ⚠️ Manual lookup | ✅ **Automatic (Barrels, Aliases, Re-exports)** |
-| **Edit Model** | Full-file AST reprint | Tree-sitter patches | Mutable AST nodes | ✅ **Hash-guarded range text edits** |
-| **Multi-Phase Staging** | ❌ File writes required | ❌ None | ❌ Reload project | ✅ **Virtual In-Memory Overlays** |
-| **Compiler Verification** | ❌ None | ❌ None | ❌ Manual | ✅ **`Policy.noNewErrors()` & `Policy.idempotent()`** |
-| **Transactional Rollback** | ❌ Per-file writes | ❌ None | ❌ Direct disk save | ✅ **Staged writes + Automatic Rollback** |
+| Feature                        | `jscodeshift` / `recast` | `ast-grep` / `GritQL` | `ts-morph`          | `safemods`                                            |
+| :----------------------------- | :----------------------- | :-------------------- | :------------------ | :---------------------------------------------------- |
+| **Engine / Parser**            | Babel / Recast AST       | Tree-sitter           | TypeScript AST      | **TypeScript 7 Compiler API**                         |
+| **Type-Aware Queries**         | ❌ None                  | ❌ None               | ✅ `TypeChecker`    | ✅ **Exact Symbol Resolution Streams**                |
+| **Cross-File Import Tracking** | ❌ Blind                 | ❌ Blind              | ⚠️ Manual lookup    | ✅ **Automatic (Barrels, Aliases, Re-exports)**       |
+| **Edit Model**                 | Full-file AST reprint    | Tree-sitter patches   | Mutable AST nodes   | ✅ **Hash-guarded range text edits**                  |
+| **Multi-Phase Staging**        | ❌ File writes required  | ❌ None               | ❌ Reload project   | ✅ **Virtual In-Memory Overlays**                     |
+| **Compiler Verification**      | ❌ None                  | ❌ None               | ❌ Manual           | ✅ **`Policy.noNewErrors()` & `Policy.idempotent()`** |
+| **Transactional Rollback**     | ❌ Per-file writes       | ❌ None               | ❌ Direct disk save | ✅ **Staged writes + Automatic Rollback**             |
 
 ---
 
@@ -73,8 +73,8 @@ export default Recipe.define("wrap-target-input", {
   // 2. Declarative Verification Policies
   policies: [
     Policy.matches({ min: 1 }), // Guard against 0-match silent runs
-    Policy.noNewErrors(),       // Reject if any new TS error is introduced
-    Policy.idempotent(),        // Re-running against output must yield 0 edits
+    Policy.noNewErrors(), // Reject if any new TS error is introduced
+    Policy.idempotent(), // Re-running against output must yield 0 edits
   ],
 
   // 3. Transformation Logic
@@ -97,8 +97,7 @@ export default Recipe.define("wrap-target-input", {
         ),
         Query.filter(
           ({ value: call }) =>
-            call.arguments.length === 1 &&
-            !isObjectLiteralExpression(call.arguments[0]!),
+            call.arguments.length === 1 && !isObjectLiteralExpression(call.arguments[0]!),
         ),
         Query.collect,
       )
@@ -120,6 +119,7 @@ export default Recipe.define("wrap-target-input", {
 ## Core Capabilities
 
 ### 1. In-Memory Multi-Phase Overlays (`snapshot.overlay`)
+
 Multi-phase transformations (e.g. migrating an exported function signature in a library and subsequently refactoring downstream call sites across consuming files) run inside a virtual compiler overlay without writing intermediate states to disk:
 
 ```ts
@@ -128,37 +128,47 @@ import * as Overlay from "safemods/Overlay"
 import { WorkspaceSnapshot } from "safemods/Workspace"
 
 // Phase 1: Update declaration in library.ts
-const draft1 = yield* Draft.imports.addNamed(project, "src/library.ts", {
-  module: "./types.js",
-  name: "NewConfig",
-})
+const draft1 =
+  yield *
+  Draft.imports.addNamed(project, "src/library.ts", {
+    module: "./types.js",
+    name: "NewConfig",
+  })
 
 // Phase 2: Query downstream files inside the compiler overlay
-return yield* Overlay.run(draft1, Effect.gen(function* () {
-  const overlaySnapshot = yield* WorkspaceSnapshot
-  const overlayProject = yield* overlaySnapshot.project(app)
-  // Downstream files now see NewConfig resolved by TypeScript!
-  return yield* Draft.concat(draft1, /* Phase 2 edits */)
-}))
+return (
+  yield *
+  Overlay.run(
+    draft1,
+    Effect.gen(function* () {
+      const overlaySnapshot = yield* WorkspaceSnapshot
+      const overlayProject = yield* overlaySnapshot.project(app)
+      // Downstream files now see NewConfig resolved by TypeScript!
+      return yield* Draft.concat(draft1 /* Phase 2 edits */)
+    }),
+  )
+)
 ```
 
 ### 2. High-Fidelity Syntactic Draft Combinators
+
 All syntactic operations operate on minimal range slices guarded by cryptographic old-text hashes, preserving indentation, comments, and project formatting:
 
 ```ts
 // 1. Manage named imports while preserving quote styles and multiline formatting
-yield* Draft.imports.addNamed(project, "src/index.ts", { module: "effect", name: "Option" })
-yield* Draft.imports.removeNamed(project, "src/index.ts", { module: "./legacy.js", name: "oldFn" })
+yield * Draft.imports.addNamed(project, "src/index.ts", { module: "effect", name: "Option" })
+yield * Draft.imports.removeNamed(project, "src/index.ts", { module: "./legacy.js", name: "oldFn" })
 
 // 2. Wrap or reorder function call arguments without altering trivia
-yield* Draft.args.wrap(project, callNode, 0, (text) => `{ value: ${text} }`)
-yield* Draft.args.reorder(project, callNode, [1, 0])
+yield * Draft.args.wrap(project, callNode, 0, (text) => `{ value: ${text} }`)
+yield * Draft.args.reorder(project, callNode, [1, 0])
 
 // 3. Insert or modify object literal fields with inferred indentation
-yield* Draft.objectLiteral.setField(project, objectNode, "timeoutMs", "5000")
+yield * Draft.objectLiteral.setField(project, objectNode, "timeoutMs", "5000")
 ```
 
 ### 3. Declarative Policy Engine
+
 Enforce strict invariants across the entire workspace before any files are modified:
 
 - **`Policy.noNewErrors()`** &mdash; Computes diagnostic diffs (`introduced`, `resolved`, `unchanged`) to guarantee no new compiler errors.
@@ -168,7 +178,9 @@ Enforce strict invariants across the entire workspace before any files are modif
 - **`Policy.fixesError(code)`** &mdash; Asserts that specific TypeScript diagnostic codes are actively resolved.
 
 ### 4. Transactional Writes with Automatic Rollback
+
 `PlanApplication` is strictly isolated from planning:
+
 1. Re-validates source file hashes to prevent applying against stale files (`StalePlanError`).
 2. Stages changes to temporary files (`${file}.safemods-${uuid}.tmp`).
 3. Commits changes via atomic filesystem renames.
@@ -190,6 +202,7 @@ safemods run ./recipe.ts --cwd ./my-project --apply
 ```
 
 ### Parametric Recipes & AI Agent Tool Calling
+
 Recipes can accept typed parameters using `@effect/schema` and export structured schemas for AI coding agents:
 
 ```sh

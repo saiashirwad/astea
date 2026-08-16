@@ -13,18 +13,15 @@ import {
   type ApplicationIndeterminate,
   type ApplicationReceipt,
 } from "./Model.ts"
-import {
-  type StalePlanError,
-  type VerifiedPlan,
-} from "../Verification/Engine.ts"
+import { type StalePlanError, type VerifiedPlan } from "../Verification/Engine.ts"
 
 export { PlanApplication }
 export type { ApplicationReceipt, VerifiedPlan }
 
 export const apply = (
-    verified: VerifiedPlan,
-  ): Effect.Effect<
-    ApplicationReceipt,
-    StalePlanError | ApplicationFailure | ApplicationIndeterminate,
-    PlanApplication | FileSystem.FileSystem | Path.Path
-  > => PlanApplication.use((application) => application.apply(verified))
+  verified: VerifiedPlan,
+): Effect.Effect<
+  ApplicationReceipt,
+  StalePlanError | ApplicationFailure | ApplicationIndeterminate,
+  PlanApplication | FileSystem.FileSystem | Path.Path
+> => PlanApplication.use((application) => application.apply(verified))

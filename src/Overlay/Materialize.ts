@@ -1,6 +1,11 @@
 import { path as Path } from "../platform/node.ts"
 import { Effect } from "effect"
-import { applyFileEdits, type EditConflict, type InvalidEdit, type TextEdit } from "../Edit/index.ts"
+import {
+  applyFileEdits,
+  type EditConflict,
+  type InvalidEdit,
+  type TextEdit,
+} from "../Edit/index.ts"
 import type { PlannedFileOperation } from "../Plan/index.ts"
 import {
   FileNotFound,
@@ -38,8 +43,11 @@ export const materialize = (
   snapshot: WorkspaceSnapshotService,
   edits: ReadonlyArray<TextEdit>,
   fileOperations: ReadonlyArray<PlannedFileOperation> = [],
-): Effect.Effect<Readonly<Record<string, string>>, ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict> =>
-  Effect.gen(function*() {
+): Effect.Effect<
+  Readonly<Record<string, string>>,
+  ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict
+> =>
+  Effect.gen(function* () {
     const state = new Map<string, VirtualFile>()
     const projects = new Map<string, WorkspaceSnapshotService["projects"][number]>()
     const snapshots = new Map<string, ProjectSnapshot>()
@@ -47,7 +55,8 @@ export const materialize = (
     const created = new Set<string>()
 
     const projectFor = (projectId: string) => {
-      const configured = projects.get(projectId) ?? snapshot.projects.find((project) => project.id === projectId)
+      const configured =
+        projects.get(projectId) ?? snapshot.projects.find((project) => project.id === projectId)
       if (configured === undefined) {
         return Effect.fail(new ProjectNotInSnapshot({ projectId, generation: snapshot.generation }))
       }
@@ -62,8 +71,11 @@ export const materialize = (
     const absolute = (_projectId: string, fileName: string, projectRoot: string) =>
       Path.resolve(projectRoot, fileName)
 
-    const load = (projectId: string, fileName: string): Effect.Effect<VirtualFile, ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound> =>
-      Effect.gen(function*() {
+    const load = (
+      projectId: string,
+      fileName: string,
+    ): Effect.Effect<VirtualFile, ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound> =>
+      Effect.gen(function* () {
         const existing = state.get(key(projectId, fileName))
         if (existing !== undefined) return existing
         const project = snapshots.get(projectId) ?? (yield* projectFor(projectId))
@@ -92,22 +104,25 @@ export const materialize = (
       } else if (operation.kind === "delete") {
         const current = state.get(sourceKey)
         if (current !== undefined) current.exists = false
-        else state.set(sourceKey, {
-          projectId: operation.projectId,
-          fileName: operation.path,
-          content: "",
-          exists: false,
-        })
-        deleted.add(sourcePath)
-        created.delete(sourcePath)
-      } else if (operation.toPath !== undefined) {
-        const current = yield* load(operation.projectId, operation.path).pipe(
-          Effect.catchTag("FileNotFound", () => Effect.succeed({
+        else
+          state.set(sourceKey, {
             projectId: operation.projectId,
             fileName: operation.path,
             content: "",
             exists: false,
-          })),
+          })
+        deleted.add(sourcePath)
+        created.delete(sourcePath)
+      } else if (operation.toPath !== undefined) {
+        const current = yield* load(operation.projectId, operation.path).pipe(
+          Effect.catchTag("FileNotFound", () =>
+            Effect.succeed({
+              projectId: operation.projectId,
+              fileName: operation.path,
+              content: "",
+              exists: false,
+            }),
+          ),
         )
         const targetKey = key(operation.projectId, operation.toPath)
         const targetPath = absolute(operation.projectId, operation.toPath, project.root)

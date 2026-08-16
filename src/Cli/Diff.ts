@@ -34,7 +34,12 @@ export const computeUnifiedDiff = (
   lines.push(colorize(`+++ b/${fileName}`, ANSI.bold + ANSI.green, useColor))
 
   // Simple and robust Myers-style line diffing
-  const diffs: Array<{ type: "same" | "add" | "remove"; text: string; oldLine?: number; newLine?: number }> = []
+  const diffs: Array<{
+    type: "same" | "add" | "remove"
+    text: string
+    oldLine?: number
+    newLine?: number
+  }> = []
 
   let i = 0
   let j = 0
@@ -76,18 +81,16 @@ export const computeUnifiedDiff = (
 }
 
 /** Render a formatted terminal report for a FilePreview. */
-export const renderFilePreview = (
-  file: FilePreview,
-  options: DiffOptions = {},
-): string => {
+export const renderFilePreview = (file: FilePreview, options: DiffOptions = {}): string => {
   const useColor = options.color ?? true
-  const badge = file.action === "create"
-    ? colorize("[CREATE]", ANSI.green + ANSI.bold, useColor)
-    : file.action === "delete"
-    ? colorize("[DELETE]", ANSI.red + ANSI.bold, useColor)
-    : file.action === "move"
-    ? colorize("[MOVE]", ANSI.yellow + ANSI.bold, useColor)
-    : colorize("[MODIFY]", ANSI.cyan + ANSI.bold, useColor)
+  const badge =
+    file.action === "create"
+      ? colorize("[CREATE]", ANSI.green + ANSI.bold, useColor)
+      : file.action === "delete"
+        ? colorize("[DELETE]", ANSI.red + ANSI.bold, useColor)
+        : file.action === "move"
+          ? colorize("[MOVE]", ANSI.yellow + ANSI.bold, useColor)
+          : colorize("[MODIFY]", ANSI.cyan + ANSI.bold, useColor)
 
   const header = `${badge} ${colorize(file.fileName, ANSI.bold, useColor)} (${file.projectId})`
   const beforeText = file.before.exists ? file.before.text : ""
@@ -97,14 +100,13 @@ export const renderFilePreview = (
 }
 
 /** Render full terminal preview for a PlanPreview. */
-export const renderPlanPreview = (
-  preview: PlanPreview,
-  options: DiffOptions = {},
-): string => {
+export const renderPlanPreview = (preview: PlanPreview, options: DiffOptions = {}): string => {
   const useColor = options.color ?? true
   const lines: Array<string> = []
 
-  lines.push(colorize(`Transformation Plan Preview [${preview.planId.slice(0, 8)}]`, ANSI.bold, useColor))
+  lines.push(
+    colorize(`Transformation Plan Preview [${preview.planId.slice(0, 8)}]`, ANSI.bold, useColor),
+  )
   lines.push(colorize(`Total files affected: ${preview.files.length}`, ANSI.dim, useColor))
   lines.push("")
 
@@ -117,10 +119,7 @@ export const renderPlanPreview = (
 }
 
 /** Render diagnostic delta verification summary. */
-export const renderDiagnosticDiff = (
-  diff: DiagnosticDiff,
-  options: DiffOptions = {},
-): string => {
+export const renderDiagnosticDiff = (diff: DiagnosticDiff, options: DiffOptions = {}): string => {
   const useColor = options.color ?? true
   const lines: Array<string> = []
 
@@ -128,16 +127,28 @@ export const renderDiagnosticDiff = (
   lines.push(colorize(`Diagnostic Verification (${total} total)`, ANSI.bold, useColor))
 
   if (diff.resolved.length > 0) {
-    lines.push(colorize(`  ✔ Resolved ${diff.resolved.length} diagnostic(s):`, ANSI.green, useColor))
+    lines.push(
+      colorize(`  ✔ Resolved ${diff.resolved.length} diagnostic(s):`, ANSI.green, useColor),
+    )
     for (const d of diff.resolved) {
-      lines.push(colorize(`    - TS${d.code}: ${d.message} (${d.fileName}:${d.start})`, ANSI.green, useColor))
+      lines.push(
+        colorize(
+          `    - TS${d.code}: ${d.message} (${d.fileName}:${d.start})`,
+          ANSI.green,
+          useColor,
+        ),
+      )
     }
   }
 
   if (diff.introduced.length > 0) {
-    lines.push(colorize(`  ✖ Introduced ${diff.introduced.length} new diagnostic(s):`, ANSI.red, useColor))
+    lines.push(
+      colorize(`  ✖ Introduced ${diff.introduced.length} new diagnostic(s):`, ANSI.red, useColor),
+    )
     for (const d of diff.introduced) {
-      lines.push(colorize(`    + TS${d.code}: ${d.message} (${d.fileName}:${d.start})`, ANSI.red, useColor))
+      lines.push(
+        colorize(`    + TS${d.code}: ${d.message} (${d.fileName}:${d.start})`, ANSI.red, useColor),
+      )
     }
   } else {
     lines.push(colorize(`  ✔ No new diagnostic errors introduced`, ANSI.green, useColor))

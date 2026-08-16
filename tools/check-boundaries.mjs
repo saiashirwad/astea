@@ -5,15 +5,26 @@ const root = resolve(import.meta.dirname, "..")
 const sourceRoot = resolve(root, "src")
 const failures = []
 
-const files = async (directory) => (await Promise.all((await readdir(directory, { withFileTypes: true })).map((entry) =>
-  entry.isDirectory() ? files(resolve(directory, entry.name)) : [resolve(directory, entry.name)]
-))).flat()
+const files = async (directory) =>
+  (
+    await Promise.all(
+      (
+        await readdir(directory, { withFileTypes: true })
+      ).map((entry) =>
+        entry.isDirectory()
+          ? files(resolve(directory, entry.name))
+          : [resolve(directory, entry.name)],
+      ),
+    )
+  ).flat()
 
 for (const file of await files(sourceRoot)) {
   if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue
   const owner = relative(sourceRoot, file).split(sep)[0]
   const text = await readFile(file, "utf8")
-  for (const match of text.matchAll(/(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g)) {
+  for (const match of text.matchAll(
+    /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g,
+  )) {
     const specifier = match[1]
     if (specifier === "safemods") {
       failures.push(`${relative(root, file)}: package self-import ${specifier}`)
@@ -31,7 +42,10 @@ for (const file of await files(sourceRoot)) {
     if (owner === "Pattern" && targetOwner === "Query") {
       failures.push(`${relative(root, file)}: Pattern must not import Query`)
     }
-    if (owner === "Workspace" && ["Draft", "Plan", "Overlay", "Preview", "Verification", "Application"].includes(targetOwner)) {
+    if (
+      owner === "Workspace" &&
+      ["Draft", "Plan", "Overlay", "Preview", "Verification", "Application"].includes(targetOwner)
+    ) {
       failures.push(`${relative(root, file)}: Workspace imports higher layer ${targetOwner}`)
     }
     if (targetOwner === "Cli" && owner !== "Cli" && owner !== "AgentTool") {

@@ -19,5 +19,6 @@ export const withFixture = <A, E, R>(
       const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
       return use(root, app).pipe(Effect.provide(workspaceLayer))
     },
-    (root) => Effect.tryPromise(() => Fs.rm(root, { recursive: true, force: true })).pipe(Effect.ignore),
+    (root) =>
+      Effect.tryPromise(() => Fs.rm(root, { recursive: true, force: true })).pipe(Effect.ignore),
   )

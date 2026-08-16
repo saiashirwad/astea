@@ -1,9 +1,9 @@
-import { RuleTester } from "oxlint/plugins-dev";
+import { RuleTester } from "oxlint/plugins-dev"
 
-import { noReflectGetRule } from "./no-reflect-get.ts";
+import { noReflectGetRule } from "./no-reflect-get.ts"
 
-const tester = new RuleTester({ languageOptions: { parserOptions: { lang: "ts" } } });
-const error = { messageId: "reflectGet" };
+const tester = new RuleTester({ languageOptions: { parserOptions: { lang: "ts" } } })
+const error = { messageId: "reflectGet" }
 
 tester.run("anti-slop/no-reflect-get", noReflectGetRule, {
   valid: [
@@ -17,4 +17,4 @@ tester.run("anti-slop/no-reflect-get", noReflectGetRule, {
     { name: "static access", code: "const value = Reflect.get(owner, key);", errors: [error] },
     { name: "computed access", code: "const value = Reflect['get'](owner, key);", errors: [error] },
   ],
-});
+})

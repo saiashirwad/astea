@@ -20,9 +20,14 @@ export const run = <A, E, R>(
   A,
   E | ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict,
   Workspace | WorkspaceSnapshot | Exclude<R, WorkspaceSnapshot>
-> => Effect.gen(function*() {
-  const workspace = yield* Workspace
-  const snapshot = yield* WorkspaceSnapshot
-  const sourceMap = yield* materialize(snapshot, planOrDraft.edits, planOrDraft.fileOperations ?? [])
-  return yield* workspace.withIsolatedSnapshot(sourceMap, program)
-})
+> =>
+  Effect.gen(function* () {
+    const workspace = yield* Workspace
+    const snapshot = yield* WorkspaceSnapshot
+    const sourceMap = yield* materialize(
+      snapshot,
+      planOrDraft.edits,
+      planOrDraft.fileOperations ?? [],
+    )
+    return yield* workspace.withIsolatedSnapshot(sourceMap, program)
+  })

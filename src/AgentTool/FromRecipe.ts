@@ -72,9 +72,11 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
     description,
     schema: jsonSchema,
     execute: (rawInput, options = {}) =>
-      Effect.gen(function*() {
+      Effect.gen(function* () {
         const workspace = yield* Workspace
-        const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(Layer.succeed(Workspace, workspace)))
+        const mainLayer = applicationLayerNode.pipe(
+          Layer.provideMerge(Layer.succeed(Workspace, workspace)),
+        )
 
         const typedInput = yield* decodeToolInput(recipe, rawInput)
         const plan = yield* runRecipe(recipe, typedInput).pipe(
@@ -120,7 +122,9 @@ const decodeToolInput = <Input, E, R>(
     return Effect.succeed(rawInput as Input)
   }
   // SAFETY: recipe schemas are pure and fail only with SchemaError.
-  const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: JsonValue) => Effect.Effect<Input, Schema.SchemaError, never>
+  const decode = Schema.decodeUnknownEffect(recipe.schema) as (
+    value: JsonValue,
+  ) => Effect.Effect<Input, Schema.SchemaError, never>
   return decode(rawInput).pipe(
     Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
   )

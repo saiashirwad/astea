@@ -14,7 +14,7 @@ export default Recipe.define("rename-old-name", {
   version: "1.0.0",
   policies: [Policy.matches({ min: 4 }), Policy.noNewErrors(), Policy.idempotent()],
   run: () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const snapshot = yield* WorkspaceSnapshot
       const project = yield* snapshot.project(app)
       const oldName = yield* project.symbolNamed("oldName", { within: "src/symbol.ts" })

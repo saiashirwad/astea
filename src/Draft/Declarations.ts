@@ -1,6 +1,17 @@
 import { Effect } from "effect"
-import type { ArrowFunction, ClassDeclaration, FunctionDeclaration, FunctionExpression, InterfaceDeclaration, MethodDeclaration } from "typescript/unstable/ast"
-import { isIdentifier, isPropertySignatureDeclaration, isStringLiteral } from "typescript/unstable/ast/is"
+import type {
+  ArrowFunction,
+  ClassDeclaration,
+  FunctionDeclaration,
+  FunctionExpression,
+  InterfaceDeclaration,
+  MethodDeclaration,
+} from "typescript/unstable/ast"
+import {
+  isIdentifier,
+  isPropertySignatureDeclaration,
+  isStringLiteral,
+} from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
@@ -33,19 +44,21 @@ export const interfaces = {
         const propertyText = `${comment}  ${ro}${options.name}${opt}: ${options.type};\n`
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start: insertPos,
-            end: insertPos,
-            expectedTextHash: textHash(""),
-            newText: propertyText,
-            evidenceIds: [`interface:addProperty:${options.name}`],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: propertyText,
+              evidenceIds: [`interface:addProperty:${options.name}`],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 
   /** Remove a property signature from an InterfaceDeclaration. */
@@ -59,22 +72,25 @@ export const interfaces = {
         const sourceFile = interfaceDecl.getSourceFile()
         for (const member of interfaceDecl.members) {
           if (isPropertySignatureDeclaration(member)) {
-            const name = isIdentifier(member.name) || isStringLiteral(member.name) ? member.name.text : ""
+            const name =
+              isIdentifier(member.name) || isStringLiteral(member.name) ? member.name.text : ""
             if (name === propertyName) {
               const start = member.getFullStart()
               const end = member.getEnd()
               const nextChar = sourceFile.text[end]
-              const actualEnd = (nextChar === ";" || nextChar === ",") ? end + 1 : end
+              const actualEnd = nextChar === ";" || nextChar === "," ? end + 1 : end
               return {
-                edits: [{
-                  projectId: project.project.id,
-                  fileName: projectRelativePath(project.root, sourceFile.fileName),
-                  start,
-                  end: actualEnd,
-                  expectedTextHash: textHash(sourceFile.text.slice(start, actualEnd)),
-                  newText: "",
-                  evidenceIds: [`interface:removeProperty:${propertyName}`],
-                }],
+                edits: [
+                  {
+                    projectId: project.project.id,
+                    fileName: projectRelativePath(project.root, sourceFile.fileName),
+                    start,
+                    end: actualEnd,
+                    expectedTextHash: textHash(sourceFile.text.slice(start, actualEnd)),
+                    newText: "",
+                    evidenceIds: [`interface:removeProperty:${propertyName}`],
+                  },
+                ],
                 evidence: [],
                 matches: 1,
               }
@@ -82,7 +98,7 @@ export const interfaces = {
           }
         }
         return empty
-      })
+      }),
     ),
 }
 
@@ -124,19 +140,21 @@ export const classes = {
         const propText = `  ${acc}${st}${ro}${options.name}${ty}${init};\n`
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start: insertPos,
-            end: insertPos,
-            expectedTextHash: textHash(""),
-            newText: propText,
-            evidenceIds: [`class:addProperty:${options.name}`],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: propText,
+              evidenceIds: [`class:addProperty:${options.name}`],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 
   /** Add a method declaration to a ClassDeclaration. */
@@ -157,19 +175,21 @@ export const classes = {
         const methodText = `  ${acc}${st}${asy}${options.name}(${params})${ret} {\n    ${options.body}\n  }\n`
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start: insertPos,
-            end: insertPos,
-            expectedTextHash: textHash(""),
-            newText: methodText,
-            evidenceIds: [`class:addMethod:${options.name}`],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: methodText,
+              evidenceIds: [`class:addMethod:${options.name}`],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 }
 
@@ -203,15 +223,17 @@ export const functions = {
           if (openParenRel === -1 || closeParenRel === -1) return empty
           const insertPos = fn.getStart(sourceFile) + closeParenRel
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: paramStr,
-              evidenceIds: [`function:addParam:${options.name}`],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, sourceFile.fileName),
+                start: insertPos,
+                end: insertPos,
+                expectedTextHash: textHash(""),
+                newText: paramStr,
+                evidenceIds: [`function:addParam:${options.name}`],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
@@ -219,20 +241,22 @@ export const functions = {
           const lastParam = params[params.length - 1]!
           const insertPos = lastParam.getEnd()
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: `, ${paramStr}`,
-              evidenceIds: [`function:addParam:${options.name}`],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, sourceFile.fileName),
+                start: insertPos,
+                end: insertPos,
+                expectedTextHash: textHash(""),
+                newText: `, ${paramStr}`,
+                evidenceIds: [`function:addParam:${options.name}`],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
         }
-      })
+      }),
     ),
 
   /** Set or update the explicit return type annotation on a function or method. */
@@ -248,15 +272,17 @@ export const functions = {
           const start = fn.type.getStart(sourceFile)
           const end = fn.type.getEnd()
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start,
-              end,
-              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-              newText: returnType,
-              evidenceIds: ["function:setReturnType"],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, sourceFile.fileName),
+                start,
+                end,
+                expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+                newText: returnType,
+                evidenceIds: ["function:setReturnType"],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
@@ -268,19 +294,21 @@ export const functions = {
           if (closeParenRel === -1) return empty
           const insertPos = fnStart + closeParenRel + 1
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: `: ${returnType}`,
-              evidenceIds: ["function:setReturnType"],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, sourceFile.fileName),
+                start: insertPos,
+                end: insertPos,
+                expectedTextHash: textHash(""),
+                newText: `: ${returnType}`,
+                evidenceIds: ["function:setReturnType"],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
         }
-      })
+      }),
     ),
 }

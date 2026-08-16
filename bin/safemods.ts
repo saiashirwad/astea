@@ -100,8 +100,13 @@ if (optionsMap["--input"]) {
 
 const cwd = optionsMap["--cwd"]
 
-const mode: "preview" | "verify" | "apply" | "scan" =
-  isScan ? "scan" : isApply ? "apply" : isVerify ? "verify" : "preview"
+const mode: "preview" | "verify" | "apply" | "scan" = isScan
+  ? "scan"
+  : isApply
+    ? "apply"
+    : isVerify
+      ? "verify"
+      : "preview"
 
 Effect.runPromise(
   runCli({
@@ -118,9 +123,10 @@ Effect.runPromise(
   if (err && typeof err === "object" && "_tag" in err && err._tag === "CliMatchFoundError") {
     process.exit(1)
   }
-  const msg = err && typeof err === "object" && "message" in err && typeof err.message === "string"
-    ? err.message
-    : String(err)
+  const msg =
+    err && typeof err === "object" && "message" in err && typeof err.message === "string"
+      ? err.message
+      : String(err)
   console.error(`\n✖ ${msg}`)
   process.exit(1)
 })

@@ -26,15 +26,17 @@ export const objectLiteral = {
               const start = init.getStart(sourceFile)
               const end = init.getEnd()
               return {
-                edits: [{
-                  projectId: project.project.id,
-                  fileName: projectRelativePath(project.root, sourceFile.fileName),
-                  start,
-                  end,
-                  expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-                  newText: valueText,
-                  evidenceIds: [`object:setField:${fieldName}`],
-                }],
+                edits: [
+                  {
+                    projectId: project.project.id,
+                    fileName: projectRelativePath(project.root, sourceFile.fileName),
+                    start,
+                    end,
+                    expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+                    newText: valueText,
+                    evidenceIds: [`object:setField:${fieldName}`],
+                  },
+                ],
                 evidence: [],
                 matches: 1,
               }
@@ -48,19 +50,21 @@ export const objectLiteral = {
         const textToInsert = `${prefix}${fieldName}: ${valueText}${suffix}`
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start: insertPos,
-            end: insertPos,
-            expectedTextHash: textHash(""),
-            newText: textToInsert,
-            evidenceIds: [`object:setField:${fieldName}`],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: textToInsert,
+              evidenceIds: [`object:setField:${fieldName}`],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 
   /** Remove a property from an ObjectLiteralExpression. */
@@ -88,15 +92,17 @@ export const objectLiteral = {
               }
 
               return {
-                edits: [{
-                  projectId: project.project.id,
-                  fileName: projectRelativePath(project.root, sourceFile.fileName),
-                  start,
-                  end,
-                  expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-                  newText: "",
-                  evidenceIds: [`object:removeField:${fieldName}`],
-                }],
+                edits: [
+                  {
+                    projectId: project.project.id,
+                    fileName: projectRelativePath(project.root, sourceFile.fileName),
+                    start,
+                    end,
+                    expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+                    newText: "",
+                    evidenceIds: [`object:removeField:${fieldName}`],
+                  },
+                ],
                 evidence: [],
                 matches: 1,
               }
@@ -104,6 +110,6 @@ export const objectLiteral = {
           }
         }
         return empty
-      })
+      }),
     ),
 }

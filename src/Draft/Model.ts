@@ -16,10 +16,7 @@ import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
 import type { EvidenceRecord, PlannedFileOperation } from "../Plan/index.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { Selection } from "../Query/index.ts"
-import {
-  type ProjectSnapshot,
-  type SnapshotExpired,
-} from "../Workspace/index.ts"
+import { type ProjectSnapshot, type SnapshotExpired } from "../Workspace/index.ts"
 
 /** An edit in pre-finalization form; identical in shape to its durable counterpart. */
 export type ProposedEdit = TextEdit
@@ -37,7 +34,9 @@ export const empty: Draft = { edits: [], fileOperations: [], evidence: [], match
 /** Combine drafts built from disjoint selections. Conflicting overlaps are rejected at finalization. */
 export const concat = (...drafts: ReadonlyArray<Draft>): Draft => ({
   edits: drafts.flatMap((draft) => [...draft.edits]),
-  fileOperations: drafts.flatMap((draft) => (draft.fileOperations ? [...draft.fileOperations] : [])),
+  fileOperations: drafts.flatMap((draft) =>
+    draft.fileOperations ? [...draft.fileOperations] : [],
+  ),
   evidence: drafts.flatMap((draft) => [...draft.evidence]),
   matches: drafts.reduce((total, draft) => total + draft.matches, 0),
 })
@@ -55,7 +54,8 @@ const editForNode = (
   project.unsafeNative(() =>
     Effect.sync(() => {
       const sourceFile = node.getSourceFile()
-      const start = options?.includeLeadingTrivia === true ? node.getFullStart() : node.getStart(sourceFile)
+      const start =
+        options?.includeLeadingTrivia === true ? node.getFullStart() : node.getStart(sourceFile)
       const end = node.getEnd()
       return {
         projectId: project.project.id,
@@ -66,11 +66,14 @@ const editForNode = (
         newText,
         evidenceIds: options?.evidenceIds ?? [],
       }
-    })
+    }),
   )
 
-const draftOf = (edit: Effect.Effect<ProposedEdit, SnapshotExpired>, evidence: ReadonlyArray<EvidenceRecord>, matches: number) =>
-  Effect.map(edit, (proposed): Draft => ({ edits: [proposed], evidence, matches }))
+const draftOf = (
+  edit: Effect.Effect<ProposedEdit, SnapshotExpired>,
+  evidence: ReadonlyArray<EvidenceRecord>,
+  matches: number,
+) => Effect.map(edit, (proposed): Draft => ({ edits: [proposed], evidence, matches }))
 
 /** Replace a node's source range with new text. */
 export const replace = (
@@ -78,7 +81,8 @@ export const replace = (
   node: Node,
   newText: string,
   options?: EditRangeOptions,
-): Effect.Effect<Draft, SnapshotExpired> => draftOf(editForNode(project, node, newText, options), [], 0)
+): Effect.Effect<Draft, SnapshotExpired> =>
+  draftOf(editForNode(project, node, newText, options), [], 0)
 
 /** Remove a node's source range entirely. */
 export const remove = (
@@ -112,19 +116,21 @@ const insertAtNode = (
       const sourceFile = node.getSourceFile()
       const position = side === "before" ? node.getStart(sourceFile) : node.getEnd()
       return {
-        edits: [{
-          projectId: project.project.id,
-          fileName: projectRelativePath(project.root, sourceFile.fileName),
-          start: position,
-          end: position,
-          expectedTextHash: textHash(""),
-          newText: text,
-          evidenceIds: [],
-        }],
+        edits: [
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: position,
+            end: position,
+            expectedTextHash: textHash(""),
+            newText: text,
+            evidenceIds: [],
+          },
+        ],
         evidence: [],
         matches: 0,
       }
-    })
+    }),
   )
 
 /** Print a synthesized or updated native node to source text via the native emitter. */
@@ -133,7 +139,7 @@ export const print = (
   node: Node,
 ): Effect.Effect<string, NativeCompilerError | SnapshotExpired> =>
   project.unsafeNative((nativeProject) =>
-    nativeRequest("print native fragment", () => nativeProject.emitter.printNode(node))
+    nativeRequest("print native fragment", () => nativeProject.emitter.printNode(node)),
   )
 
 /** Replace a node with a printed native fragment (e.g. built with the native factory API). */
@@ -161,7 +167,9 @@ export const isDraft = (value: unknown): value is Draft =>
  */
 export const replaceEach = <A extends Node, E = never, R = never>(
   selections: ReadonlyArray<Selection<A>>,
-  replacement: (selection: Selection<A>) => Replacement | Draft | Effect.Effect<Replacement | Draft, E, R>,
+  replacement: (
+    selection: Selection<A>,
+  ) => Replacement | Draft | Effect.Effect<Replacement | Draft, E, R>,
 ): Effect.Effect<Draft, E | SnapshotExpired, R> =>
   Effect.forEach(selections, (selection) => {
     const raw = replacement(selection)
@@ -169,24 +177,26 @@ export const replaceEach = <A extends Node, E = never, R = never>(
     return effect.pipe(
       Effect.flatMap((proposed) => {
         if (isDraft(proposed)) {
-          const evidenceId =
-            `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
-          const evidence = proposed.evidence.length > 0
-            ? proposed.evidence
-            : [{
-              id: evidenceId,
-              kind: "selection",
-              facts: {
-                projectId: selection.project.project.id,
-                fileName: selection.fileName,
-                start: selection.start,
-                end: selection.end,
-                criteria: selection.evidence.map((item) => ({
-                  criterion: item.criterion,
-                  facts: { ...item.facts },
-                })),
-              },
-            }]
+          const evidenceId = `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
+          const evidence =
+            proposed.evidence.length > 0
+              ? proposed.evidence
+              : [
+                  {
+                    id: evidenceId,
+                    kind: "selection",
+                    facts: {
+                      projectId: selection.project.project.id,
+                      fileName: selection.fileName,
+                      start: selection.start,
+                      end: selection.end,
+                      criteria: selection.evidence.map((item) => ({
+                        criterion: item.criterion,
+                        facts: { ...item.facts },
+                      })),
+                    },
+                  },
+                ]
           return Effect.succeed({
             ...proposed,
             evidence,
@@ -195,25 +205,26 @@ export const replaceEach = <A extends Node, E = never, R = never>(
         }
         const node = isTextReplacement(proposed) ? selection.value : proposed.node
         const text = isTextReplacement(proposed) ? proposed : proposed.text
-        const evidenceId =
-          `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
+        const evidenceId = `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
         return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
           Effect.map((edit): Draft => ({
             edits: [edit],
-            evidence: [{
-              id: evidenceId,
-              kind: "selection",
-              facts: {
-                projectId: selection.project.project.id,
-                fileName: selection.fileName,
-                start: selection.start,
-                end: selection.end,
-                criteria: selection.evidence.map((item) => ({
-                  criterion: item.criterion,
-                  facts: { ...item.facts },
-                })),
+            evidence: [
+              {
+                id: evidenceId,
+                kind: "selection",
+                facts: {
+                  projectId: selection.project.project.id,
+                  fileName: selection.fileName,
+                  start: selection.start,
+                  end: selection.end,
+                  criteria: selection.evidence.map((item) => ({
+                    criterion: item.criterion,
+                    facts: { ...item.facts },
+                  })),
+                },
               },
-            }],
+            ],
             matches: 1,
           })),
         )
@@ -229,12 +240,9 @@ export const replaceEach = <A extends Node, E = never, R = never>(
  * Record query selections as search/audit evidence without proposing any file edits.
  * Enables read-only codebase audits, inventorying, and migration sizing.
  */
-export const audit = <A extends Node>(
-  selections: ReadonlyArray<Selection<A>>,
-): Draft => {
+export const audit = <A extends Node>(selections: ReadonlyArray<Selection<A>>): Draft => {
   const evidence: Array<EvidenceRecord> = selections.map((selection) => {
-    const evidenceId =
-      `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
+    const evidenceId = `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
     return {
       id: evidenceId,
       kind: "selection",

@@ -1,4 +1,10 @@
-export type Json = null | boolean | number | string | ReadonlyArray<Json> | { readonly [key: string]: Json }
+export type Json =
+  | null
+  | boolean
+  | number
+  | string
+  | ReadonlyArray<Json>
+  | { readonly [key: string]: Json }
 
 export type EvidenceFact = string | number | boolean | null
 

@@ -18,33 +18,45 @@ describe("declarative transformations API (@effect/vitest)", () => {
       expect(diff).toContain("+ const b = 42;")
       expect(diff).toContain("+ const c = 3;")
 
-      const diagDiff = computeDiagnosticDiff([], [
-        { code: 2322, message: "Type mismatch", category: "error", fileName: "test.ts", start: 0, length: 1 },
-      ])
+      const diagDiff = computeDiagnosticDiff(
+        [],
+        [
+          {
+            code: 2322,
+            message: "Type mismatch",
+            category: "error",
+            fileName: "test.ts",
+            start: 0,
+            length: 1,
+          },
+        ],
+      )
       const renderedDiag = renderDiagnosticDiff(diagDiff, { color: false })
       expect(renderedDiag).toContain("Introduced 1 new diagnostic")
       expect(renderedDiag).toContain("TS2322: Type mismatch")
     })
 
-    effect("bridges recipes into structured agent tools for AI protocols", () =>
-      withFixture((_, _app) =>
-        Effect.gen(function*() {
-          const sampleRecipe = Recipe.define("agent-tool-sample", {
-            version: "1.0.0",
-            schema: Schema.Struct({ multiplier: Schema.Finite }),
-            run: () => Effect.succeed(Draft.empty),
-          })
+    effect(
+      "bridges recipes into structured agent tools for AI protocols",
+      () =>
+        withFixture((_, _app) =>
+          Effect.gen(function* () {
+            const sampleRecipe = Recipe.define("agent-tool-sample", {
+              version: "1.0.0",
+              schema: Schema.Struct({ multiplier: Schema.Finite }),
+              run: () => Effect.succeed(Draft.empty),
+            })
 
-          const tool = recipeToAgentTool(sampleRecipe, "Sample codemod tool")
-          expect(tool.name).toBe("safemods_agent_tool_sample")
-          expect(tool.description).toBe("Sample codemod tool")
-          expect(tool.schema).toBeDefined()
+            const tool = recipeToAgentTool(sampleRecipe, "Sample codemod tool")
+            expect(tool.name).toBe("safemods_agent_tool_sample")
+            expect(tool.description).toBe("Sample codemod tool")
+            expect(tool.schema).toBeDefined()
 
-          const result = yield* tool.execute({ multiplier: 10 })
-          expect(result.status).toBe("preview")
-          expect(result.planId).toBeDefined()
-        })
-      ),
+            const result = yield* tool.execute({ multiplier: 10 })
+            expect(result.status).toBe("preview")
+            expect(result.planId).toBeDefined()
+          }),
+        ),
       60_000,
     )
   })

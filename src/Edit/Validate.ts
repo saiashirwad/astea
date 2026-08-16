@@ -20,17 +20,18 @@ export const editsConflict = (left: TextEdit, right: TextEdit): boolean => {
 
 export const normalizeEdits = (
   edits: ReadonlyArray<TextEdit>,
-): Effect.Effect<ReadonlyArray<TextEdit>, InvalidEdit | EditConflict> => Effect.gen(function*() {
-  const sorted = [...edits].sort(compareEdits)
-  for (const edit of sorted) {
-    if (edit.start < 0 || edit.end < edit.start) {
-      return yield* new InvalidEdit({ edit, reason: "range" })
+): Effect.Effect<ReadonlyArray<TextEdit>, InvalidEdit | EditConflict> =>
+  Effect.gen(function* () {
+    const sorted = [...edits].sort(compareEdits)
+    for (const edit of sorted) {
+      if (edit.start < 0 || edit.end < edit.start) {
+        return yield* new InvalidEdit({ edit, reason: "range" })
+      }
     }
-  }
-  for (let index = 1; index < sorted.length; index++) {
-    const left = sorted[index - 1]!
-    const right = sorted[index]!
-    if (editsConflict(left, right)) return yield* new EditConflict({ left, right })
-  }
-  return sorted
-})
+    for (let index = 1; index < sorted.length; index++) {
+      const left = sorted[index - 1]!
+      const right = sorted[index]!
+      if (editsConflict(left, right)) return yield* new EditConflict({ left, right })
+    }
+    return sorted
+  })

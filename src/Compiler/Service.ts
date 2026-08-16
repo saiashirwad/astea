@@ -11,10 +11,11 @@ export class NativeCompilerError extends Data.TaggedError("NativeCompilerError")
 export const nativeRequest = <A>(
   operation: string,
   evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, NativeCompilerError> => Effect.tryPromise({
-  try: evaluate,
-  catch: (cause) => new NativeCompilerError({ operation, cause }),
-})
+): Effect.Effect<A, NativeCompilerError> =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new NativeCompilerError({ operation, cause }),
+  })
 
 export interface NativeCompilerService {
   readonly openSnapshot: (
@@ -30,30 +31,32 @@ export class NativeCompiler extends Context.Service<NativeCompiler, NativeCompil
 
 export const make = (
   options: APIOptions,
-): Effect.Effect<NativeCompiler["Service"], never, Scope.Scope> => Effect.gen(function*() {
-  const api = yield* Effect.acquireRelease(
-    Effect.sync(() => new API(options)),
-    (api) => Effect.promise(() => api.close()),
-  )
+): Effect.Effect<NativeCompiler["Service"], never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const api = yield* Effect.acquireRelease(
+      Effect.sync(() => new API(options)),
+      (api) => Effect.promise(() => api.close()),
+    )
 
-  const openSnapshot = Effect.fn("NativeCompiler.openSnapshot")((params?: UpdateSnapshotParams) =>
-    Effect.acquireRelease(
-      nativeRequest("updateSnapshot", () => api.updateSnapshot(params)),
-      (snapshot) => Effect.promise(() => snapshot.dispose()),
-    ))
+    const openSnapshot = Effect.fn("NativeCompiler.openSnapshot")((params?: UpdateSnapshotParams) =>
+      Effect.acquireRelease(
+        nativeRequest("updateSnapshot", () => api.updateSnapshot(params)),
+        (snapshot) => Effect.promise(() => snapshot.dispose()),
+      ),
+    )
 
-  const getTiming: Effect.Effect<TimingInfo, NativeCompilerError> = nativeRequest(
-    "getTimingInfo",
-    () => api.getTimingInfo(),
-  )
+    const getTiming: Effect.Effect<TimingInfo, NativeCompilerError> = nativeRequest(
+      "getTimingInfo",
+      () => api.getTimingInfo(),
+    )
 
-  const resetTiming: Effect.Effect<void, NativeCompilerError> = nativeRequest(
-    "resetTimingInfo",
-    () => api.resetTimingInfo(),
-  )
+    const resetTiming: Effect.Effect<void, NativeCompilerError> = nativeRequest(
+      "resetTimingInfo",
+      () => api.resetTimingInfo(),
+    )
 
-  return NativeCompiler.of({ openSnapshot, getTiming, resetTiming })
-})
+    return NativeCompiler.of({ openSnapshot, getTiming, resetTiming })
+  })
 
 export const layer = (options: APIOptions): Layer.Layer<NativeCompiler> =>
   Layer.effect(NativeCompiler, make(options))

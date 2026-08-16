@@ -13,7 +13,8 @@ const canonicalPath = (value: string): string | undefined => {
   if (value.length === 0 || value.includes("\0")) return undefined
   // `path.isAbsolute` only understands the host platform. Durable plans are
   // portable, so reject both POSIX and Windows absolute spellings explicitly.
-  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(value)) return undefined
+  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(value))
+    return undefined
   const parts = value.replaceAll("\\", "/").split("/")
   const result: Array<string> = []
   for (const part of parts) {

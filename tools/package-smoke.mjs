@@ -17,38 +17,57 @@ try {
   }
   const tarballName = basename(tarballPath)
 
-  const imports = Object.keys(packageJson.exports).map((subpath, index) => {
-    const specifier = subpath === "." ? packageJson.name : `${packageJson.name}/${subpath.slice(2)}`
-    return `import * as entry${index} from ${JSON.stringify(specifier)}\nvoid entry${index}`
-  }).join("\n")
+  const imports = Object.keys(packageJson.exports)
+    .map((subpath, index) => {
+      const specifier =
+        subpath === "." ? packageJson.name : `${packageJson.name}/${subpath.slice(2)}`
+      return `import * as entry${index} from ${JSON.stringify(specifier)}\nvoid entry${index}`
+    })
+    .join("\n")
 
-  await writeFile(join(fixture, "package.json"), JSON.stringify({
-    private: true,
-    type: "module",
-    dependencies: {
-      [packageJson.name]: `file:./${tarballName}`,
-      effect: packageJson.dependencies.effect,
-      typescript: packageJson.dependencies.typescript,
-    },
-    devDependencies: {
-      "@types/node": packageJson.devDependencies["@types/node"],
-    },
-  }, null, 2))
-  await writeFile(join(fixture, "tsconfig.json"), JSON.stringify({
-    compilerOptions: {
-      strict: true,
-      noEmit: true,
-      module: "NodeNext",
-      moduleResolution: "NodeNext",
-      target: "ES2024",
-      lib: ["ESNext", "DOM", "DOM.Iterable"],
-      types: ["node"],
-      skipLibCheck: false,
-    },
-    include: ["smoke.ts"],
-  }, null, 2))
+  await writeFile(
+    join(fixture, "package.json"),
+    JSON.stringify(
+      {
+        private: true,
+        type: "module",
+        dependencies: {
+          [packageJson.name]: `file:./${tarballName}`,
+          effect: packageJson.dependencies.effect,
+          typescript: packageJson.dependencies.typescript,
+        },
+        devDependencies: {
+          "@types/node": packageJson.devDependencies["@types/node"],
+        },
+      },
+      null,
+      2,
+    ),
+  )
+  await writeFile(
+    join(fixture, "tsconfig.json"),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          strict: true,
+          noEmit: true,
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          target: "ES2024",
+          lib: ["ESNext", "DOM", "DOM.Iterable"],
+          types: ["node"],
+          skipLibCheck: false,
+        },
+        include: ["smoke.ts"],
+      },
+      null,
+      2,
+    ),
+  )
   await writeFile(join(fixture, "smoke.ts"), `${imports}\n`)
-  await writeFile(join(fixture, "compatibility-smoke.mjs"), `
+  await writeFile(
+    join(fixture, "compatibility-smoke.mjs"),
+    `
 import * as Root from "safemods"
 
 const forbidden = [
@@ -72,7 +91,8 @@ const forbidden = [
 for (const [domain, name] of forbidden) {
   if (name in domain) throw new Error(\`Legacy export still present: \${name}\`)
 }
-`)
+`,
+  )
 
   await exec("pnpm", ["install", "--ignore-scripts", "--frozen-lockfile=false"], { cwd: fixture })
   await exec("pnpm", ["exec", "tsc", "-p", "tsconfig.json"], { cwd: fixture })

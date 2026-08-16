@@ -9,11 +9,7 @@ import { type Recipe, run as runRecipe } from "../Recipe/index.ts"
 import { of as previewOf } from "../Preview/index.ts"
 import { verify } from "../Verification/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
-import type {
-  AuditCriterionRecord,
-  AuditFinding,
-  AuditReport,
-} from "./Audit.ts"
+import type { AuditCriterionRecord, AuditFinding, AuditReport } from "./Audit.ts"
 import {
   buildAuditReport,
   CliMatchFoundError,
@@ -77,11 +73,20 @@ const formatCliError = (cause: unknown): string => {
           return `Stale Plan: '${sp.fileName}' in project '${sp.projectId}' was modified after snapshot`
         }
         case "EditConflict": {
-          const ec = raw as { readonly left: { readonly fileName: string; readonly start: number; readonly end: number } }
+          const ec = raw as {
+            readonly left: {
+              readonly fileName: string
+              readonly start: number
+              readonly end: number
+            }
+          }
           return `Edit Conflict: Overlapping edits detected in '${ec.left.fileName}'`
         }
         case "InvalidEdit": {
-          const ie = raw as { readonly edit: { readonly fileName: string }; readonly reason: string }
+          const ie = raw as {
+            readonly edit: { readonly fileName: string }
+            readonly reason: string
+          }
           return `Invalid Edit (${ie.reason}) in '${ie.edit.fileName}'`
         }
         case "CliError": {
@@ -111,7 +116,9 @@ const loadRecipe = (resolvedRecipe: string): Effect.Effect<Recipe<unknown>, CliE
   }).pipe(
     Effect.flatMap((imported) => {
       if (!Predicate.isObject(imported)) {
-        return Effect.fail(new CliError({ message: `Recipe module is not an object: ${resolvedRecipe}` }))
+        return Effect.fail(
+          new CliError({ message: `Recipe module is not an object: ${resolvedRecipe}` }),
+        )
       }
       if ("default" in imported && isRecipe(imported.default)) {
         return Effect.succeed(imported.default)
@@ -122,17 +129,18 @@ const loadRecipe = (resolvedRecipe: string): Effect.Effect<Recipe<unknown>, CliE
       for (const value of Object.values(imported)) {
         if (isRecipe(value)) return Effect.succeed(value)
       }
-      return Effect.fail(new CliError({ message: `Could not find an exported Recipe in ${resolvedRecipe}` }))
+      return Effect.fail(
+        new CliError({ message: `Could not find an exported Recipe in ${resolvedRecipe}` }),
+      )
     }),
   )
 
 const JsonText = Schema.fromJsonString(Schema.Unknown)
 
 export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliMatchFoundError> =>
-  Effect.gen(function*() {
-    const targetCwd = options.cwd !== undefined
-      ? Path.resolve(process.cwd(), options.cwd)
-      : process.cwd()
+  Effect.gen(function* () {
+    const targetCwd =
+      options.cwd !== undefined ? Path.resolve(process.cwd(), options.cwd) : process.cwd()
     const resolvedRecipe = Path.resolve(process.cwd(), options.recipePath)
 
     const recipe = yield* loadRecipe(resolvedRecipe)
@@ -150,21 +158,21 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
     const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: targetCwd })
     const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
-    const noColorConfig = yield* Config.string("NO_COLOR").pipe(
-      Config.option,
-      Effect.orDie,
-    )
+    const noColorConfig = yield* Config.string("NO_COLOR").pipe(Config.option, Effect.orDie)
     const useColor = options.noColor !== true && Option.isNone(noColorConfig)
 
-    yield* Effect.gen(function*() {
+    yield* Effect.gen(function* () {
       const workspace = yield* Workspace
       const plan = yield* runRecipe(recipe, options.input)
 
       if (options.mode === "scan") {
-        const report = yield* workspace.withSnapshot({}, Effect.gen(function*() {
-          const snapshot = yield* WorkspaceSnapshot
-          return yield* buildAuditReport(plan, snapshot)
-        }))
+        const report = yield* workspace.withSnapshot(
+          {},
+          Effect.gen(function* () {
+            const snapshot = yield* WorkspaceSnapshot
+            return yield* buildAuditReport(plan, snapshot)
+          }),
+        )
 
         const format = options.format ?? "text"
         if (format === "json") {

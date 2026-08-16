@@ -36,7 +36,9 @@ export interface VerificationRule {
 }
 
 export interface Policy {
-  readonly matchCount?: { readonly min?: number | undefined; readonly max?: number | undefined } | undefined
+  readonly matchCount?:
+    | { readonly min?: number | undefined; readonly max?: number | undefined }
+    | undefined
   readonly maxAffectedFiles?: number | undefined
   readonly diagnostics?: PlanPolicies["diagnostics"] | undefined
   readonly idempotence?: PlanPolicies["idempotence"] | undefined
@@ -57,14 +59,15 @@ export const computeDiagnosticDiff = (
   // Category and the complete location are part of diagnostic identity.  In
   // particular, a warning becoming an error must be treated as an introduced
   // error even when its code and message stay the same.
-  const key = (diagnostic: DiagnosticRecord) => JSON.stringify([
-    diagnostic.category,
-    diagnostic.code,
-    diagnostic.fileName ?? null,
-    diagnostic.start ?? null,
-    diagnostic.length ?? null,
-    diagnostic.message,
-  ])
+  const key = (diagnostic: DiagnosticRecord) =>
+    JSON.stringify([
+      diagnostic.category,
+      diagnostic.code,
+      diagnostic.fileName ?? null,
+      diagnostic.start ?? null,
+      diagnostic.length ?? null,
+      diagnostic.message,
+    ])
   const group = (diagnostics: ReadonlyArray<DiagnosticRecord>) => {
     const grouped = new Map<string, Array<DiagnosticRecord>>()
     for (const diagnostic of diagnostics) {
@@ -110,46 +113,57 @@ export const atMostFiles = (count: number): Policy => ({ maxAffectedFiles: count
 /** Reject the plan if verification finds any new error diagnostic. This is the default. */
 export const noNewErrors = (): Policy => ({
   diagnostics: "no-new-errors",
-  rules: [{
-    name: "no-new-errors",
-    evaluate: (ctx) => {
-      const newErrors = ctx.diagnosticDiff.introduced.filter((d) => d.category === "error")
-      return newErrors.length === 0
-        ? true
-        : `Introduced ${newErrors.length} new error diagnostic(s): ${newErrors.map((e) => `TS${e.code}: ${e.message}`).join("; ")}`
+  rules: [
+    {
+      name: "no-new-errors",
+      evaluate: (ctx) => {
+        const newErrors = ctx.diagnosticDiff.introduced.filter((d) => d.category === "error")
+        return newErrors.length === 0
+          ? true
+          : `Introduced ${newErrors.length} new error diagnostic(s): ${newErrors.map((e) => `TS${e.code}: ${e.message}`).join("; ")}`
+      },
     },
-  }],
+  ],
 })
 
 /** Require that this transformation actively resolves specific compiler error diagnostic(s). */
 export const fixesError = (code: number | string): Policy => ({
-  rules: [{
-    name: `fixes-error:TS${code}`,
-    evaluate: (ctx) => {
-      const targetStr = String(code).replace(/^TS/, "")
-      const resolved = ctx.diagnosticDiff.resolved.some((d) => String(d.code).replace(/^TS/, "") === targetStr)
-      return resolved
-        ? true
-        : `Expected transformation to resolve diagnostic TS${code}, but it was not resolved.`
+  rules: [
+    {
+      name: `fixes-error:TS${code}`,
+      evaluate: (ctx) => {
+        const targetStr = String(code).replace(/^TS/, "")
+        const resolved = ctx.diagnosticDiff.resolved.some(
+          (d) => String(d.code).replace(/^TS/, "") === targetStr,
+        )
+        return resolved
+          ? true
+          : `Expected transformation to resolve diagnostic TS${code}, but it was not resolved.`
+      },
     },
-  }],
+  ],
 })
 
 /** Allow specific error codes up to a given count. */
-export const allowErrors = (options: { readonly code: number | string; readonly max?: number }): Policy => ({
-  rules: [{
-    name: `allow-errors:TS${options.code}`,
-    evaluate: (ctx) => {
-      const targetStr = String(options.code).replace(/^TS/, "")
-      const matchingIntroduced = ctx.diagnosticDiff.introduced.filter(
-        (d) => String(d.code).replace(/^TS/, "") === targetStr,
-      )
-      const max = options.max ?? Infinity
-      return matchingIntroduced.length <= max
-        ? true
-        : `Allowed at most ${max} occurrences of TS${options.code}, but found ${matchingIntroduced.length}.`
+export const allowErrors = (options: {
+  readonly code: number | string
+  readonly max?: number
+}): Policy => ({
+  rules: [
+    {
+      name: `allow-errors:TS${options.code}`,
+      evaluate: (ctx) => {
+        const targetStr = String(options.code).replace(/^TS/, "")
+        const matchingIntroduced = ctx.diagnosticDiff.introduced.filter(
+          (d) => String(d.code).replace(/^TS/, "") === targetStr,
+        )
+        const max = options.max ?? Infinity
+        return matchingIntroduced.length <= max
+          ? true
+          : `Allowed at most ${max} occurrences of TS${options.code}, but found ${matchingIntroduced.length}.`
+      },
     },
-  }],
+  ],
 })
 
 /** Custom policy rule evaluating the complete diagnostic diff. */
@@ -157,10 +171,12 @@ export const diagnosticDiff = (
   name: string,
   predicate: (diff: DiagnosticDiff) => boolean | string,
 ): Policy => ({
-  rules: [{
-    name,
-    evaluate: (ctx) => predicate(ctx.diagnosticDiff),
-  }],
+  rules: [
+    {
+      name,
+      evaluate: (ctx) => predicate(ctx.diagnosticDiff),
+    },
+  ],
 })
 
 /** Declare that re-running the recipe against the proposed state must produce zero edits. */

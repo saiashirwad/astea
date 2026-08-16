@@ -2,12 +2,28 @@
 import { path as Path } from "../platform/node.ts"
 import { Effect, Predicate } from "effect"
 import { getJSDocTags, SyntaxKind, type Identifier, type Node } from "typescript/unstable/ast"
-import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
+import {
+  SymbolFlags,
+  type Symbol as NativeSymbol,
+  type Type as NativeType,
+} from "typescript/unstable/async"
 import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
-import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError, type SnapshotExpired } from "../Workspace/index.ts"
+import {
+  isProjectFile,
+  type ProjectFile,
+  type ProjectSnapshot,
+  type ProjectSnapshotError,
+  type SnapshotExpired,
+} from "../Workspace/index.ts"
 import type { EvidenceFact } from "../Evidence/Model.ts"
-import { CriterionBase, type Criterion, type ProjectScope, type Query, type QueryContractError } from "./Model.ts"
+import {
+  CriterionBase,
+  type Criterion,
+  type ProjectScope,
+  type Query,
+  type QueryContractError,
+} from "./Model.ts"
 import { identifiers } from "./Sources.ts"
 import { where } from "./Operators.ts"
 
@@ -21,7 +37,7 @@ export const resolvesTo = <A extends Node>(
 ): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
   id: "resolves-to-symbol",
   select: (selections) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const byProjectFile = Map.groupBy(
         selections.map((selection, index) => ({ selection, index })),
         ({ selection }) => `${selection.project.project.id}${selection.fileName}`,
@@ -29,49 +45,55 @@ export const resolvesTo = <A extends Node>(
       const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
         length: selections.length,
       })
-      yield* Effect.all([...byProjectFile.values()].map((group) =>
-        Effect.gen(function*() {
-          const project = group[0]!.selection.project
-          const location = options?.location ?? ((candidate: A): Node => candidate)
-          const positions = group.map(({ selection }) => {
-            const node = location(selection.value)
-            return node.getStart(node.getSourceFile())
-          })
-          const fileName = Path.resolve(project.root, group[0]!.selection.fileName)
-          const symbols = yield* project.unsafeNative((nativeProject) =>
-            nativeRequest(
-              "getSymbolsAtPositions",
-              () => nativeProject.checker.getSymbolAtPosition(fileName, positions),
-            ))
-          yield* Effect.forEach(symbols, (candidate, index) =>
-            candidate === undefined ? Effect.void : Effect.gen(function*() {
-              const canonical = yield* project.unsafeNative((nativeProject) =>
-                (candidate.flags & SymbolFlags.Alias) === 0
-                  ? Effect.succeed(candidate)
-                  : nativeRequest(
-                    "getAliasedSymbol",
-                    () => nativeProject.checker.getAliasedSymbol(candidate),
-                  ))
-              if (canonical === symbol) {
-                const declarationFile = symbol.valueDeclaration?.path ?? symbol.declarations[0]?.path
-                facts[group[index]!.index] = {
-                  symbol: symbol.name,
-                  declarationFile: declarationFile === undefined
-                    ? "unknown"
-                    : projectRelativePath(project.root, String(declarationFile)),
-                }
-              }
-            }))
-        })
-      ), { concurrency: 8 })
+      yield* Effect.all(
+        [...byProjectFile.values()].map((group) =>
+          Effect.gen(function* () {
+            const project = group[0]!.selection.project
+            const location = options?.location ?? ((candidate: A): Node => candidate)
+            const positions = group.map(({ selection }) => {
+              const node = location(selection.value)
+              return node.getStart(node.getSourceFile())
+            })
+            const fileName = Path.resolve(project.root, group[0]!.selection.fileName)
+            const symbols = yield* project.unsafeNative((nativeProject) =>
+              nativeRequest("getSymbolsAtPositions", () =>
+                nativeProject.checker.getSymbolAtPosition(fileName, positions),
+              ),
+            )
+            yield* Effect.forEach(symbols, (candidate, index) =>
+              candidate === undefined
+                ? Effect.void
+                : Effect.gen(function* () {
+                    const canonical = yield* project.unsafeNative((nativeProject) =>
+                      (candidate.flags & SymbolFlags.Alias) === 0
+                        ? Effect.succeed(candidate)
+                        : nativeRequest("getAliasedSymbol", () =>
+                            nativeProject.checker.getAliasedSymbol(candidate),
+                          ),
+                    )
+                    if (canonical === symbol) {
+                      const declarationFile =
+                        symbol.valueDeclaration?.path ?? symbol.declarations[0]?.path
+                      facts[group[index]!.index] = {
+                        symbol: symbol.name,
+                        declarationFile:
+                          declarationFile === undefined
+                            ? "unknown"
+                            : projectRelativePath(project.root, String(declarationFile)),
+                      }
+                    }
+                  }),
+            )
+          }),
+        ),
+        { concurrency: 8 },
+      )
       return facts
     }),
 })
 
 /** Admit nodes that have a specific JSDoc tag (e.g. `@deprecated`, `@internal`). */
-export const hasJSDocTag = <A extends Node>(
-  tagName: string,
-): Criterion<A> =>
+export const hasJSDocTag = <A extends Node>(tagName: string): Criterion<A> =>
   CriterionBase.predicate(`jsdoc-tag:${tagName}`, (selection) => {
     const normalizedTag = tagName.replace(/^@/, "")
     const tags = getJSDocTags(selection.value)
@@ -94,7 +116,8 @@ const readModifiers = (node: Node): ReadonlyArray<{ readonly kind: SyntaxKind }>
 export const isExported = <A extends Node>(): Criterion<A> =>
   CriterionBase.predicate("is-exported", (selection) => {
     const modifiers = readModifiers(selection.value)
-    const hasExport = modifiers?.some((modifier) => modifier.kind === SyntaxKind.ExportKeyword) ?? false
+    const hasExport =
+      modifiers?.some((modifier) => modifier.kind === SyntaxKind.ExportKeyword) ?? false
     return hasExport ? { exported: true } : undefined
   })
 
@@ -117,7 +140,14 @@ export const typeOf = (
   return project.typeAt(fileName, pos)
 }
 
-export type IntrinsicTypeName = "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void"
+export type IntrinsicTypeName =
+  | "string"
+  | "number"
+  | "boolean"
+  | "any"
+  | "unknown"
+  | "never"
+  | "void"
 
 const isIntrinsicTypeName = (value: NativeType | IntrinsicTypeName): value is IntrinsicTypeName =>
   Predicate.isString(value)
@@ -130,7 +160,7 @@ export const typeAssignableTo = <A extends Node>(
   return {
     id: `type-assignable-to:${targetLabel}`,
     select: (selections) =>
-      Effect.gen(function*() {
+      Effect.gen(function* () {
         const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
           length: selections.length,
         })
@@ -167,7 +197,7 @@ export const typeSatisfies = <A extends Node>(
 ): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
   id: `type-satisfies:${id}`,
   select: (selections) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
         length: selections.length,
       })

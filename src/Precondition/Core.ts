@@ -11,9 +11,7 @@ import type { ProjectFile, ProjectSnapshot, ProjectSnapshotError } from "../Work
 export interface FilePrecondition<E = never, R = never> {
   readonly _tag: "FilePrecondition"
   readonly id: string
-  readonly evaluate: (
-    file: ProjectFile,
-  ) => Effect.Effect<boolean, E | ProjectSnapshotError, R>
+  readonly evaluate: (file: ProjectFile) => Effect.Effect<boolean, E | ProjectSnapshotError, R>
 }
 
 const testRegExp = (regex: RegExp, value: string): boolean => {
@@ -21,8 +19,7 @@ const testRegExp = (regex: RegExp, value: string): boolean => {
   return fresh.test(value)
 }
 
-const normalizePath = (path: string): string =>
-  path.replace(/\\/g, "/")
+const normalizePath = (path: string): string => path.replace(/\\/g, "/")
 
 const globToRegex = (glob: string): RegExp => {
   const escaped = glob
@@ -56,10 +53,7 @@ const extractSpecifiers = (text: string): ReadonlySet<string> => {
   return specifiers
 }
 
-const matchesSpecifier = (
-  actual: string,
-  expected: string | RegExp,
-): boolean => {
+const matchesSpecifier = (actual: string, expected: string | RegExp): boolean => {
   if (!Predicate.isString(expected)) {
     return testRegExp(expected, actual)
   }
@@ -155,7 +149,8 @@ export const pathMatches = (pattern: RegExp | string): FilePrecondition => {
       }
       if (Predicate.isString(pattern)) {
         const rawPattern = normalizePath(pattern)
-        const matches = normalized === rawPattern ||
+        const matches =
+          normalized === rawPattern ||
           normalized.endsWith(rawPattern) ||
           normalized.includes(rawPattern)
         return Effect.succeed(matches)
@@ -174,7 +169,7 @@ export const all = <E = never, R = never>(
   _tag: "FilePrecondition",
   id: `all(${conditions.map((c) => c.id).join(", ")})`,
   evaluate: (file) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       for (const condition of conditions) {
         const passed = yield* condition.evaluate(file)
         if (!passed) {
@@ -194,7 +189,7 @@ export const any = <E = never, R = never>(
   _tag: "FilePrecondition",
   id: `any(${conditions.map((c) => c.id).join(", ")})`,
   evaluate: (file) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       for (const condition of conditions) {
         const passed = yield* condition.evaluate(file)
         if (passed) {
@@ -213,10 +208,7 @@ export const not = <E = never, R = never>(
 ): FilePrecondition<E, R> => ({
   _tag: "FilePrecondition",
   id: `not(${condition.id})`,
-  evaluate: (file) =>
-    condition.evaluate(file).pipe(
-      Effect.map((passed) => !passed),
-    ),
+  evaluate: (file) => condition.evaluate(file).pipe(Effect.map((passed) => !passed)),
 })
 
 /**
@@ -237,8 +229,7 @@ export const custom = <E = never, R = never>(
 export const satisfies = <E = never, R = never>(
   file: ProjectFile,
   condition: FilePrecondition<E, R>,
-): Effect.Effect<boolean, E | ProjectSnapshotError, R> =>
-  condition.evaluate(file)
+): Effect.Effect<boolean, E | ProjectSnapshotError, R> => condition.evaluate(file)
 
 const isProjectFileArray = (
   value: ProjectSnapshot | ReadonlyArray<ProjectFile>,
@@ -252,7 +243,7 @@ export const filesMatching = <E = never, R = never>(
   target: ProjectSnapshot | ReadonlyArray<ProjectFile>,
   condition: FilePrecondition<E, R>,
 ): Effect.Effect<ReadonlyArray<ProjectFile>, E | ProjectSnapshotError, R> =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const candidates: ReadonlyArray<ProjectFile> = isProjectFileArray(target)
       ? target
       : yield* target.files
@@ -264,15 +255,13 @@ export const filesMatching = <E = never, R = never>(
     const evaluated = yield* Effect.forEach(
       candidates,
       (file) =>
-        condition.evaluate(file).pipe(
-          Effect.map((matched): [ProjectFile, boolean] => [file, matched]),
-        ),
+        condition
+          .evaluate(file)
+          .pipe(Effect.map((matched): [ProjectFile, boolean] => [file, matched])),
       { concurrency: 16 },
     )
 
-    const matchedFiles = evaluated
-      .filter(([, matched]) => matched)
-      .map(([file]) => file)
+    const matchedFiles = evaluated.filter(([, matched]) => matched).map(([file]) => file)
 
     const seen = new Set<string>()
     const unique: Array<ProjectFile> = []

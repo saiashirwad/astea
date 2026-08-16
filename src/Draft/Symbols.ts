@@ -2,7 +2,12 @@ import { Effect, Option } from "effect"
 import type { Symbol as NativeSymbol } from "typescript/unstable/async"
 import * as Query from "../Query/index.ts"
 import type { QueryContractError } from "../Query/index.ts"
-import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError } from "../Workspace/index.ts"
+import {
+  isProjectFile,
+  type ProjectFile,
+  type ProjectSnapshot,
+  type ProjectSnapshotError,
+} from "../Workspace/index.ts"
 import { empty, replaceEach, type Draft } from "./Model.ts"
 
 /** Rename a symbol across all its declarations, imports, and reference occurrences in the project. */
@@ -11,13 +16,17 @@ export const renameSymbol = (
   symbol: NativeSymbol,
   newName: string,
 ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const references = yield* Query.collect(Query.referencesTo(project, symbol))
     return yield* replaceEach(references, () => newName)
   })
 
 export interface RenameSymbolNamedFn {
-  (file: ProjectFile, oldName: string, newName: string): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError>
+  (
+    file: ProjectFile,
+    oldName: string,
+    newName: string,
+  ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError>
   (
     project: ProjectSnapshot,
     oldName: string,
@@ -36,7 +45,7 @@ export const renameSymbolNamed: RenameSymbolNamedFn = (
   newName: string,
   maybeOptions?: { readonly within: string },
 ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const isFile = isProjectFile(projectOrFile)
     const project = isFile ? projectOrFile.project : projectOrFile
     const within = isFile ? projectOrFile.path : maybeOptions!.within

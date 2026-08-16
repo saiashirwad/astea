@@ -70,7 +70,7 @@ const criterionPredicate = <A>(
         if (res === true) return { matched: true }
         if (res === false || res === undefined) return undefined
         return res
-      })
+      }),
     ),
 })
 
@@ -80,7 +80,7 @@ const criterionAll = <A, E, R>(
 ): Criterion<A, E, R> => ({
   id: `all(${criteria.map((c) => c.id).join(", ")})`,
   select: (selections) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       let accumulated: Array<Record<string, EvidenceFact> | undefined> = selections.map(() => ({}))
       for (const criterion of criteria) {
         const batchResults = yield* criterion.select(selections)
@@ -101,8 +101,10 @@ const criterionAny = <A, E, R>(
 ): Criterion<A, E, R> => ({
   id: `any(${criteria.map((c) => c.id).join(", ")})`,
   select: (selections) =>
-    Effect.gen(function*() {
-      const results: Array<Record<string, EvidenceFact> | undefined> = Array.from({ length: selections.length })
+    Effect.gen(function* () {
+      const results: Array<Record<string, EvidenceFact> | undefined> = Array.from({
+        length: selections.length,
+      })
       for (const criterion of criteria) {
         const batchResults = yield* criterion.select(selections)
         for (let i = 0; i < selections.length; i++) {
@@ -116,13 +118,11 @@ const criterionAny = <A, E, R>(
 })
 
 /** Inverts a criterion. */
-const criterionNot = <A, E, R>(
-  criterion: Criterion<A, E, R>,
-): Criterion<A, E, R> => ({
+const criterionNot = <A, E, R>(criterion: Criterion<A, E, R>): Criterion<A, E, R> => ({
   id: `not(${criterion.id})`,
   select: (selections) =>
     Effect.map(criterion.select(selections), (batchResults) =>
-      batchResults.map((res) => (res === undefined ? { negated: criterion.id } : undefined))
+      batchResults.map((res) => (res === undefined ? { negated: criterion.id } : undefined)),
     ),
 })
 

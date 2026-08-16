@@ -11,90 +11,102 @@ import { withFixture } from "../test/declarative-fixture.ts"
 
 describe("declarative transformations API (@effect/vitest)", () => {
   describe("automated cleanup and import organizing", () => {
-    effect("organizes, deduplicates, and sorts imports deterministically", () =>
-      withFixture((root, app) =>
-        Effect.gen(function*() {
-          const mainLayer = applicationLayerNode.pipe(
-            Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
-          )
+    effect(
+      "organizes, deduplicates, and sorts imports deterministically",
+      () =>
+        withFixture((root, app) =>
+          Effect.gen(function* () {
+            const mainLayer = applicationLayerNode.pipe(
+              Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
+            )
 
-          const organizeRecipe = Recipe.define("organize-imports-recipe", {
-            version: "1.0.0",
-            run: () =>
-              Effect.gen(function*() {
-                const snapshot = yield* WorkspaceSnapshot
-                const project = yield* snapshot.project(app)
-                return yield* Draft.imports.organize(project, "src/consumer.ts")
-              }),
-          })
+            const organizeRecipe = Recipe.define("organize-imports-recipe", {
+              version: "1.0.0",
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.imports.organize(project, "src/consumer.ts")
+                }),
+            })
 
-          const plan = yield* Recipe.run(organizeRecipe, undefined)
-          expect(plan.edits.length).toBe(1)
+            const plan = yield* Recipe.run(organizeRecipe, undefined)
+            expect(plan.edits.length).toBe(1)
 
-          const verified = yield* Verification.verify(plan, organizeRecipe, undefined)
-          yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
+            const verified = yield* Verification.verify(plan, organizeRecipe, undefined)
+            yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
 
-          const consumerContent = yield* Effect.tryPromise(() =>
-            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
-          )
-          expect(consumerContent).toContain("import { other, target as renamed } from \"./library.js\";")
-        })
-      ),
+            const consumerContent = yield* Effect.tryPromise(() =>
+              Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8"),
+            )
+            expect(consumerContent).toContain(
+              'import { other, target as renamed } from "./library.js";',
+            )
+          }),
+        ),
       60_000,
     )
 
-    effect("cleans up unused imports automatically with Draft.cleanUnused", () =>
-      withFixture((root, app) =>
-        Effect.gen(function*() {
-          const mainLayer = applicationLayerNode.pipe(
-            Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
-          )
+    effect(
+      "cleans up unused imports automatically with Draft.cleanUnused",
+      () =>
+        withFixture((root, app) =>
+          Effect.gen(function* () {
+            const mainLayer = applicationLayerNode.pipe(
+              Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
+            )
 
-          // First add an unused import
-          const addUnusedRecipe = Recipe.define("add-unused-import", {
-            version: "1.0.0",
-            policies: [{ diagnostics: "exact-delta" }],
-            run: () =>
-              Effect.gen(function*() {
-                const snapshot = yield* WorkspaceSnapshot
-                const project = yield* snapshot.project(app)
-                return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
-                  module: "effect",
-                  name: "DanglingUnusedSymbol",
-                })
-              }),
-          })
+            // First add an unused import
+            const addUnusedRecipe = Recipe.define("add-unused-import", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
+                    module: "effect",
+                    name: "DanglingUnusedSymbol",
+                  })
+                }),
+            })
 
-          const plan1 = yield* Recipe.run(addUnusedRecipe, undefined)
-          const verified1 = yield* Verification.verify(plan1, addUnusedRecipe, undefined)
-          yield* Application.apply(verified1).pipe(Effect.provide(mainLayer))
+            const plan1 = yield* Recipe.run(addUnusedRecipe, undefined)
+            const verified1 = yield* Verification.verify(plan1, addUnusedRecipe, undefined)
+            yield* Application.apply(verified1).pipe(Effect.provide(mainLayer))
 
-          // Now run cleanUnused recipe
-          const cleanRecipe = Recipe.define("clean-unused-recipe", {
-            version: "1.0.0",
-            policies: [{ diagnostics: "exact-delta" }],
-            run: () =>
-              Effect.gen(function*() {
-                const snapshot = yield* WorkspaceSnapshot
-                const project = yield* snapshot.project(app)
-                return yield* Draft.cleanUnused(project)
-              }),
-          })
+            // Now run cleanUnused recipe
+            const cleanRecipe = Recipe.define("clean-unused-recipe", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.cleanUnused(project)
+                }),
+            })
 
-          const cleanWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
-          const cleanMainLayer = applicationLayerNode.pipe(Layer.provideMerge(cleanWorkspaceLayer))
-          const plan2 = yield* Recipe.run(cleanRecipe, undefined).pipe(Effect.provide(cleanWorkspaceLayer))
-          expect(plan2.edits.length).toBeGreaterThanOrEqual(1)
+            const cleanWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+            const cleanMainLayer = applicationLayerNode.pipe(
+              Layer.provideMerge(cleanWorkspaceLayer),
+            )
+            const plan2 = yield* Recipe.run(cleanRecipe, undefined).pipe(
+              Effect.provide(cleanWorkspaceLayer),
+            )
+            expect(plan2.edits.length).toBeGreaterThanOrEqual(1)
 
-          const verified2 = yield* Verification.verify(plan2, cleanRecipe, undefined).pipe(Effect.provide(cleanWorkspaceLayer))
-          yield* Application.apply(verified2).pipe(Effect.provide(cleanMainLayer))
+            const verified2 = yield* Verification.verify(plan2, cleanRecipe, undefined).pipe(
+              Effect.provide(cleanWorkspaceLayer),
+            )
+            yield* Application.apply(verified2).pipe(Effect.provide(cleanMainLayer))
 
-          const consumerContent = yield* Effect.tryPromise(() =>
-            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
-          )
-          expect(consumerContent).not.toContain("DanglingUnusedSymbol")
-        })
-      ),
+            const consumerContent = yield* Effect.tryPromise(() =>
+              Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8"),
+            )
+            expect(consumerContent).not.toContain("DanglingUnusedSymbol")
+          }),
+        ),
       60_000,
     )
   })

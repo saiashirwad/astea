@@ -5,6 +5,9 @@
   "bin": {
     "safemods": "./dist/bin/safemods.js"
   },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -81,14 +84,13 @@
       "default": "./dist/src/Node/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "node tools/generate-version.mjs && rm -rf dist && tsc -p tsconfig.build.json",
     "prepack": "pnpm build",
-    "check": "pnpm typecheck && pnpm effect:check && pnpm lint && pnpm test && pnpm test:package",
-    "check:fast": "pnpm typecheck && pnpm effect:check && pnpm lint",
+    "check": "pnpm fmt:check && pnpm typecheck && pnpm effect:check && pnpm lint && pnpm test && pnpm test:package",
+    "check:fast": "pnpm fmt:check && pnpm typecheck && pnpm effect:check && pnpm lint",
+    "fmt": "oxfmt --disable-nested-config",
+    "fmt:check": "oxfmt --check --disable-nested-config",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint && node tools/check-boundaries.mjs",
     "effect:check": "effect-tsgo diagnostics --project tsconfig.json",
@@ -106,6 +108,7 @@
     "@effect/vitest": "4.0.0-rc.109",
     "@oxlint/plugins": "^1.78.0",
     "@types/node": "26.2.0",
+    "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0",
     "oxlint-tsgolint": "^7.0.2001",
     "vitest": "4.1.10"

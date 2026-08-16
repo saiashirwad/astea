@@ -4,9 +4,8 @@ import type { PatternMismatch, PatternResult } from "./Core.ts"
 export const matchSuccess = <Out>(
   value: Out,
   facts?: Readonly<Record<string, EvidenceFact>>,
-): PatternResult<Out> => facts === undefined
-  ? { matched: true, value }
-  : { matched: true, value, facts }
+): PatternResult<Out> =>
+  facts === undefined ? { matched: true, value } : { matched: true, value, facts }
 
 export const matchFailure: PatternMismatch = { matched: false }
 

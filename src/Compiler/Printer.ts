@@ -9,4 +9,5 @@ export const printNativeFragment = (
   node: Node,
 ): Effect.Effect<string, NativeCompilerError | SnapshotExpired> =>
   project.unsafeNative((nativeProject) =>
-    nativeRequest("print native fragment", () => nativeProject.emitter.printNode(node)))
+    nativeRequest("print native fragment", () => nativeProject.emitter.printNode(node)),
+  )

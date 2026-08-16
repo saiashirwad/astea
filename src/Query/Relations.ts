@@ -1,7 +1,24 @@
 /** AST ancestry, containment, and sibling relations. */
 import { Effect, Predicate } from "effect"
 import { SyntaxKind, type Node } from "typescript/unstable/ast"
-import { isArrowFunction, isClassDeclaration, isClassExpression, isConstructorDeclaration, isEnumDeclaration, isExpressionStatement, isFunctionDeclaration, isFunctionExpression, isGetAccessorDeclaration, isInterfaceDeclaration, isMethodDeclaration, isModuleDeclaration, isReturnStatement, isSetAccessorDeclaration, isSourceFile, isTypeAliasDeclaration } from "typescript/unstable/ast/is"
+import {
+  isArrowFunction,
+  isClassDeclaration,
+  isClassExpression,
+  isConstructorDeclaration,
+  isEnumDeclaration,
+  isExpressionStatement,
+  isFunctionDeclaration,
+  isFunctionExpression,
+  isGetAccessorDeclaration,
+  isInterfaceDeclaration,
+  isMethodDeclaration,
+  isModuleDeclaration,
+  isReturnStatement,
+  isSetAccessorDeclaration,
+  isSourceFile,
+  isTypeAliasDeclaration,
+} from "typescript/unstable/ast/is"
 import type { EvidenceFact } from "../Evidence/Model.ts"
 import type { Pattern } from "../Pattern/index.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
@@ -58,13 +75,16 @@ const evaluateMatcher = <Out, E, R>(
   project: ProjectSnapshot,
   fileName: string,
 ): Effect.Effect<
-  { readonly matched: boolean; readonly facts?: Readonly<Record<string, EvidenceFact>> | undefined },
+  {
+    readonly matched: boolean
+    readonly facts?: Readonly<Record<string, EvidenceFact>> | undefined
+  },
   E | ProjectSnapshotError,
   R
 > => {
   if (isMatcherPattern(matcher)) {
     return Effect.map(matcher.match(node, project), (result) =>
-      result.matched ? { matched: true, facts: result.facts } : { matched: false }
+      result.matched ? { matched: true, facts: result.facts } : { matched: false },
     )
   }
   if (isMatcherCriterion(matcher)) {
@@ -124,11 +144,7 @@ const getSiblingsAndIndex = (
     return undefined
   })
 
-  if (
-    children.length === 1 &&
-    isExpressionStatement(parent) &&
-    parent.parent !== undefined
-  ) {
+  if (children.length === 1 && isExpressionStatement(parent) && parent.parent !== undefined) {
     const statementParent = parent.parent
     const statementChildren: Array<Node> = []
     statementParent.forEachChild((child) => {
@@ -143,9 +159,7 @@ const getSiblingsAndIndex = (
     }
   }
 
-  const index = children.findIndex(
-    (c) => c === node || (c.pos === node.pos && c.end === node.end),
-  )
+  const index = children.findIndex((c) => c === node || (c.pos === node.pos && c.end === node.end))
   if (index === -1) return undefined
   return { siblings: children, index }
 }
@@ -156,11 +170,15 @@ const evaluateSibling = <Out, E, R>(
   project: ProjectSnapshot,
   fileName: string,
 ): Effect.Effect<
-  { readonly matched: boolean; readonly facts?: Readonly<Record<string, EvidenceFact>> | undefined; readonly node: Node },
+  {
+    readonly matched: boolean
+    readonly facts?: Readonly<Record<string, EvidenceFact>> | undefined
+    readonly node: Node
+  },
   E | ProjectSnapshotError,
   R
 > =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const directOutcome = yield* evaluateMatcher(matcher, sibling, project, fileName)
     if (directOutcome.matched) {
       return { matched: true, facts: directOutcome.facts, node: sibling }
@@ -189,7 +207,7 @@ const criterionInside = <A extends Node, Out = unknown, E = never, R = never>(
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
   id: `inside(${matcherId(matcher)})`,
   select: (selections) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const results: Array<Readonly<Record<string, EvidenceFact>> | undefined> = []
       for (const selection of selections) {
         let current: Node | undefined = selection.value.parent
@@ -228,13 +246,13 @@ const criterionHas = <A extends Node, Out = unknown, E = never, R = never>(
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
   id: `has(${matcherId(matcher)})`,
   select: (selections) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const results: Array<Readonly<Record<string, EvidenceFact>> | undefined> = []
       for (const selection of selections) {
         let matchedFacts: Readonly<Record<string, EvidenceFact>> | undefined
 
         const search = (node: Node): Effect.Effect<void, E | ProjectSnapshotError, R> =>
-          Effect.gen(function*() {
+          Effect.gen(function* () {
             const children: Array<Node> = []
             node.forEachChild((child) => {
               children.push(child)
@@ -280,7 +298,7 @@ const criterionPrecedes = <A extends Node, Out = unknown, E = never, R = never>(
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
   id: `precedes(${matcherId(matcher)})`,
   select: (selections) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const results: Array<Readonly<Record<string, EvidenceFact>> | undefined> = []
       for (const selection of selections) {
         const siblingInfo = getSiblingsAndIndex(selection.value)
@@ -295,7 +313,12 @@ const criterionPrecedes = <A extends Node, Out = unknown, E = never, R = never>(
         if (options?.immediately) {
           if (index < siblings.length - 1) {
             const followingSibling = siblings[index + 1]!
-            const outcome = yield* evaluateSibling(matcher, followingSibling, selection.project, selection.fileName)
+            const outcome = yield* evaluateSibling(
+              matcher,
+              followingSibling,
+              selection.project,
+              selection.fileName,
+            )
             if (outcome.matched) {
               const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
               matchedFacts = {
@@ -307,7 +330,12 @@ const criterionPrecedes = <A extends Node, Out = unknown, E = never, R = never>(
         } else {
           for (let i = index + 1; i < siblings.length; i++) {
             const followingSibling = siblings[i]!
-            const outcome = yield* evaluateSibling(matcher, followingSibling, selection.project, selection.fileName)
+            const outcome = yield* evaluateSibling(
+              matcher,
+              followingSibling,
+              selection.project,
+              selection.fileName,
+            )
             if (outcome.matched) {
               const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
               matchedFacts = {
@@ -331,7 +359,7 @@ const criterionFollows = <A extends Node, Out = unknown, E = never, R = never>(
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
   id: `follows(${matcherId(matcher)})`,
   select: (selections) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const results: Array<Readonly<Record<string, EvidenceFact>> | undefined> = []
       for (const selection of selections) {
         const siblingInfo = getSiblingsAndIndex(selection.value)
@@ -346,7 +374,12 @@ const criterionFollows = <A extends Node, Out = unknown, E = never, R = never>(
         if (options?.immediately) {
           if (index > 0) {
             const precedingSibling = siblings[index - 1]!
-            const outcome = yield* evaluateSibling(matcher, precedingSibling, selection.project, selection.fileName)
+            const outcome = yield* evaluateSibling(
+              matcher,
+              precedingSibling,
+              selection.project,
+              selection.fileName,
+            )
             if (outcome.matched) {
               const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
               matchedFacts = {
@@ -358,7 +391,12 @@ const criterionFollows = <A extends Node, Out = unknown, E = never, R = never>(
         } else {
           for (let i = index - 1; i >= 0; i--) {
             const precedingSibling = siblings[i]!
-            const outcome = yield* evaluateSibling(matcher, precedingSibling, selection.project, selection.fileName)
+            const outcome = yield* evaluateSibling(
+              matcher,
+              precedingSibling,
+              selection.project,
+              selection.fileName,
+            )
             if (outcome.matched) {
               const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
               matchedFacts = {
@@ -377,44 +415,48 @@ const criterionFollows = <A extends Node, Out = unknown, E = never, R = never>(
 })
 
 /** Filter selections to only those nested inside an ancestor matching the given pattern, criterion, or predicate. */
-export const inside = <Out = unknown, E2 = never, R2 = never>(
-  matcher: RelationalMatcher<Out, E2, R2>,
-  options?: InsideOptions,
-) =>
-<A extends Node, E, R>(
-  self: Query<A, E, R>,
-): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
-  where(criterionInside<A, Out, E2, R2>(matcher, options))(self)
+export const inside =
+  <Out = unknown, E2 = never, R2 = never>(
+    matcher: RelationalMatcher<Out, E2, R2>,
+    options?: InsideOptions,
+  ) =>
+  <A extends Node, E, R>(
+    self: Query<A, E, R>,
+  ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
+    where(criterionInside<A, Out, E2, R2>(matcher, options))(self)
 
 /** Filter selections to only those containing a descendant matching the given pattern, criterion, or predicate. */
-export const has = <Out = unknown, E2 = never, R2 = never>(
-  matcher: RelationalMatcher<Out, E2, R2>,
-  options?: HasOptions,
-) =>
-<A extends Node, E, R>(
-  self: Query<A, E, R>,
-): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
-  where(criterionHas<A, Out, E2, R2>(matcher, options))(self)
+export const has =
+  <Out = unknown, E2 = never, R2 = never>(
+    matcher: RelationalMatcher<Out, E2, R2>,
+    options?: HasOptions,
+  ) =>
+  <A extends Node, E, R>(
+    self: Query<A, E, R>,
+  ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
+    where(criterionHas<A, Out, E2, R2>(matcher, options))(self)
 
 /** Filter selections to only those preceding a sibling matching the given pattern, criterion, or predicate. */
-export const precedes = <Out = unknown, E2 = never, R2 = never>(
-  matcher: RelationalMatcher<Out, E2, R2>,
-  options?: SiblingOptions,
-) =>
-<A extends Node, E, R>(
-  self: Query<A, E, R>,
-): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
-  where(criterionPrecedes<A, Out, E2, R2>(matcher, options))(self)
+export const precedes =
+  <Out = unknown, E2 = never, R2 = never>(
+    matcher: RelationalMatcher<Out, E2, R2>,
+    options?: SiblingOptions,
+  ) =>
+  <A extends Node, E, R>(
+    self: Query<A, E, R>,
+  ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
+    where(criterionPrecedes<A, Out, E2, R2>(matcher, options))(self)
 
 /** Filter selections to only those following a sibling matching the given pattern, criterion, or predicate. */
-export const follows = <Out = unknown, E2 = never, R2 = never>(
-  matcher: RelationalMatcher<Out, E2, R2>,
-  options?: SiblingOptions,
-) =>
-<A extends Node, E, R>(
-  self: Query<A, E, R>,
-): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
-  where(criterionFollows<A, Out, E2, R2>(matcher, options))(self)
+export const follows =
+  <Out = unknown, E2 = never, R2 = never>(
+    matcher: RelationalMatcher<Out, E2, R2>,
+    options?: SiblingOptions,
+  ) =>
+  <A extends Node, E, R>(
+    self: Query<A, E, R>,
+  ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
+    where(criterionFollows<A, Out, E2, R2>(matcher, options))(self)
 
 export const RelationCriterion = {
   inside: criterionInside,

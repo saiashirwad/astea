@@ -1,7 +1,16 @@
 /** Public Draft API assembled from focused domain modules. */
 export {
-  audit, concat, empty, insertAfter, insertBefore, isDraft, print, remove,
-  replace, replaceEach, replaceWith,
+  audit,
+  concat,
+  empty,
+  insertAfter,
+  insertBefore,
+  isDraft,
+  print,
+  remove,
+  replace,
+  replaceEach,
+  replaceWith,
 } from "./Model.ts"
 export type { Draft, EditRangeOptions, ProposedEdit, Replacement } from "./Model.ts"
 export * from "./Files.ts"

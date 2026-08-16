@@ -21,20 +21,21 @@ export const migrateImportSource = Recipe.define("migrate-import-source", {
   version: "1.0.0",
   policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
   run: (input: MigrateImportSourceInput) =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const snapshot = yield* WorkspaceSnapshot
       const project = yield* snapshot.project(input.project)
 
       const declarations = yield* Query.imports(project).pipe(
-        Query.filter(({ value }) =>
-          isStringLiteral(value.moduleSpecifier) && value.moduleSpecifier.text === input.from
+        Query.filter(
+          ({ value }) =>
+            isStringLiteral(value.moduleSpecifier) && value.moduleSpecifier.text === input.from,
         ),
         Query.collect,
       )
 
       return yield* Draft.replaceEach(declarations, ({ value }) => {
         const specifier = value.moduleSpecifier
-        const quote = specifier.getText().startsWith("'") ? "'" : "\""
+        const quote = specifier.getText().startsWith("'") ? "'" : '"'
         return { node: specifier, text: `${quote}${input.to}${quote}` }
       })
     }),

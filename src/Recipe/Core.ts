@@ -12,7 +12,13 @@ import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { createHash } from "node:crypto"
 import { Data, Effect, Schema } from "effect"
 import { SYSTEM_VERSION } from "../generated/version.ts"
-import { EditConflict, InvalidEdit, applyFileEdits, textHash, type TextEdit } from "../Edit/index.ts"
+import {
+  EditConflict,
+  InvalidEdit,
+  applyFileEdits,
+  textHash,
+  type TextEdit,
+} from "../Edit/index.ts"
 import { NativeCompilerError } from "../Compiler/Service.ts"
 import {
   finalizePlan,
@@ -88,11 +94,22 @@ export interface RecipeDefinition<Input, E, R> {
  * Phase 1 (`scan`) performs a read-only analysis over the workspace to build an accumulator.
  * Phase 2 (`run`) uses the accumulator to generate transformation drafts.
  */
-export interface ScanningRecipe<Acc, Input = undefined, E = never, R = never> extends Recipe<Input, E, R> {
+export interface ScanningRecipe<Acc, Input = undefined, E = never, R = never> extends Recipe<
+  Input,
+  E,
+  R
+> {
   readonly scan: (input: Input) => Effect.Effect<Acc, E, R | WorkspaceSnapshot | Workspace>
 }
 
-export interface ScanningRecipeDefinition<Acc, Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never> {
+export interface ScanningRecipeDefinition<
+  Acc,
+  Input = undefined,
+  E1 = never,
+  R1 = never,
+  E2 = never,
+  R2 = never,
+> {
   readonly version: string
   readonly schema?: Schema.Schema<Input> | undefined
   /**
@@ -102,7 +119,10 @@ export interface ScanningRecipeDefinition<Acc, Input = undefined, E1 = never, R1
   readonly implementationHash?: string
   readonly policies?: ReadonlyArray<PolicyModel>
   readonly scan: (input: Input) => Effect.Effect<Acc, E1, R1 | WorkspaceSnapshot | Workspace>
-  readonly run: (accumulator: Acc, input: Input) => Effect.Effect<DraftModel, E2, R2 | WorkspaceSnapshot | Workspace>
+  readonly run: (
+    accumulator: Acc,
+    input: Input,
+  ) => Effect.Effect<DraftModel, E2, R2 | WorkspaceSnapshot | Workspace>
 }
 
 /**
@@ -123,19 +143,22 @@ const fromCompiled = <Input, E, R>(
     readonly schema?: Schema.Schema<Input> | undefined
     readonly implementationHash?: string | undefined
   } = {},
-): Recipe<Input, E, R> => Object.freeze({
-  name,
-  version,
-  schema: options.schema,
-  implementationHash: options.implementationHash ??
-    createHash("sha256").update(`${name}@${version}`).digest("hex"),
-  policies: compiled.policy,
-  rules: compiled.rules,
-  run,
-})
+): Recipe<Input, E, R> =>
+  Object.freeze({
+    name,
+    version,
+    schema: options.schema,
+    implementationHash:
+      options.implementationHash ?? createHash("sha256").update(`${name}@${version}`).digest("hex"),
+    policies: compiled.policy,
+    rules: compiled.rules,
+    run,
+  })
 
-const composedSchema = <Input>(recipes: ReadonlyArray<Recipe<Input, any, any>>): Schema.Schema<Input> | undefined => {
-  const schemas = recipes.flatMap((recipe) => recipe.schema === undefined ? [] : [recipe.schema])
+const composedSchema = <Input>(
+  recipes: ReadonlyArray<Recipe<Input, any, any>>,
+): Schema.Schema<Input> | undefined => {
+  const schemas = recipes.flatMap((recipe) => (recipe.schema === undefined ? [] : [recipe.schema]))
   const schema = schemas[0]
   // Schema-less children accept the validated input of a schema-bearing
   // sibling. Distinct schemas would make the durable encoding ambiguous, so
@@ -150,9 +173,10 @@ const composedIdentity = (
   name: string,
   version: string,
   recipes: ReadonlyArray<Recipe<any, any, any>>,
-): string => createHash("sha256")
-  .update(`${name}@${version}:${recipes.map((recipe) => recipe.implementationHash).join(",")}`)
-  .digest("hex")
+): string =>
+  createHash("sha256")
+    .update(`${name}@${version}:${recipes.map((recipe) => recipe.implementationHash).join(",")}`)
+    .digest("hex")
 
 const compileChildren = (recipes: ReadonlyArray<Recipe<any, any, any>>) => ({
   // Durable fields are merged independently from runtime rules.  Compiled
@@ -202,25 +226,34 @@ export const scanning = <Acc, Input = undefined, E1 = never, R1 = never, E2 = ne
   const scan = definition.scan
   const runWithAcc = definition.run
   const compiled = Policy.all(definition.policies ?? [])
-  const recipe = fromCompiled(name, definition.version, compiled, (input: Input) =>
-    Effect.gen(function*() {
-      const acc = yield* scan(input)
-      return yield* runWithAcc(acc, input)
-    }), {
-    schema: definition.schema,
-    implementationHash: definition.implementationHash,
-  })
+  const recipe = fromCompiled(
+    name,
+    definition.version,
+    compiled,
+    (input: Input) =>
+      Effect.gen(function* () {
+        const acc = yield* scan(input)
+        return yield* runWithAcc(acc, input)
+      }),
+    {
+      schema: definition.schema,
+      implementationHash: definition.implementationHash,
+    },
+  )
   return Object.freeze({ ...recipe, scan })
 }
-
 
 const composeDrafts = (
   snapshot: WorkspaceSnapshotService,
   accumulated: DraftModel,
   next: DraftModel,
-): Effect.Effect<DraftModel, ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict> =>
-  Effect.gen(function*() {
-    const accumulatedChanged = accumulated.edits.length > 0 || (accumulated.fileOperations?.length ?? 0) > 0
+): Effect.Effect<
+  DraftModel,
+  ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict
+> =>
+  Effect.gen(function* () {
+    const accumulatedChanged =
+      accumulated.edits.length > 0 || (accumulated.fileOperations?.length ?? 0) > 0
     const nextChanged = next.edits.length > 0 || (next.fileOperations?.length ?? 0) > 0
     if (!accumulatedChanged) return next
     if (!nextChanged) return accumulated
@@ -268,7 +301,12 @@ const composeDrafts = (
         }
 
         const newText = t2.slice(start, end2)
-        const evidenceIds = [...new Set([...accEdits.flatMap((e) => e.evidenceIds), ...nxtEdits.flatMap((e) => e.evidenceIds)])]
+        const evidenceIds = [
+          ...new Set([
+            ...accEdits.flatMap((e) => e.evidenceIds),
+            ...nxtEdits.flatMap((e) => e.evidenceIds),
+          ]),
+        ]
 
         combinedEdits.push({
           projectId,
@@ -282,21 +320,20 @@ const composeDrafts = (
       }
     }
 
-    const fileOperations = [
-        ...(accumulated.fileOperations ?? []),
-        ...(next.fileOperations ?? []),
-      ]
+    const fileOperations = [...(accumulated.fileOperations ?? []), ...(next.fileOperations ?? [])]
     const consumed = new Set<string>()
     const normalizedOperations: Array<PlannedFileOperation> = []
     for (const operation of fileOperations) {
       const sourceKey = `${operation.projectId}\0${operation.path}`
-      const targetKey = operation.kind === "move"
-        ? `${operation.projectId}\0${operation.toPath}`
-        : undefined
+      const targetKey =
+        operation.kind === "move" ? `${operation.projectId}\0${operation.toPath}` : undefined
       const operationEditKey = operation.kind === "move" ? targetKey : sourceKey
-      const operationEdits = operationEditKey === undefined
-        ? undefined
-        : combinedEdits.filter((edit) => `${edit.projectId}\0${edit.fileName}` === operationEditKey)
+      const operationEdits =
+        operationEditKey === undefined
+          ? undefined
+          : combinedEdits.filter(
+              (edit) => `${edit.projectId}\0${edit.fileName}` === operationEditKey,
+            )
       let normalized = operation
       if (operationEdits !== undefined && operationEdits.length > 0) {
         consumed.add(operationEditKey!)
@@ -307,17 +344,17 @@ const composeDrafts = (
       }
 
       if (operation.kind === "delete" || operation.kind === "move") {
-        const producerIndex = normalizedOperations.findIndex((candidate) =>
-          candidate.projectId === operation.projectId &&
-          ((candidate.kind === "create" && candidate.path === operation.path) ||
-            (candidate.kind === "move" && candidate.toPath === operation.path))
+        const producerIndex = normalizedOperations.findIndex(
+          (candidate) =>
+            candidate.projectId === operation.projectId &&
+            ((candidate.kind === "create" && candidate.path === operation.path) ||
+              (candidate.kind === "move" && candidate.toPath === operation.path)),
         )
         const producer = normalizedOperations[producerIndex]
         if (producer !== undefined && (producer.kind === "create" || producer.kind === "move")) {
-          const evidenceIds = [...new Set([
-            ...(producer.evidenceIds ?? []),
-            ...(operation.evidenceIds ?? []),
-          ])]
+          const evidenceIds = [
+            ...new Set([...(producer.evidenceIds ?? []), ...(operation.evidenceIds ?? [])]),
+          ]
           consumed.add(sourceKey)
           if (operation.kind === "delete") {
             normalizedOperations.splice(producerIndex, 1)
@@ -326,9 +363,10 @@ const composeDrafts = (
               kind: "create",
               projectId: producer.projectId,
               path: operation.toPath,
-              content: normalized.kind === "move" && normalized.content !== undefined
-                ? normalized.content
-                : producer.content,
+              content:
+                normalized.kind === "move" && normalized.content !== undefined
+                  ? normalized.content
+                  : producer.content,
               evidenceIds,
             }
           } else {
@@ -338,9 +376,10 @@ const composeDrafts = (
               path: producer.path,
               toPath: operation.toPath,
               initialHash: producer.initialHash,
-              content: normalized.kind === "move" && normalized.content !== undefined
-                ? normalized.content
-                : producer.content,
+              content:
+                normalized.kind === "move" && normalized.content !== undefined
+                  ? normalized.content
+                  : producer.content,
               evidenceIds,
             }
           }
@@ -354,15 +393,16 @@ const composeDrafts = (
         if (configured !== undefined) {
           const project = yield* snapshot.project(configured)
           const original = yield* project.sourceText(operation.path)
-          normalized = operation.kind === "delete"
-            ? { ...operation, initialHash: textHash(original) }
-            : {
-              ...operation,
-              ...(normalized.kind === "move" && normalized.content !== undefined
-                ? { content: normalized.content }
-                : {}),
-              initialHash: textHash(original),
-            }
+          normalized =
+            operation.kind === "delete"
+              ? { ...operation, initialHash: textHash(original) }
+              : {
+                  ...operation,
+                  ...(normalized.kind === "move" && normalized.content !== undefined
+                    ? { content: normalized.content }
+                    : {}),
+                  initialHash: textHash(original),
+                }
         }
       }
       // Edits to a deleted/moved source cannot survive the operation.  A move
@@ -384,31 +424,84 @@ const composeDrafts = (
 export function pipe<Input, E1, R1, E2, R2>(
   r1: Recipe<Input, E1, R1>,
   r2: Recipe<Input, E2, R2>,
-): Recipe<Input, E1 | E2 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2>
+): Recipe<
+  Input,
+  | E1
+  | E2
+  | EditConflict
+  | InvalidEdit
+  | FileNotFound
+  | NativeCompilerError
+  | ProjectNotInSnapshot
+  | SnapshotExpired,
+  R1 | R2
+>
 export function pipe<Input, E1, R1, E2, R2, E3, R3>(
   r1: Recipe<Input, E1, R1>,
   r2: Recipe<Input, E2, R2>,
   r3: Recipe<Input, E3, R3>,
-): Recipe<Input, E1 | E2 | E3 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2 | R3>
+): Recipe<
+  Input,
+  | E1
+  | E2
+  | E3
+  | EditConflict
+  | InvalidEdit
+  | FileNotFound
+  | NativeCompilerError
+  | ProjectNotInSnapshot
+  | SnapshotExpired,
+  R1 | R2 | R3
+>
 export function pipe<Input, E1, R1, E2, R2, E3, R3, E4, R4>(
   r1: Recipe<Input, E1, R1>,
   r2: Recipe<Input, E2, R2>,
   r3: Recipe<Input, E3, R3>,
   r4: Recipe<Input, E4, R4>,
-): Recipe<Input, E1 | E2 | E3 | E4 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2 | R3 | R4>
+): Recipe<
+  Input,
+  | E1
+  | E2
+  | E3
+  | E4
+  | EditConflict
+  | InvalidEdit
+  | FileNotFound
+  | NativeCompilerError
+  | ProjectNotInSnapshot
+  | SnapshotExpired,
+  R1 | R2 | R3 | R4
+>
 export function pipe<Input, E, R>(
   ...recipes: ReadonlyArray<Recipe<Input, E, R>>
-): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> {
+): Recipe<
+  Input,
+  | E
+  | EditConflict
+  | InvalidEdit
+  | FileNotFound
+  | NativeCompilerError
+  | ProjectNotInSnapshot
+  | SnapshotExpired,
+  R
+> {
   const name = recipes.map((r) => r.name).join(" >> ")
   const version = recipes.map((r) => r.version).join("+")
   const compiled = compileChildren(recipes)
 
-  return fromCompiled(name, version, compiled, (input: Input) =>
-      Effect.gen(function*() {
+  return fromCompiled(
+    name,
+    version,
+    compiled,
+    (input: Input) =>
+      Effect.gen(function* () {
         const snapshot = yield* WorkspaceSnapshot
         let accumulatedDraft = Draft.empty
         for (const recipe of recipes) {
-          if (accumulatedDraft.edits.length > 0 || (accumulatedDraft.fileOperations?.length ?? 0) > 0) {
+          if (
+            accumulatedDraft.edits.length > 0 ||
+            (accumulatedDraft.fileOperations?.length ?? 0) > 0
+          ) {
             const nextDraft = yield* runOverlay(accumulatedDraft, recipe.run(input))
             accumulatedDraft = yield* composeDrafts(snapshot, accumulatedDraft, nextDraft)
           } else {
@@ -417,33 +510,74 @@ export function pipe<Input, E, R>(
           }
         }
         return accumulatedDraft
-      }), {
-    schema: composedSchema(recipes),
-    implementationHash: composedIdentity(name, version, recipes),
-  })
+      }),
+    {
+      schema: composedSchema(recipes),
+      implementationHash: composedIdentity(name, version, recipes),
+    },
+  )
 }
 
 /** Concurrently run recipes over the current snapshot and merge their drafts. */
 export function all<Input, E1, R1, E2, R2>(
   recipes: readonly [Recipe<Input, E1, R1>, Recipe<Input, E2, R2>],
-): Recipe<Input, E1 | E2 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2>
+): Recipe<
+  Input,
+  | E1
+  | E2
+  | EditConflict
+  | InvalidEdit
+  | FileNotFound
+  | NativeCompilerError
+  | ProjectNotInSnapshot
+  | SnapshotExpired,
+  R1 | R2
+>
 export function all<Input, E1, R1, E2, R2, E3, R3>(
   recipes: readonly [Recipe<Input, E1, R1>, Recipe<Input, E2, R2>, Recipe<Input, E3, R3>],
-): Recipe<Input, E1 | E2 | E3 | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R1 | R2 | R3>
+): Recipe<
+  Input,
+  | E1
+  | E2
+  | E3
+  | EditConflict
+  | InvalidEdit
+  | FileNotFound
+  | NativeCompilerError
+  | ProjectNotInSnapshot
+  | SnapshotExpired,
+  R1 | R2 | R3
+>
 export function all<Input, E, R>(
   recipes: ReadonlyArray<Recipe<Input, E, R>>,
-): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> {
+): Recipe<
+  Input,
+  | E
+  | EditConflict
+  | InvalidEdit
+  | FileNotFound
+  | NativeCompilerError
+  | ProjectNotInSnapshot
+  | SnapshotExpired,
+  R
+> {
   const name = `all(${recipes.map((r) => r.name).join(", ")})`
   const version = recipes.map((r) => r.version).join("+")
   const compiled = compileChildren(recipes)
 
-  return fromCompiled(name, version, compiled, (input: Input) =>
+  return fromCompiled(
+    name,
+    version,
+    compiled,
+    (input: Input) =>
       Effect.forEach(recipes, (r) => r.run(input), { concurrency: "unbounded" }).pipe(
         Effect.map((drafts) => Draft.concat(...drafts)),
-      ), {
-    schema: composedSchema(recipes),
-    implementationHash: composedIdentity(name, version, recipes),
-  })
+      ),
+    {
+      schema: composedSchema(recipes),
+      implementationHash: composedIdentity(name, version, recipes),
+    },
+  )
 }
 
 export type SnapshotPredicate = (
@@ -461,16 +595,22 @@ export const branch = <Input = undefined, E1 = never, R1 = never, E2 = never, R2
   const children = [ifTrue, ifFalse]
   const compiled = compileChildren(children)
 
-  return fromCompiled(name, version, compiled, (input: Input) =>
-      Effect.gen(function*() {
+  return fromCompiled(
+    name,
+    version,
+    compiled,
+    (input: Input) =>
+      Effect.gen(function* () {
         const snapshot = yield* WorkspaceSnapshot
         const result = predicate(snapshot)
         const cond = Effect.isEffect(result) ? yield* result : result
         return cond ? yield* ifTrue.run(input) : yield* ifFalse.run(input)
-      }), {
-    schema: composedSchema(children),
-    implementationHash: composedIdentity(name, version, children),
-  })
+      }),
+    {
+      schema: composedSchema(children),
+      implementationHash: composedIdentity(name, version, children),
+    },
+  )
 }
 
 /** Conditionally execute a recipe if a snapshot predicate holds. */
@@ -481,17 +621,23 @@ export const when = <Input = undefined, E = never, R = never>(
   branch(
     predicate,
     recipe,
-    fromCompiled(`${recipe.name}:noop`, recipe.version, {
-      policy: Policy.all([]).policy,
-      rules: [],
-    }, () => Effect.succeed(Draft.empty), {
-      // The no-op branch still carries the same input schema so `when` can
-      // validate its input exactly as the wrapped recipe does.
-      schema: recipe.schema,
-      implementationHash: createHash("sha256")
-        .update(`${recipe.implementationHash}:noop`)
-        .digest("hex"),
-    }),
+    fromCompiled(
+      `${recipe.name}:noop`,
+      recipe.version,
+      {
+        policy: Policy.all([]).policy,
+        rules: [],
+      },
+      () => Effect.succeed(Draft.empty),
+      {
+        // The no-op branch still carries the same input schema so `when` can
+        // validate its input exactly as the wrapped recipe does.
+        schema: recipe.schema,
+        implementationHash: createHash("sha256")
+          .update(`${recipe.implementationHash}:noop`)
+          .digest("hex"),
+      },
+    ),
   )
 
 const readText = (fileName: string): Effect.Effect<string, NativeCompilerError> =>
@@ -512,12 +658,12 @@ const fingerprintWorkspace = (
   ReadonlyArray<SourceFingerprint>,
   NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired
 > =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const sources: Array<SourceFingerprint> = []
     for (const configured of snapshot.projects) {
       const project = yield* snapshot.project(configured)
       const owned = (yield* project.sourceFileNames).filter((fileName) =>
-        isWithinProject(project.root, fileName)
+        isWithinProject(project.root, fileName),
       )
       const files = [...new Set(owned)].sort()
       const configFileName = Path.resolve(workspaceRoot, configured.config)
@@ -552,13 +698,15 @@ export const run = <Input, E, R>(
   | SnapshotExpired,
   Workspace | Exclude<R, WorkspaceSnapshot>
 > =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     let validatedInput = input
     let encodedOptions: Json = (input === undefined ? null : input) as Json
     if (recipe.schema !== undefined) {
       const schema = recipe.schema
       // SAFETY: recipe schemas are pure and fail only with SchemaError.
-      const decode = Schema.decodeUnknownEffect(schema) as (value: Input) => Effect.Effect<Input, Schema.SchemaError, never>
+      const decode = Schema.decodeUnknownEffect(schema) as (
+        value: Input,
+      ) => Effect.Effect<Input, Schema.SchemaError, never>
       const decoded = yield* decode(input).pipe(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )
@@ -575,45 +723,49 @@ export const run = <Input, E, R>(
     }
 
     const workspace = yield* Workspace
-    return yield* workspace.withSnapshot(transition, Effect.gen(function*() {
-      const snapshot = yield* WorkspaceSnapshot
-      const draft = yield* recipe.run(validatedInput)
-      const sources = yield* fingerprintWorkspace(workspace.root, snapshot)
-      const declaredEvidence = new Set(draft.evidence.map((item) => item.id))
-      const referencedEvidence = new Set([
-        ...draft.edits.flatMap((edit) => edit.evidenceIds),
-        ...(draft.fileOperations ?? []).flatMap((operation) => operation.evidenceIds ?? []),
-      ])
-      const evidence = [
-        ...draft.evidence,
-        ...[...referencedEvidence]
-          .filter((id) => !declaredEvidence.has(id))
-          .map((id) => ({ id, kind: "draft-operation", facts: {} })),
-      ]
+    return yield* workspace.withSnapshot(
+      transition,
+      Effect.gen(function* () {
+        const snapshot = yield* WorkspaceSnapshot
+        const draft = yield* recipe.run(validatedInput)
+        const sources = yield* fingerprintWorkspace(workspace.root, snapshot)
+        const declaredEvidence = new Set(draft.evidence.map((item) => item.id))
+        const referencedEvidence = new Set([
+          ...draft.edits.flatMap((edit) => edit.evidenceIds),
+          ...(draft.fileOperations ?? []).flatMap((operation) => operation.evidenceIds ?? []),
+        ])
+        const evidence = [
+          ...draft.evidence,
+          ...[...referencedEvidence]
+            .filter((id) => !declaredEvidence.has(id))
+            .map((id) => ({ id, kind: "draft-operation", facts: {} })),
+        ]
 
-      const planInput = {
-        recipe: {
-          name: recipe.name,
-          version: recipe.version,
-          implementationHash: recipe.implementationHash,
-          // SAFETY: validated options represent JSON payload
-          options: encodedOptions,
-        },
-        toolchain: TOOLCHAIN,
-        projects: snapshot.projects.map((configured) => ({
-          id: configured.id,
-          configFileName: configured.config,
-        })),
-        sources,
-        edits: draft.edits,
-        evidence,
-        policies: recipe.policies,
-        measurements: { matches: draft.matches },
-      }
-      const finalizedInput = draft.fileOperations !== undefined
-        ? { ...planInput, fileOperations: draft.fileOperations }
-        : planInput
+        const planInput = {
+          recipe: {
+            name: recipe.name,
+            version: recipe.version,
+            implementationHash: recipe.implementationHash,
+            // SAFETY: validated options represent JSON payload
+            options: encodedOptions,
+          },
+          toolchain: TOOLCHAIN,
+          projects: snapshot.projects.map((configured) => ({
+            id: configured.id,
+            configFileName: configured.config,
+          })),
+          sources,
+          edits: draft.edits,
+          evidence,
+          policies: recipe.policies,
+          measurements: { matches: draft.matches },
+        }
+        const finalizedInput =
+          draft.fileOperations !== undefined
+            ? { ...planInput, fileOperations: draft.fileOperations }
+            : planInput
 
-      return yield* finalizePlan(finalizedInput)
-    }))
+        return yield* finalizePlan(finalizedInput)
+      }),
+    )
   })

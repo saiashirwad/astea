@@ -14,7 +14,9 @@ export const replaceArgument = (
   options?: EditRangeOptions,
 ): Effect.Effect<Draft, SnapshotExpired> => {
   const argument = call.arguments[index]
-  return argument === undefined ? Effect.succeed(empty) : replace(project, argument, newText, options)
+  return argument === undefined
+    ? Effect.succeed(empty)
+    : replace(project, argument, newText, options)
 }
 
 /** Wrap a specific argument of a call expression by index using a formatting function. */
@@ -51,19 +53,21 @@ export const args = {
         const newText = transform(currentText, argument)
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start,
-            end,
-            expectedTextHash: textHash(currentText),
-            newText,
-            evidenceIds: [`argument:wrap:${index}`],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(currentText),
+              newText,
+              evidenceIds: [`argument:wrap:${index}`],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 
   /** Reorder call arguments by index array. */
@@ -90,19 +94,21 @@ export const args = {
         })
 
         return {
-          edits: [{
-            projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
-            start,
-            end,
-            expectedTextHash: textHash(originalSlice),
-            newText: orderedTexts.join(", "),
-            evidenceIds: ["argument:reorder"],
-          }],
+          edits: [
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(originalSlice),
+              newText: orderedTexts.join(", "),
+              evidenceIds: ["argument:reorder"],
+            },
+          ],
           evidence: [],
           matches: 1,
         }
-      })
+      }),
     ),
 
   /** Append an argument to a call expression. */
@@ -118,15 +124,17 @@ export const args = {
           const callEnd = call.getEnd()
           const insertPos = callEnd - 1
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: text,
-              evidenceIds: ["argument:append"],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, sourceFile.fileName),
+                start: insertPos,
+                end: insertPos,
+                expectedTextHash: textHash(""),
+                newText: text,
+                evidenceIds: ["argument:append"],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
@@ -134,19 +142,21 @@ export const args = {
           const lastArg = call.arguments[call.arguments.length - 1]!
           const insertPos = lastArg.getEnd()
           return {
-            edits: [{
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: `, ${text}`,
-              evidenceIds: ["argument:append"],
-            }],
+            edits: [
+              {
+                projectId: project.project.id,
+                fileName: projectRelativePath(project.root, sourceFile.fileName),
+                start: insertPos,
+                end: insertPos,
+                expectedTextHash: textHash(""),
+                newText: `, ${text}`,
+                evidenceIds: ["argument:append"],
+              },
+            ],
             evidence: [],
             matches: 1,
           }
         }
-      })
+      }),
     ),
 }

@@ -27,7 +27,13 @@ export interface ApplicationReceipt {
 export interface PlanApplicationService {
   readonly apply: (
     verified: VerifiedPlan,
-  ) => Effect.Effect<ApplicationReceipt, import("../Verification/Engine.ts").StalePlanError | ApplicationFailure | ApplicationIndeterminate, FileSystem.FileSystem | Path.Path>
+  ) => Effect.Effect<
+    ApplicationReceipt,
+    | import("../Verification/Engine.ts").StalePlanError
+    | ApplicationFailure
+    | ApplicationIndeterminate,
+    FileSystem.FileSystem | Path.Path
+  >
 }
 
 export class PlanApplication extends Context.Service<PlanApplication, PlanApplicationService>()(

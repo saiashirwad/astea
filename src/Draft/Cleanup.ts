@@ -10,7 +10,7 @@ import { concat, empty, type Draft } from "./Model.ts"
 export const cleanUnused = (
   project: ProjectSnapshot,
 ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     let accumulated = empty
     const sourceNames = yield* project.sourceFileNames
 
@@ -19,7 +19,11 @@ export const cleanUnused = (
       if (file === undefined) continue
 
       for (const statement of file.statements) {
-        if (isImportDeclaration(statement) && statement.importClause?.namedBindings && isNamedImports(statement.importClause.namedBindings)) {
+        if (
+          isImportDeclaration(statement) &&
+          statement.importClause?.namedBindings &&
+          isNamedImports(statement.importClause.namedBindings)
+        ) {
           const named = statement.importClause.namedBindings
           for (const element of named.elements) {
             const sym = yield* project.symbolAt(file.fileName, element.name.getStart(file))
@@ -28,11 +32,15 @@ export const cleanUnused = (
               // If only reference is the import itself
               if (refs.length <= 1) {
                 const draft = yield* imports.removeNamed(project, statement, element.name.text)
-                const conflicts = draft.edits.some((candidate) => accumulated.edits.some((existing) =>
-                  candidate.projectId === existing.projectId &&
-                  candidate.fileName === existing.fileName &&
-                  candidate.start < existing.end && existing.start < candidate.end
-                ))
+                const conflicts = draft.edits.some((candidate) =>
+                  accumulated.edits.some(
+                    (existing) =>
+                      candidate.projectId === existing.projectId &&
+                      candidate.fileName === existing.fileName &&
+                      candidate.start < existing.end &&
+                      existing.start < candidate.end,
+                  ),
+                )
                 if (!conflicts) accumulated = concat(accumulated, draft)
               }
             }

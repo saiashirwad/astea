@@ -1,9 +1,9 @@
-import { RuleTester } from "oxlint/plugins-dev";
+import { RuleTester } from "oxlint/plugins-dev"
 
-import { noModuleMockingRule } from "./no-module-mocking.ts";
+import { noModuleMockingRule } from "./no-module-mocking.ts"
 
-const tester = new RuleTester({ languageOptions: { parserOptions: { lang: "ts" } } });
-const error = { messageId: "moduleMock" };
+const tester = new RuleTester({ languageOptions: { parserOptions: { lang: "ts" } } })
+const error = { messageId: "moduleMock" }
 
 tester.run("anti-slop/no-module-mocking", noModuleMockingRule, {
   valid: [
@@ -19,10 +19,13 @@ tester.run("anti-slop/no-module-mocking", noModuleMockingRule, {
     { code: "vi['doMock']('./user-store');", errors: [error] },
     { code: "jest.unstable_mockModule('./user-store');", errors: [error] },
     { code: "import { vi } from 'vitest'; vi.mock('./user-store');", errors: [error] },
-    { code: "import { vi as testApi } from 'vitest'; testApi.mock('./user-store');", errors: [error] },
+    {
+      code: "import { vi as testApi } from 'vitest'; testApi.mock('./user-store');",
+      errors: [error],
+    },
     {
       code: "import { jest } from '@jest/globals'; jest.mock('./user-store');",
       errors: [error],
     },
   ],
-});
+})

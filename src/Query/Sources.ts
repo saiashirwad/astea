@@ -1,17 +1,34 @@
 /** Query sources over workspace snapshots and structural patterns. */
 import { path as Path } from "../platform/node.ts"
 import { Effect, Stream } from "effect"
-import { SyntaxKind, type CallExpression, type Identifier, type ImportDeclaration, type Node, type PropertyAccessExpression, type SourceFile } from "typescript/unstable/ast"
-import { isCallExpression, isIdentifier, isImportDeclaration, isPropertyAccessExpression } from "typescript/unstable/ast/is"
+import {
+  SyntaxKind,
+  type CallExpression,
+  type Identifier,
+  type ImportDeclaration,
+  type Node,
+  type PropertyAccessExpression,
+  type SourceFile,
+} from "typescript/unstable/ast"
+import {
+  isCallExpression,
+  isIdentifier,
+  isImportDeclaration,
+  isPropertyAccessExpression,
+} from "typescript/unstable/ast/is"
 import { nativeRequest } from "../Compiler/Service.ts"
 import { isWithinProject, projectRelativePath } from "../Workspace/ProjectPath.ts"
-import { isProjectFile, type ProjectFile, type ProjectSnapshot, type ProjectSnapshotError } from "../Workspace/index.ts"
+import {
+  isProjectFile,
+  type ProjectFile,
+  type ProjectSnapshot,
+  type ProjectSnapshotError,
+} from "../Workspace/index.ts"
 import type { Pattern } from "../Pattern/index.ts"
 import type { ProjectScope, Query, Selection, TargetFileScope } from "./Model.ts"
 
-const isProjectFileArray = (
-  value: ProjectScope,
-): value is ReadonlyArray<ProjectFile> => Array.isArray(value)
+const isProjectFileArray = (value: ProjectScope): value is ReadonlyArray<ProjectFile> =>
+  Array.isArray(value)
 
 const resolveScope = (
   scope: ProjectScope,
@@ -46,7 +63,7 @@ const resolveScope = (
         fileNames.map((fileName) => ({
           project: scope,
           fileName,
-        }))
+        })),
       ),
     ),
   )
@@ -70,10 +87,12 @@ const collectNodes = <A extends Node>(
         fileName,
         start: node.getStart(sourceFile),
         end: node.getEnd(),
-        evidence: [{
-          criterion: "syntax-kind",
-          facts: { kind: SyntaxKind[node.kind] ?? node.kind },
-        }],
+        evidence: [
+          {
+            criterion: "syntax-kind",
+            facts: { kind: SyntaxKind[node.kind] ?? node.kind },
+          },
+        ],
       })
     }
     node.forEachChild((child) => {
@@ -93,13 +112,17 @@ export const nodes = <A extends Node>(
 ): Query<A, ProjectSnapshotError> =>
   resolveScope(target).pipe(
     Stream.flatMap(({ project, fileName }) =>
-      Stream.fromEffect(project.unsafeNative((nativeProject) =>
-        nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
-      )).pipe(
-        Stream.flatMap((sourceFile) =>
-          sourceFile === undefined ? Stream.empty : Stream.fromIterable(collectNodes(project, sourceFile, guard))
+      Stream.fromEffect(
+        project.unsafeNative((nativeProject) =>
+          nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName)),
         ),
-      )
+      ).pipe(
+        Stream.flatMap((sourceFile) =>
+          sourceFile === undefined
+            ? Stream.empty
+            : Stream.fromIterable(collectNodes(project, sourceFile, guard)),
+        ),
+      ),
     ),
   )
 
@@ -124,9 +147,11 @@ export const match = <Out>(
 ): Query<Out, ProjectSnapshotError> =>
   resolveScope(target).pipe(
     Stream.flatMap(({ project, fileName }) =>
-      Stream.fromEffect(project.unsafeNative((nativeProject) =>
-        nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
-      )).pipe(
+      Stream.fromEffect(
+        project.unsafeNative((nativeProject) =>
+          nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName)),
+        ),
+      ).pipe(
         Stream.flatMap((sourceFile) => {
           if (sourceFile === undefined) return Stream.empty
           const candidateNodes: Array<Node> = []
@@ -153,19 +178,22 @@ export const match = <Out>(
                     fileName: relFileName,
                     start: node.getStart(sourceFile),
                     end: node.getEnd(),
-                    evidence: [{
-                      criterion: pattern.kind ?? "pattern-match",
-                      facts: result.facts === undefined
-                        ? { kind: SyntaxKind[node.kind] ?? node.kind }
-                        : { kind: SyntaxKind[node.kind] ?? node.kind, ...result.facts },
-                    }],
+                    evidence: [
+                      {
+                        criterion: pattern.kind ?? "pattern-match",
+                        facts:
+                          result.facts === undefined
+                            ? { kind: SyntaxKind[node.kind] ?? node.kind }
+                            : { kind: SyntaxKind[node.kind] ?? node.kind, ...result.facts },
+                      },
+                    ],
                   }
-                })
-              )
+                }),
+              ),
             ),
             Stream.filter((selection): selection is Selection<Out> => selection !== undefined),
           )
         }),
-      )
+      ),
     ),
   )

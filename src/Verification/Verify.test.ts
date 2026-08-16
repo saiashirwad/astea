@@ -15,13 +15,41 @@ describe("declarative transformations API (@effect/vitest)", () => {
   describe("diagnostic diffs and verification policies", () => {
     it("computes diagnostic diffs accurately", () => {
       const baseline: ReadonlyArray<DiagnosticRecord> = [
-        { code: 2304, message: "Cannot find name 'foo'", category: "error", fileName: "a.ts", start: 10, length: 3 },
-        { code: 6133, message: "'x' is declared but its value is never read", category: "warning", fileName: "a.ts", start: 20, length: 1 },
+        {
+          code: 2304,
+          message: "Cannot find name 'foo'",
+          category: "error",
+          fileName: "a.ts",
+          start: 10,
+          length: 3,
+        },
+        {
+          code: 6133,
+          message: "'x' is declared but its value is never read",
+          category: "warning",
+          fileName: "a.ts",
+          start: 20,
+          length: 1,
+        },
       ]
 
       const proposed: ReadonlyArray<DiagnosticRecord> = [
-        { code: 6133, message: "'x' is declared but its value is never read", category: "warning", fileName: "a.ts", start: 20, length: 1 },
-        { code: 2322, message: "Type 'string' is not assignable to type 'number'", category: "error", fileName: "b.ts", start: 5, length: 6 },
+        {
+          code: 6133,
+          message: "'x' is declared but its value is never read",
+          category: "warning",
+          fileName: "a.ts",
+          start: 20,
+          length: 1,
+        },
+        {
+          code: 2322,
+          message: "Type 'string' is not assignable to type 'number'",
+          category: "error",
+          fileName: "b.ts",
+          start: 5,
+          length: 6,
+        },
       ]
 
       const diff = computeDiagnosticDiff(baseline, proposed)
@@ -53,11 +81,17 @@ describe("declarative transformations API (@effect/vitest)", () => {
         diagnosticDiff,
         policyResults: [{ name: "no-new-errors", passed: false }],
       }
-      const result = Effect.runSyncExit(verifyPreview(plan, {
-        planId: plan.planId,
-        snapshotHash: "snapshot",
-        files: [],
-      }, observation))
+      const result = Effect.runSyncExit(
+        verifyPreview(
+          plan,
+          {
+            planId: plan.planId,
+            snapshotHash: "snapshot",
+            files: [],
+          },
+          observation,
+        ),
+      )
       expect(result._tag).toBe("Failure")
       if (result._tag === "Failure") expect(result.cause).toBeDefined()
     })
@@ -81,125 +115,153 @@ describe("declarative transformations API (@effect/vitest)", () => {
       expect(changedSpan.introduced).toHaveLength(1)
     })
 
-    effect("enforces declarative policies during verification", () =>
-      withFixture((_, app) =>
-        Effect.gen(function*() {
-          const validRecipe = Recipe.define("policy-valid", {
-            version: "1.0.0",
-            policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
-            run: () =>
-              Effect.gen(function*() {
-                const snapshot = yield* WorkspaceSnapshot
-                const project = yield* snapshot.project(app)
-                return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
-                  module: "./library.js",
-                  name: "TargetInput",
-                })
-              }),
-          })
+    effect(
+      "enforces declarative policies during verification",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const validRecipe = Recipe.define("policy-valid", {
+              version: "1.0.0",
+              policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
+                    module: "./library.js",
+                    name: "TargetInput",
+                  })
+                }),
+            })
 
-          const failingRecipe = Recipe.define("policy-failing", {
-            version: "1.0.0",
-            policies: [Policy.matches({ min: 999 })],
-            run: () =>
-              Effect.gen(function*() {
-                const snapshot = yield* WorkspaceSnapshot
-                const project = yield* snapshot.project(app)
-                return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
-                  module: "./library.js",
-                  name: "TargetInput",
-                })
-              }),
-          })
+            const failingRecipe = Recipe.define("policy-failing", {
+              version: "1.0.0",
+              policies: [Policy.matches({ min: 999 })],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
+                    module: "./library.js",
+                    name: "TargetInput",
+                  })
+                }),
+            })
 
-          // Valid passes verification
-          const validPlan = yield* Recipe.run(validRecipe, undefined)
-          const verified = yield* Verification.verify(validPlan, validRecipe, undefined)
-          expect(verified.diagnosticDiff).toBeDefined()
+            // Valid passes verification
+            const validPlan = yield* Recipe.run(validRecipe, undefined)
+            const verified = yield* Verification.verify(validPlan, validRecipe, undefined)
+            expect(verified.diagnosticDiff).toBeDefined()
 
-          // Failing policy is rejected during verification
-          const failingPlan = yield* Recipe.run(failingRecipe, undefined)
-          const failure = yield* Verification.verify(failingPlan, failingRecipe, undefined).pipe(
-            Effect.flip,
-          )
-          expect(failure).toBeInstanceOf(VerificationFailure)
-        })
-      ),
+            // Failing policy is rejected during verification
+            const failingPlan = yield* Recipe.run(failingRecipe, undefined)
+            const failure = yield* Verification.verify(failingPlan, failingRecipe, undefined).pipe(
+              Effect.flip,
+            )
+            expect(failure).toBeInstanceOf(VerificationFailure)
+          }),
+        ),
       60_000,
     )
 
-    effect("rejects recipe identity, implementation, input, and toolchain mismatches before rules run", () =>
-      withFixture(() =>
-        Effect.gen(function*() {
-          let ruleRan = false
-          const input = { value: 1 }
-          const author = Recipe.define("identity-author", {
-            version: "1.0.0",
-            implementationHash: "author-hash",
-            policies: [Policy.diagnosticDiff("must-not-run", () => {
-              ruleRan = true
-              return true
-            })],
-            run: (_input: { readonly value: number }) => Effect.succeed(Draft.empty),
-          })
-          const plan = yield* Recipe.run(author, input)
+    effect(
+      "rejects recipe identity, implementation, input, and toolchain mismatches before rules run",
+      () =>
+        withFixture(() =>
+          Effect.gen(function* () {
+            let ruleRan = false
+            const input = { value: 1 }
+            const author = Recipe.define("identity-author", {
+              version: "1.0.0",
+              implementationHash: "author-hash",
+              policies: [
+                Policy.diagnosticDiff("must-not-run", () => {
+                  ruleRan = true
+                  return true
+                }),
+              ],
+              run: (_input: { readonly value: number }) => Effect.succeed(Draft.empty),
+            })
+            const plan = yield* Recipe.run(author, input)
 
-          const differentRecipe = Recipe.define("different-recipe", {
-            version: "1.0.0",
-            implementationHash: "author-hash",
-            run: (_input: { readonly value: number }) => Effect.succeed(Draft.empty),
-          })
-          const recipeResult = yield* Verification.verify(plan, differentRecipe, input).pipe(Effect.result)
-          expect(recipeResult._tag).toBe("Failure")
-          if (recipeResult._tag === "Failure") expect(recipeResult.failure._tag).toBe("RecipeMismatch")
+            const differentRecipe = Recipe.define("different-recipe", {
+              version: "1.0.0",
+              implementationHash: "author-hash",
+              run: (_input: { readonly value: number }) => Effect.succeed(Draft.empty),
+            })
+            const recipeResult = yield* Verification.verify(plan, differentRecipe, input).pipe(
+              Effect.result,
+            )
+            expect(recipeResult._tag).toBe("Failure")
+            if (recipeResult._tag === "Failure")
+              expect(recipeResult.failure._tag).toBe("RecipeMismatch")
 
-          const differentImplementation = Recipe.define("identity-author", {
-            version: "1.0.0",
-            implementationHash: "different-hash",
-            run: (_input: { readonly value: number }) => Effect.succeed(Draft.empty),
-          })
-          const implementationResult = yield* Verification.verify(plan, differentImplementation, input).pipe(Effect.result)
-          expect(implementationResult._tag).toBe("Failure")
-          if (implementationResult._tag === "Failure") expect(implementationResult.failure._tag).toBe("RecipeMismatch")
+            const differentImplementation = Recipe.define("identity-author", {
+              version: "1.0.0",
+              implementationHash: "different-hash",
+              run: (_input: { readonly value: number }) => Effect.succeed(Draft.empty),
+            })
+            const implementationResult = yield* Verification.verify(
+              plan,
+              differentImplementation,
+              input,
+            ).pipe(Effect.result)
+            expect(implementationResult._tag).toBe("Failure")
+            if (implementationResult._tag === "Failure")
+              expect(implementationResult.failure._tag).toBe("RecipeMismatch")
 
-          const inputResult = yield* Verification.verify(plan, author, { value: 2 }).pipe(Effect.result)
-          expect(inputResult._tag).toBe("Failure")
-          if (inputResult._tag === "Failure") expect(inputResult.failure._tag).toBe("RecipeInputMismatch")
+            const inputResult = yield* Verification.verify(plan, author, { value: 2 }).pipe(
+              Effect.result,
+            )
+            expect(inputResult._tag).toBe("Failure")
+            if (inputResult._tag === "Failure")
+              expect(inputResult.failure._tag).toBe("RecipeInputMismatch")
 
-          const wrongToolchain: TransformationPlan = {
-            ...plan,
-            toolchain: { ...plan.toolchain, systemVersion: "different-system" },
-          }
-          const toolchainResult = yield* Verification.verify(wrongToolchain, author, input).pipe(Effect.result)
-          expect(toolchainResult._tag).toBe("Failure")
-          if (toolchainResult._tag === "Failure") expect(toolchainResult.failure._tag).toBe("ToolchainMismatch")
-          expect(ruleRan).toBe(false)
-        })
-      ),
+            const wrongToolchain: TransformationPlan = {
+              ...plan,
+              toolchain: { ...plan.toolchain, systemVersion: "different-system" },
+            }
+            const toolchainResult = yield* Verification.verify(wrongToolchain, author, input).pipe(
+              Effect.result,
+            )
+            expect(toolchainResult._tag).toBe("Failure")
+            if (toolchainResult._tag === "Failure")
+              expect(toolchainResult.failure._tag).toBe("ToolchainMismatch")
+            expect(ruleRan).toBe(false)
+          }),
+        ),
       60_000,
     )
 
-    effect("counts replayed file operations when enforcing idempotence", () =>
-      withFixture((_, app) =>
-        Effect.gen(function*() {
-          const recipe = Recipe.define("non-idempotent-file-create", {
-            version: "1.0.0",
-            policies: [{ diagnostics: "exact-delta" }, Policy.idempotent()],
-            run: () => Effect.gen(function*() {
-              const snapshot = yield* WorkspaceSnapshot
-              const project = yield* snapshot.project(app)
-              return yield* Draft.files.create(project, "src/repeated.ts", "export const repeated = true;\n")
-            }),
-          })
-          const plan = yield* Recipe.run(recipe, undefined)
-          const result = yield* Verification.verify(plan, recipe, undefined).pipe(Effect.result)
-          expect(result._tag).toBe("Failure")
-          if (result._tag === "Failure") {
-            expect(result.failure._tag).toBe("VerificationFailure")
-            if (result.failure._tag === "VerificationFailure") expect(result.failure.policy).toBe("idempotence")
-          }
-        })
-      ),
+    effect(
+      "counts replayed file operations when enforcing idempotence",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const recipe = Recipe.define("non-idempotent-file-create", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }, Policy.idempotent()],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(
+                    project,
+                    "src/repeated.ts",
+                    "export const repeated = true;\n",
+                  )
+                }),
+            })
+            const plan = yield* Recipe.run(recipe, undefined)
+            const result = yield* Verification.verify(plan, recipe, undefined).pipe(Effect.result)
+            expect(result._tag).toBe("Failure")
+            if (result._tag === "Failure") {
+              expect(result.failure._tag).toBe("VerificationFailure")
+              if (result.failure._tag === "VerificationFailure")
+                expect(result.failure.policy).toBe("idempotence")
+            }
+          }),
+        ),
       60_000,
     )
   })
