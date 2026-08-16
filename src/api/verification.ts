@@ -89,12 +89,22 @@ const collectDiagnostics = Effect.gen(function*() {
         () => nativeProject.program.getSemanticDiagnostics(),
       )
     )
-    for (const d of diags as ReadonlyArray<any>) {
+    // SAFETY: TypeScript compiler native diagnostics return collection of diagnostic objects
+    const diagnosticList = diags as unknown as ReadonlyArray<{
+      code: number
+      messageText: string | { messageText: string }
+      category: number
+      file?: { fileName?: string }
+      start?: number
+      length?: number
+    }>
+    for (const d of diagnosticList) {
+      const message = typeof d.messageText === "string"
+        ? d.messageText
+        : d.messageText?.messageText ?? "Unknown diagnostic"
       allDiagnostics.push({
         code: d.code,
-        message: typeof d.messageText === "string"
-          ? d.messageText
-          : (d.messageText?.messageText ?? String(d.messageText)),
+        message,
         category: d.category === 0
           ? "warning"
           : d.category === 2
@@ -143,14 +153,17 @@ const verify = <Input, E, R>(
 
     const baselineDiagnostics = yield* workspace.withIsolatedSnapshot({}, collectDiagnostics)
 
-    const proposedRun = yield* workspace.withIsolatedSnapshot(overlay, Effect.gen(function*() {
-      const diagnostics = yield* collectDiagnostics
-      if (plan.policies.idempotence !== "required") {
-        return { diagnostics, replayEdits: undefined as number | undefined }
-      }
-      const replay = yield* recipe.run(input)
-      return { diagnostics, replayEdits: replay.edits.length as number | undefined }
-    }))
+    const proposedRun = yield* workspace.withIsolatedSnapshot(
+      overlay,
+      Effect.gen(function*() {
+        const diagnostics = yield* collectDiagnostics
+        if (plan.policies.idempotence !== "required") {
+          return { diagnostics, replayEdits: undefined }
+        }
+        const replay = yield* recipe.run(input)
+        return { diagnostics, replayEdits: replay.edits.length }
+      }),
+    )
 
     const diagnosticDiff = computeDiagnosticDiff(baselineDiagnostics, proposedRun.diagnostics)
 
@@ -188,12 +201,21 @@ const verify = <Input, E, R>(
     const baselineErrorCount = baselineDiagnostics.filter((d) => d.category === "error").length
     const proposedErrorCount = proposedRun.diagnostics.filter((d) => d.category === "error").length
 
-    const verified = yield* verifyPreview(plan, proposed, {
+    const observation: {
+      actualMatches: number
+      baselineErrorCount: number
+      proposedErrorCount: number
+      secondPlanEditCount?: number
+    } = {
       actualMatches: matches ?? 0,
       baselineErrorCount,
       proposedErrorCount,
-      ...(proposedRun.replayEdits === undefined ? {} : { secondPlanEditCount: proposedRun.replayEdits }),
-    })
+    }
+    if (proposedRun.replayEdits !== undefined) {
+      observation.secondPlanEditCount = proposedRun.replayEdits
+    }
+
+    const verified = yield* verifyPreview(plan, proposed, observation)
 
     return Object.assign(verified, { diagnosticDiff })
   })

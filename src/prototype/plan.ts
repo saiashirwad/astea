@@ -101,7 +101,8 @@ const canonicalize = (value: Json): Json => {
 
 export const canonicalJson = (value: Json): string => JSON.stringify(canonicalize(value))
 
-const asJson = (value: unknown): Json => value as Json
+// SAFETY: value is guaranteed to be JSON serializable
+const asJson = (value: Json | TransformationPlan | { readonly projects: ReadonlyArray<ProjectEvidence>; readonly sources: ReadonlyArray<SourceFingerprint> }): Json => value as Json
 
 const editCompare = (left: PlannedTextEdit, right: PlannedTextEdit): number =>
   left.projectId.localeCompare(right.projectId) ||
@@ -170,16 +171,17 @@ export const finalizePlan = (
     sources,
     snapshotHash,
     edits,
-    ...(fileOperations !== undefined ? { fileOperations } : {}),
     evidence,
   }
-  return { ...provisional, planId: digest(canonicalJson(withoutId(provisional))) }
+  const finalizedBase = fileOperations !== undefined ? { ...provisional, fileOperations } : provisional
+  return { ...finalizedBase, planId: digest(canonicalJson(withoutId(finalizedBase))) }
 })
 
 export const serializePlan = (plan: TransformationPlan): string => canonicalJson(asJson(plan))
 
 export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanDecodeError> =>
   Effect.try({
+    // SAFETY: JSON parsing returns unknown payload
     try: () => JSON.parse(text) as unknown,
     catch: () => new PlanDecodeError({ reason: "json" }),
   }).pipe(Effect.flatMap((decoded) => Effect.gen(function*() {
@@ -188,6 +190,7 @@ export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanD
       !("schemaVersion" in decoded) || decoded.schemaVersion !== 1 ||
       !("planId" in decoded) || typeof decoded.planId !== "string"
     ) return yield* new PlanDecodeError({ reason: "schema" })
+    // SAFETY: validated schemaVersion and planId fields
     const plan = decoded as TransformationPlan
     if (digest(canonicalJson(withoutId(plan))) !== plan.planId) {
       return yield* new PlanDecodeError({ reason: "hash" })

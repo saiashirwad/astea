@@ -1,7 +1,7 @@
 import * as Fs from "node:fs/promises"
 import * as Path from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "@effect/vitest"
+import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import type { CallExpression } from "typescript/unstable/ast"
 import {
@@ -68,7 +68,7 @@ const withFixture = <A, E, R>(
   )
 
 describe("candidate public API (@effect/vitest)", () => {
-  it("runs query → plan → preview → verify → apply as one typed pipeline", () =>
+  effect("runs query → plan → preview → verify → apply as one typed pipeline", () =>
     withFixture(fixtureSource, (root, app, workspaceLayer) =>
       Effect.gen(function*() {
         const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
@@ -102,7 +102,9 @@ describe("candidate public API (@effect/vitest)", () => {
         expect(roundTripped.planId).toBe(plan.planId)
 
         // After application the recipe is a no-op: the reran plan has no edits.
-        const second = yield* Recipe.run(wrapTargetInput, input)
+        // Reopen the workspace so the compiler observes the newly written snapshot.
+        const freshWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+        const second = yield* Recipe.run(wrapTargetInput, input).pipe(Effect.provide(freshWorkspaceLayer))
         expect(second.edits).toHaveLength(0)
         expect(second.measurements?.matches).toBe(0)
       })
@@ -110,7 +112,7 @@ describe("candidate public API (@effect/vitest)", () => {
     60_000,
   )
 
-  it("produces identical plan IDs for identical inputs", () =>
+  effect("produces identical plan IDs for identical inputs", () =>
     withFixture(fixtureSource, (_, app) =>
       Effect.gen(function*() {
         const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
@@ -124,7 +126,7 @@ describe("candidate public API (@effect/vitest)", () => {
     60_000,
   )
 
-  it("migrates an import source, preserving quote style and trivia", () =>
+  effect("migrates an import source, preserving quote style and trivia", () =>
     withFixture(stressFixture, (root, app, workspaceLayer) =>
       Effect.gen(function*() {
         const input: MigrateImportSourceInput = { project: app, from: "./legacy.js", to: "./replacement.js" }

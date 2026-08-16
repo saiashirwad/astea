@@ -63,6 +63,7 @@ export interface VerificationReceipt {
   readonly idempotenceChecked: boolean
 }
 
+// SAFETY: nominal brand symbol creation
 const VerifiedPlanTypeId: unique symbol = Symbol.for("@teatime/prototype/VerifiedPlan") as never
 
 export interface VerifiedPlan {
@@ -128,6 +129,14 @@ export const previewPlan = (
     sourceTexts.set(`${source.projectId}\0${source.fileName}`, content)
   }
 
+  for (const op of plan.fileOperations ?? []) {
+    if (op.kind === "create") {
+      sourceTexts.set(`${op.projectId}\0${op.path}`, op.content ?? "")
+    } else if (op.kind === "move" && op.toPath !== undefined) {
+      sourceTexts.set(`${op.projectId}\0${op.toPath}`, op.content ?? sourceTexts.get(`${op.projectId}\0${op.path}`) ?? "")
+    }
+  }
+
   const groups = Map.groupBy(plan.edits, (edit) => `${edit.projectId}\0${edit.fileName}`)
   const files: Array<FilePreview> = []
   for (const [key, edits] of groups) {
@@ -160,6 +169,7 @@ export const previewPlan = (
   if (plan.fileOperations !== undefined) {
     for (const op of plan.fileOperations) {
       if (op.kind === "create") {
+        if (files.some((file) => file.projectId === op.projectId && file.fileName === op.path)) continue
         const content = op.content ?? ""
         files.push({
           projectId: op.projectId,
@@ -182,14 +192,17 @@ export const previewPlan = (
       } else if (op.kind === "move" && op.toPath !== undefined) {
         const beforeText = sourceTexts.get(`${op.projectId}\0${op.path}`) ?? ""
         const content = op.content ?? beforeText
-        files.push({
-          projectId: op.projectId,
-          fileName: op.path,
-          beforeHash: textHash(beforeText),
-          afterHash: textHash(""),
-          beforeText,
-          afterText: "",
-        })
+        if (!files.some((file) => file.projectId === op.projectId && file.fileName === op.path)) {
+          files.push({
+            projectId: op.projectId,
+            fileName: op.path,
+            beforeHash: textHash(beforeText),
+            afterHash: textHash(""),
+            beforeText,
+            afterText: "",
+          })
+        }
+        if (files.some((file) => file.projectId === op.projectId && file.fileName === op.toPath)) continue
         files.push({
           projectId: op.projectId,
           fileName: op.toPath,

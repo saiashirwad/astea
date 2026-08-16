@@ -21,14 +21,11 @@ import type {
   MethodDeclaration,
   Node,
   ObjectLiteralExpression,
-  SourceFile,
 } from "typescript/unstable/ast"
 import {
-  isCallExpression,
   isIdentifier,
   isImportDeclaration,
   isNamedImports,
-  isObjectLiteralExpression,
   isPropertyAssignment,
   isPropertySignatureDeclaration,
   isStringLiteral,
@@ -168,6 +165,8 @@ export const replaceWith = (
 /** The replacement a selection maps to: text only (replace the selected node) or an explicit target node. */
 export type Replacement = string | { readonly node: Node; readonly text: string }
 
+const isTextReplacement = (val: Replacement): val is string => typeof val === "string"
+
 /**
  * Propose one replacement per selection. Each edit inherits its selection's
  * Query Evidence automatically; the draft records the selection count as the
@@ -179,8 +178,8 @@ export const replaceEach = <A extends Node>(
 ): Effect.Effect<Draft, SnapshotExpired> =>
   Effect.forEach(selections, (selection) => {
     const proposed = replacement(selection)
-    const node = typeof proposed === "string" ? selection.value : proposed.node
-    const text = typeof proposed === "string" ? proposed : proposed.text
+    const node = isTextReplacement(proposed) ? selection.value : proposed.node
+    const text = isTextReplacement(proposed) ? proposed : proposed.text
     const evidenceId =
       `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}`
     return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
@@ -1132,7 +1131,12 @@ export const cleanUnused = (
               // If only reference is the import itself
               if (refs.length <= 1) {
                 const draft = yield* imports.removeNamed(project, statement, element.name.text)
-                accumulated = concat(accumulated, draft)
+                const conflicts = draft.edits.some((candidate) => accumulated.edits.some((existing) =>
+                  candidate.projectId === existing.projectId &&
+                  candidate.fileName === existing.fileName &&
+                  candidate.start < existing.end && existing.start < candidate.end
+                ))
+                if (!conflicts) accumulated = concat(accumulated, draft)
               }
             }
           }

@@ -1,7 +1,6 @@
 /**
  * teatime CLI — Interactive command-line runner and inspection tool.
  */
-import * as Fs from "node:fs/promises"
 import * as Path from "node:path"
 import { Effect, Layer } from "effect"
 import {
@@ -32,6 +31,7 @@ export const runCli = (options: CliOptions): Effect.Effect<void, unknown, any> =
 
     // Dynamic import recipe
     const imported = yield* Effect.tryPromise(() => import(resolvedRecipe))
+    // SAFETY: Recipe is exported from target module
     const recipe = (imported.default ?? imported.recipe ?? Object.values(imported).find((v: any) => v && typeof v === "object" && "run" in v && "version" in v)) as Recipe<any, any, any>
 
     if (recipe === undefined) {

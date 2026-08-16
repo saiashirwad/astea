@@ -195,11 +195,11 @@ export class Workspace extends Context.Service<Workspace, WorkspaceService>()(
 const toNativeChanges = (changes: WorkspaceChanges | undefined): FileChanges | undefined => {
   if (changes === undefined) return undefined
   if ("invalidateAll" in changes) return { invalidateAll: true }
-  return {
-    ...(changes.changed === undefined ? {} : { changed: [...changes.changed] }),
-    ...(changes.created === undefined ? {} : { created: [...changes.created] }),
-    ...(changes.deleted === undefined ? {} : { deleted: [...changes.deleted] }),
-  }
+  const result: { changed?: Array<string>; created?: Array<string>; deleted?: Array<string> } = {}
+  if (changes.changed !== undefined) result.changed = [...changes.changed]
+  if (changes.created !== undefined) result.created = [...changes.created]
+  if (changes.deleted !== undefined) result.deleted = [...changes.deleted]
+  return result
 }
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -233,10 +233,14 @@ export const make = (
       program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
     ): Effect.Effect<A, E | NativeCompilerError, Exclude<R, WorkspaceSnapshot>> =>
       Effect.scoped(Effect.gen(function*() {
-        const nativeSnapshot = yield* regionCompiler.openSnapshot({
-          ...(openProjects === undefined ? {} : { openProjects: [...openProjects] }),
-          ...(transition.changes === undefined ? {} : { fileChanges: toNativeChanges(transition.changes) }),
-        }).pipe(Effect.tap(() => Effect.sync(onOpened)))
+        const params: { openProjects?: Array<string>; fileChanges?: FileChanges } = {}
+        if (openProjects !== undefined) {
+          params.openProjects = [...openProjects]
+        }
+        if (transition.changes !== undefined) {
+          params.fileChanges = toNativeChanges(transition.changes)
+        }
+        const nativeSnapshot = yield* regionCompiler.openSnapshot(params).pipe(Effect.tap(() => Effect.sync(onOpened)))
 
         const active = { current: true }
         const ensureActive = Effect.suspend((): Effect.Effect<void, SnapshotExpired> =>

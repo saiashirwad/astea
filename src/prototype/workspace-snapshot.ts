@@ -98,11 +98,11 @@ export class Workspace extends Context.Service<Workspace, WorkspaceService>()(
 const toNativeChanges = (changes: WorkspaceChanges | undefined): FileChanges | undefined => {
   if (changes === undefined) return undefined
   if ("invalidateAll" in changes) return { invalidateAll: true }
-  return {
-    ...(changes.changed === undefined ? {} : { changed: [...changes.changed] }),
-    ...(changes.created === undefined ? {} : { created: [...changes.created] }),
-    ...(changes.deleted === undefined ? {} : { deleted: [...changes.deleted] }),
-  }
+  const result: { changed?: Array<string>; created?: Array<string>; deleted?: Array<string> } = {}
+  if (changes.changed !== undefined) result.changed = [...changes.changed]
+  if (changes.created !== undefined) result.created = [...changes.created]
+  if (changes.deleted !== undefined) result.deleted = [...changes.deleted]
+  return result
 }
 
 export const make = (
@@ -129,13 +129,14 @@ export const make = (
     ) {
       return yield* Effect.scoped(Effect.gen(function*() {
         const nativeSnapshot = yield* transitionLock.withPermit(Effect.suspend(() => {
-          const openProjects = opened ? undefined : projects.map((project) => project.configFileName)
-          return compiler.openSnapshot({
-            ...(openProjects === undefined ? {} : { openProjects }),
-            ...(transition.changes === undefined
-              ? {}
-              : { fileChanges: toNativeChanges(transition.changes) }),
-          }).pipe(Effect.tap(() => Effect.sync(() => {
+          const params: { openProjects?: Array<string>; fileChanges?: FileChanges } = {}
+          if (!opened) {
+            params.openProjects = projects.map((project) => project.configFileName)
+          }
+          if (transition.changes !== undefined) {
+            params.fileChanges = toNativeChanges(transition.changes)
+          }
+          return compiler.openSnapshot(params).pipe(Effect.tap(() => Effect.sync(() => {
             opened = true
           })))
         }))

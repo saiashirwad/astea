@@ -197,7 +197,7 @@ const fingerprintWorkspace = (
       const owned = (yield* project.sourceFileNames()).filter((fileName) =>
         isWithinProject(project.root, fileName)
       )
-      const files = [...new Set([...owned])].sort()
+      const files = [...new Set(owned)].sort()
       const configFileName = Path.resolve(workspaceRoot, configured.config)
       for (const absolute of [configFileName, ...files]) {
         const content = yield* readText(absolute)
@@ -233,7 +233,9 @@ const run = <Input, E, R>(
   Effect.gen(function*() {
     let validatedInput = input
     if (recipe.schema !== undefined) {
-      const decoded: Input = yield* (Schema.decodeUnknownEffect(recipe.schema)(input) as Effect.Effect<Input, unknown>).pipe(
+      // SAFETY: schema decodeUnknownEffect validates untrusted input into type Input
+      const decoder = Schema.decodeUnknownEffect(recipe.schema) as (u: unknown) => Effect.Effect<Input, unknown>
+      const decoded: Input = yield* decoder(input).pipe(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )
       validatedInput = decoded
@@ -245,11 +247,12 @@ const run = <Input, E, R>(
       const draft = yield* recipe.run(validatedInput)
       const sources = yield* fingerprintWorkspace(workspace.root, snapshot)
 
-      return yield* finalizePlan({
+      const planInput = {
         recipe: {
           name: recipe.name,
           version: recipe.version,
           implementationHash: recipe.implementationHash,
+          // SAFETY: validated options represent JSON payload
           options: (validatedInput === undefined ? null : validatedInput) as Json,
         },
         toolchain: TOOLCHAIN,
@@ -259,11 +262,15 @@ const run = <Input, E, R>(
         })),
         sources,
         edits: draft.edits,
-        ...(draft.fileOperations !== undefined ? { fileOperations: draft.fileOperations } : {}),
         evidence: draft.evidence,
         policies: recipe.policies,
         measurements: { matches: draft.matches },
-      })
+      }
+      const finalizedInput = draft.fileOperations !== undefined
+        ? { ...planInput, fileOperations: draft.fileOperations }
+        : planInput
+
+      return yield* finalizePlan(finalizedInput)
     }))
   })
 

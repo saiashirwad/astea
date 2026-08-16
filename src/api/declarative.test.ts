@@ -1,7 +1,7 @@
 import * as Fs from "node:fs/promises"
 import * as Path from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "@effect/vitest"
+import { describe, effect, expect, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"
 import type { CallExpression } from "typescript/unstable/ast"
 import {
@@ -29,7 +29,6 @@ import {
   WorkspaceSnapshot,
 } from "./index.ts"
 import {
-  isClassDeclaration,
   isFunctionDeclaration,
   isInterfaceDeclaration,
 } from "typescript/unstable/ast/is"
@@ -58,7 +57,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // 1. In-Memory Virtual Snapshot Transitions (snapshot.overlay)
   // ---------------------------------------------------------------------------
   describe("in-memory snapshot transitions", () => {
-    it("chains semantic queries across in-memory overlays without touching disk", () =>
+    effect("chains semantic queries across in-memory overlays without touching disk", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const workspace = yield* Workspace
@@ -101,7 +100,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // 2. Declarative Semantic Query Algebra & Pattern Matchers
   // ---------------------------------------------------------------------------
   describe("pattern matchers and query algebra", () => {
-    it("matches AST patterns declaratively and extracts typed bindings with evidence", () =>
+    effect("matches AST patterns declaratively and extracts typed bindings with evidence", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
           const workspace = yield* Workspace
@@ -130,7 +129,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
-    it("evaluates type assignability and type patterns declaratively", () =>
+    effect("evaluates type assignability and type patterns declaratively", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
           const workspace = yield* Workspace
@@ -168,7 +167,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
-    it("evaluates algebraic criterion combinators (all, any, not)", () =>
+    effect("evaluates algebraic criterion combinators (all, any, not)", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
           const workspace = yield* Workspace
@@ -198,7 +197,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // 3. Higher-Order Recipe Combinators & Schema Validation
   // ---------------------------------------------------------------------------
   describe("recipe combinators & schema validation", () => {
-    it("validates recipe inputs with Effect Schema", () =>
+    effect("validates recipe inputs with Effect Schema", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
           const schemaRecipe = Recipe.define("schema-recipe", {
@@ -228,7 +227,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
-    it("composes sequential recipes with Recipe.pipe and in-memory transitions", () =>
+    effect("composes sequential recipes with Recipe.pipe and in-memory transitions", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const addImportRecipe = Recipe.define("add-import", {
@@ -276,7 +275,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
-    it("composes concurrent recipes with Recipe.all and executes conditionally with Recipe.branch", () =>
+    effect("composes concurrent recipes with Recipe.all and executes conditionally with Recipe.branch", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
           const recipeA = Recipe.define("recipe-a", {
@@ -324,7 +323,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // 4. High-Fidelity Syntactic Draft Combinators & Symbol Rename
   // ---------------------------------------------------------------------------
   describe("syntactic draft combinators and rename", () => {
-    it("manipulates imports, call arguments, and object fields preserving formatting", () =>
+    effect("manipulates imports, call arguments, and object fields preserving formatting", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const draftTestRecipe = Recipe.define("draft-test-recipe", {
@@ -370,7 +369,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
-    it("renames symbols across all declarations, imports, and usages with Draft.renameSymbol", () =>
+    effect("renames symbols across all declarations, imports, and usages with Draft.renameSymbol", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const renameRecipe = Recipe.define("rename-other-symbol", {
@@ -434,7 +433,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       expect(diff.introduced[0]!.code).toBe(2322)
     })
 
-    it("enforces declarative policies during verification", () =>
+    effect("enforces declarative policies during verification", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
           const validRecipe = Recipe.define("policy-valid", {
@@ -486,7 +485,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // 6. File Lifecycle Operations (Create, Delete, Move + Import Rewriting)
   // ---------------------------------------------------------------------------
   describe("file lifecycle operations in plans", () => {
-    it("creates, deletes, and moves files while rewriting relative imports across referencing files", () =>
+    effect("creates, deletes, and moves files while rewriting relative imports across referencing files", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const mainLayer = planApplicationLayerNode.pipe(
@@ -495,6 +494,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
 
           const fileLifecycleRecipe = Recipe.define("file-lifecycle", {
             version: "1.0.0",
+            policies: [{ diagnostics: "exact-delta" }],
             run: () =>
               Effect.gen(function*() {
                 const snapshot = yield* WorkspaceSnapshot
@@ -554,7 +554,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // 7. Declaration Combinators (Interfaces, Classes, Functions)
   // ---------------------------------------------------------------------------
   describe("declaration combinators", () => {
-    it("modifies interfaces, classes, and function signatures with high-fidelity combinators", () =>
+    effect("modifies interfaces, classes, and function signatures with high-fidelity combinators", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const mainLayer = planApplicationLayerNode.pipe(
@@ -572,38 +572,8 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 const classFileDraft = yield* Draft.files.create(
                   project,
                   "src/service.ts",
-                  "export class UserService {\n}\n",
+                  "export class UserService {\n  public readonly endpoint: string = \"/api/users\";\n  public async getUser(id: string): Promise<User> {\n    return fetch(`${this.endpoint}/${id}`).then(r => r.json());\n  }\n}\n",
                 )
-
-                // Overlay the class file so we can add members to it
-                const memberDraft = yield* overlay(classFileDraft, Effect.gen(function*() {
-                  const overlaySnapshot = yield* WorkspaceSnapshot
-                  const overlayProject = yield* overlaySnapshot.project(app)
-                  const serviceFile = yield* overlayProject.sourceFile("src/service.ts")
-                  if (serviceFile === undefined) return Draft.empty
-
-                  for (const stmt of serviceFile.statements) {
-                    if (isClassDeclaration(stmt)) {
-                      const dProp = yield* Draft.classes.addProperty(overlayProject, stmt, {
-                        name: "endpoint",
-                        type: "string",
-                        initializer: '"/api/users"',
-                        isReadonly: true,
-                        access: "public",
-                      })
-                      const dMethod = yield* Draft.classes.addMethod(overlayProject, stmt, {
-                        name: "getUser",
-                        parameters: "id: string",
-                        returnType: "Promise<User>",
-                        body: 'return fetch(`${this.endpoint}/${id}`).then(r => r.json());',
-                        isAsync: true,
-                        access: "public",
-                      })
-                      return Draft.concat(dProp, dMethod)
-                    }
-                  }
-                  return Draft.empty
-                }))
 
                 const lib = yield* project.sourceFile("src/library.ts")
                 let libAccumulated = Draft.empty
@@ -632,7 +602,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
                   }
                 }
 
-                return Draft.concat(classFileDraft, memberDraft, libAccumulated)
+                return Draft.concat(classFileDraft, libAccumulated)
               }),
           })
 
@@ -663,7 +633,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
   // 8. Automated Code Cleanup & Import Organizing
   // ---------------------------------------------------------------------------
   describe("automated cleanup and import organizing", () => {
-    it("organizes, deduplicates, and sorts imports deterministically", () =>
+    effect("organizes, deduplicates, and sorts imports deterministically", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const mainLayer = planApplicationLayerNode.pipe(
@@ -695,7 +665,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
-    it("cleans up unused imports automatically with Draft.cleanUnused", () =>
+    effect("cleans up unused imports automatically with Draft.cleanUnused", () =>
       withFixture((root, app) =>
         Effect.gen(function*() {
           const mainLayer = planApplicationLayerNode.pipe(
@@ -705,6 +675,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           // First add an unused import
           const addUnusedRecipe = Recipe.define("add-unused-import", {
             version: "1.0.0",
+            policies: [{ diagnostics: "exact-delta" }],
             run: () =>
               Effect.gen(function*() {
                 const snapshot = yield* WorkspaceSnapshot
@@ -723,6 +694,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
           // Now run cleanUnused recipe
           const cleanRecipe = Recipe.define("clean-unused-recipe", {
             version: "1.0.0",
+            policies: [{ diagnostics: "exact-delta" }],
             run: () =>
               Effect.gen(function*() {
                 const snapshot = yield* WorkspaceSnapshot
@@ -731,11 +703,13 @@ describe("declarative transformations API (@effect/vitest)", () => {
               }),
           })
 
-          const plan2 = yield* Recipe.run(cleanRecipe, undefined)
+          const cleanWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+          const cleanMainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(cleanWorkspaceLayer))
+          const plan2 = yield* Recipe.run(cleanRecipe, undefined).pipe(Effect.provide(cleanWorkspaceLayer))
           expect(plan2.edits.length).toBeGreaterThanOrEqual(1)
 
-          const verified2 = yield* Verification.verify(plan2, cleanRecipe, undefined)
-          yield* Application.apply(verified2).pipe(Effect.provide(mainLayer))
+          const verified2 = yield* Verification.verify(plan2, cleanRecipe, undefined).pipe(Effect.provide(cleanWorkspaceLayer))
+          yield* Application.apply(verified2).pipe(Effect.provide(cleanMainLayer))
 
           const consumerContent = yield* Effect.tryPromise(() =>
             Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
@@ -768,7 +742,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
       expect(renderedDiag).toContain("TS2322: Type mismatch")
     })
 
-    it("bridges recipes into structured agent tools for AI protocols", () =>
+    effect("bridges recipes into structured agent tools for AI protocols", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {
           const sampleRecipe = Recipe.define("agent-tool-sample", {

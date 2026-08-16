@@ -142,9 +142,14 @@ export const diagnosticDiff = (
 /** Declare that re-running the recipe against the proposed state must produce zero edits. */
 export const idempotent = (): Policy => ({ idempotence: "required" })
 
+interface MatchCountBounds {
+  min?: number
+  max?: number
+}
+
 /** Merge policies into the complete durable policy set, filling system defaults. */
 export const all = (policies: ReadonlyArray<Policy>): PlanPolicies & { readonly rules: ReadonlyArray<CustomPolicyRule> } => {
-  const matchCount: { min?: number; max?: number } = {}
+  const matchCount: MatchCountBounds = {}
   let maxAffectedFiles: number | undefined
   let diagnostics: PlanPolicies["diagnostics"] = "no-new-errors"
   let idempotence: PlanPolicies["idempotence"] = "not-promised"
@@ -159,13 +164,16 @@ export const all = (policies: ReadonlyArray<Policy>): PlanPolicies & { readonly 
     if (policy.rules !== undefined) rules.push(...policy.rules)
   }
 
-  return {
+  const result: PlanPolicies & { readonly rules: ReadonlyArray<CustomPolicyRule> } = {
     matchCount,
-    ...(maxAffectedFiles === undefined ? {} : { maxAffectedFiles }),
     diagnostics,
     idempotence,
     rules,
   }
+  if (maxAffectedFiles !== undefined) {
+    return { ...result, maxAffectedFiles }
+  }
+  return result
 }
 
 export const Policy = {

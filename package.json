@@ -15,9 +15,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && oxlint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "lint": "oxlint",
+    "effect:check": "effect-tsgo diagnostics --project tsconfig.json",
+    "prepare": "effect-tsgo patch --no-typescript --oxlint",
+    "test": "vitest run src", 
     "prototype:native": "tsx src/prototype/run-native-api.ts",
     "prototype:lifecycle": "tsx src/prototype/run-native-lifecycle.ts",
     "prototype:workspace": "tsx src/prototype/run-workspace-snapshot.ts",
@@ -35,8 +38,12 @@
     "effect": "4.0.0-rc.109"
   },
   "devDependencies": {
+    "@effect/tsgo": "^0.36.5",
     "@effect/vitest": "4.0.0-rc.109",
+    "@oxlint/plugins": "^1.78.0",
     "@types/node": "26.2.0",
+    "oxlint": "^1.78.0",
+    "oxlint-tsgolint": "^7.0.2001",
     "tsx": "4.23.12",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
