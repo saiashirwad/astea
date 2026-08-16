@@ -1,49 +1,28 @@
-# Safemods
+# safemods
 
-Semantic TypeScript codemods you can preview, verify, and apply with confidence.
+Type-directed codemods for TypeScript projects, built on Effect.
 
-Codemods are easy to write. Reliable codemods are not.
+`safemods` uses the TypeScript type checker to find exact symbol references across renamed imports, re-exports, and barrel files. Transformations produce range-bounded edits that are validated against type-checking and idempotency policies before anything is written to disk.
 
-Safemods is an Effect-native transformation engine for TypeScript 7. It lets developers and coding agents find code by meaning, propose surgical edits, preview the exact diff, verify compiler impact, and only then write to disk.
-
-```text
-Snapshot → Query → Draft → Plan → Preview → Verify → Apply
+```
+Query → Draft → Plan → Preview → Verify → Apply
 ```
 
-Everything before `Apply` is read-only. `Application.apply` is the single write boundary, and it only accepts a verified plan.
+---
 
-## Why Safemods
-
-- **Semantic, not textual** — match resolved symbols, types, references, and typed AST patterns instead of relying on string search.
-- **Surgical by default** — guarded text edits preserve comments, formatting, and every byte outside the intended range.
-- **Safe to review** — plans are deterministic and content-addressed, with exact unified-diff previews.
-- **Verified before mutation** — enforce match counts, diagnostic policies, and idempotence before a change can be applied.
-- **Composable and agent-ready** — combine recipes with in-memory overlays, validate inputs with Effect Schema, or expose a recipe as a structured agent tool.
-
-## Quick start
-
-### Requirements
-
-- Node.js 24+
-- pnpm 11+
-
-Safemods is currently developed from source:
+## Installation
 
 ```sh
-git clone https://github.com/saiashirwad/safemods.git
-cd safemods
-pnpm install
+pnpm add -D safemods effect typescript@7
 ```
 
-Run the end-to-end API tour:
+> **Note:** Requires Node 24+ and TypeScript 7+. `effect` and `typescript` are peer dependencies.
 
-```sh
-node examples/declarative-api-tour.ts
-```
+---
 
-## Define a recipe
+## Example Recipe
 
-A recipe queries an immutable project snapshot and returns a draft. You do not manually author source ranges, hashes, or filesystem writes.
+A recipe finds nodes in your project, drafts replacements, and declares verification policies.
 
 ```ts
 import { Effect } from "effect"
@@ -70,17 +49,23 @@ export default Recipe.define("wrap-target-input", {
     Policy.idempotent(),
   ],
   run: () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const snapshot = yield* WorkspaceSnapshot
       const project = yield* snapshot.project(app)
       const target = yield* project.symbolNamed("target", {
         within: "src/library.ts",
       })
+
       const calls = yield* Query.calls(project).pipe(
-        Query.where(Query.resolvesTo(target, { location: (call) => call.expression })),
+        Query.where(
+          Query.resolvesTo(target, {
+            location: (call) => call.expression,
+          }),
+        ),
         Query.filter(
           ({ value: call }) =>
-            call.arguments.length === 1 && !isObjectLiteralExpression(call.arguments[0]!),
+            call.arguments.length === 1 &&
+            !isObjectLiteralExpression(call.arguments[0]!),
         ),
         Query.collect,
       )
@@ -96,80 +81,73 @@ export default Recipe.define("wrap-target-input", {
 })
 ```
 
-This recipe finds calls that resolve to the intended target symbol—not merely functions with the same spelling—and wraps their single non-object argument.
+---
 
-## Preview, verify, apply
+## CLI
 
-Recipes are ordinary TypeScript modules exporting a `Recipe` as the default export, as `recipe`, or as another named export.
-
-```sh
-# Generate an exact diff without writing to disk.
-node bin/safemods.ts run ./recipe.ts \
-  --cwd ./my-project \
-  --preview
-
-# Preview and verify diagnostics, policies, and idempotence.
-node bin/safemods.ts run ./recipe.ts \
-  --cwd ./my-project \
-  --verify
-
-# Verify first, then apply the verified plan.
-node bin/safemods.ts run ./recipe.ts \
-  --cwd ./my-project \
-  --apply
-```
-
-Pass schema-backed recipe input with `--input '<json>'`. Use `--no-color` for plain terminal output and `--help` for the complete CLI reference.
-
-To inspect a recipe as an agent-facing tool:
+By default, `safemods run` previews proposed diffs. Use `--verify` to run policy checks, or `--apply` to write changes once verified.
 
 ```sh
-node bin/safemods.ts tool ./recipe.ts
+# Preview diff in terminal
+safemods run ./recipe.ts --cwd ./my-project
+
+# Run verification policies without writing
+safemods run ./recipe.ts --cwd ./my-project --verify
+
+# Verify and apply changes to disk
+safemods run ./recipe.ts --cwd ./my-project --apply
 ```
 
-## Runnable examples
-
-All examples are included in `pnpm typecheck`.
+If a recipe defines an input Schema, pass parameters via `--input`:
 
 ```sh
-# Preview a small, safe single-file edit.
-node bin/safemods.ts run ./examples/preview-add-call.ts \
-  --cwd ./fixtures/basic \
-  --preview
-
-# Rename a declaration and all semantic references, including aliases and re-exports.
-node bin/safemods.ts run ./examples/rename-symbol.ts \
-  --cwd ./fixtures/stress \
-  --preview
-
-# Rewrite an import source while preserving the comment inside its import clause.
-node bin/safemods.ts run ./examples/migrate-import.ts \
-  --cwd ./fixtures/stress \
-  --preview
+safemods run ./recipe.ts --cwd ./my-project --input '{"key": "value"}'
 ```
 
-Use `--verify` to validate a plan or `--apply` to write it after review.
+To export the recipe's input schema:
 
-## What it can transform
+```sh
+safemods tool ./recipe.ts
+```
 
-- Semantic call sites, symbols, references, types, and project-wide renames.
-- Imports, call arguments, object literals, interfaces, classes, and functions.
-- Multi-stage migrations through in-memory snapshot overlays.
-- File creation, deletion, and moves with relative-import rewriting.
-- Unused imports and import organization.
-- Diagnostic diffs, no-new-error checks, expected fixes, match policies, and idempotence.
-- ANSI unified diffs and schema-validated agent-tool adapters.
+---
+
+## Core Concepts
+
+- **Exact range edits**: Changes target source ranges and verify old-text hashes, leaving surrounding formatting and comments untouched.
+- **Symbol renames**: `Draft.renameSymbol` automatically updates declarations, references, and alias imports across the project.
+- **In-memory overlays**: `Recipe.pipe` chains recipes in memory, allowing subsequent steps to query against modified ASTs before writing to disk.
+- **Policies**:
+  - `Policy.matches({ min: 1 })` &mdash; Fails if the query matched no call sites.
+  - `Policy.noNewErrors()` &mdash; Checks that the proposed diff introduces no new compiler diagnostics.
+  - `Policy.idempotent()` &mdash; Verifies that re-running the recipe against transformed code yields zero further edits.
+
+---
+
+## Programmatic Usage
+
+Recipes can also be executed directly within an Effect workflow:
+
+```ts
+import { Recipe, Preview, Verification, Application } from "safemods"
+
+const plan = yield* Recipe.run(recipe, input)
+const preview = yield* Preview.of(plan)
+const verified = yield* Verification.verify(plan, recipe, input)
+const receipt = yield* Application.apply(verified)
+```
+
+---
 
 ## Development
 
 ```sh
 pnpm check
-pnpm effect:check
 pnpm test
 ```
 
-`pnpm install` runs the repository's `prepare` step, which integrates Effect TypeScript-Go diagnostics with Oxlint while keeping the pinned TypeScript 7 toolchain.
+### Examples & References
 
-## Learn more
-
-See the [declarative API tour](./examples/declarative-api-tour.ts), the [examples and architecture guide](./examples/README.md), and the project transformation vocabulary.
+- [API Tour](./examples/declarative-api-tour.ts) &mdash; Comprehensive walkthrough of available queries and combinators.
+- [Examples](./examples/README.md) &mdash; Sample recipes for renames, migrations, and calls.
+- [Context & Architecture](./CONTEXT.md) &mdash; Project terminology and architectural model.
