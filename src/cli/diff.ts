@@ -5,7 +5,8 @@
  * complete with line numbers, hunk headers, change summaries, and
  * diagnostic delta badges.
  */
-import type { DiagnosticDiff, FilePreview, PlanPreview } from "../api/index.ts"
+import type { DiagnosticDiff } from "../api/policy.ts"
+import type { FilePreview, PlanPreview } from "../api/verification.ts"
 
 const ANSI = {
   reset: "\x1b[0m",

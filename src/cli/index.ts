@@ -3,17 +3,10 @@
  */
 import { path as Path } from "../platform/node.ts"
 import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"
-import {
-  Application,
-  ConfiguredProject,
-  planApplicationLayerNode,
-  Preview,
-  type Recipe,
-  Recipe as RecipeApi,
-  Verification,
-  Workspace,
-  WorkspaceSnapshot,
-} from "../api/index.ts"
+import { Application, layerNode as planApplicationLayerNode } from "../api/application.ts"
+import { type Recipe, Recipe as RecipeApi } from "../api/recipe.ts"
+import { Preview, Verification } from "../api/verification.ts"
+import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../api/workspace.ts"
 import type {
   AuditCriterionRecord,
   AuditFinding,

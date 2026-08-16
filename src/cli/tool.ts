@@ -5,16 +5,10 @@
  * to standard LLM function-calling protocols (OpenAI / MCP / Anthropic).
  */
 import { Data, Effect, Layer, Schema } from "effect"
-import * as JSONSchema from "effect/JSONSchema"
-import {
-  Application,
-  planApplicationLayerNode,
-  Preview,
-  Recipe,
-  Verification,
-  Workspace,
-  type WorkspaceSnapshot,
-} from "../api/index.ts"
+import { Application, layerNode as planApplicationLayerNode } from "../api/application.ts"
+import { Recipe, type Recipe as RecipeModel } from "../api/recipe.ts"
+import { Preview, Verification } from "../api/verification.ts"
+import { Workspace, type WorkspaceSnapshot } from "../api/workspace.ts"
 
 export type ToolAction = "create" | "delete" | "modify"
 
@@ -59,13 +53,13 @@ const emptyObjectSchema: JsonSchemaDoc = { type: "object", properties: {} }
 
 /** Convert a recipe into a structured Agent Tool. */
 export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
-  recipe: Recipe<Input, E, R>,
+  recipe: RecipeModel<Input, E, R>,
   description = `Transform codebase using ${recipe.name}`,
 ): AgentTool<Exclude<R, WorkspaceSnapshot>> => {
   let jsonSchema: JsonSchemaDoc = emptyObjectSchema
   if (recipe.schema !== undefined) {
     // SAFETY: JSONSchema generator yields a JSON-object document for object schemas
-    const generated = JSONSchema.fromSchemaDraft2020_12(recipe.schema as never)
+    const generated = Schema.toJsonSchemaDocument(recipe.schema)
     const jsonDocument: unknown = generated
     // SAFETY: draft generator returns a JSON object document.
     jsonSchema = jsonDocument as JsonSchemaDoc
@@ -116,7 +110,7 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
 }
 
 const decodeToolInput = <Input, E, R>(
-  recipe: Recipe<Input, E, R>,
+  recipe: RecipeModel<Input, E, R>,
   rawInput: JsonValue,
 ): Effect.Effect<Input, ToolExecutionError> => {
   if (recipe.schema === undefined) {

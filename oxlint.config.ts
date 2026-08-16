@@ -1,8 +1,7 @@
-import { recommended } from "@effect/tsgo/oxlint-presets"
 import { defineConfig } from "oxlint"
 
 export default defineConfig({
-  extends: [recommended],
+  plugins: ["import"],
   ignorePatterns: [
     ".agent/**",
     ".agents/**",
@@ -19,16 +18,17 @@ export default defineConfig({
     "node_modules/**",
     "dist/**",
     "fixtures/**",
-    // Integration tests, executable bootstrap, and tours intentionally bridge
-    // promise/console-based Node APIs rather than the library's Effect boundary.
-    "src/**/*.test.ts",
-    "bin/**",
-    "examples/**",
   ],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
   ],
   rules: {
+    "import/no-cycle": "error",
+    "import/no-self-import": "error",
+    "no-restricted-imports": ["error", { paths: [
+      { name: "safemods", message: "Import the concrete source module inside the package." },
+      { name: "../api/index.ts", message: "Import the concrete source module inside the package." },
+    ] }],
     "anti-slop/no-chained-type-assertions": "warn",
     "anti-slop/no-conditional-empty-object-spread": "warn",
     "anti-slop/no-known-value-widening": "warn",
@@ -45,4 +45,22 @@ export default defineConfig({
     "anti-slop/no-widen-then-assert": "warn",
     "anti-slop/require-safety-comment-for-type-assertion": "warn",
   },
+  overrides: [
+    {
+      files: ["src/**/*.test.ts", "examples/**/*.ts"],
+      rules: { "no-restricted-imports": "off" },
+    },
+    {
+      files: ["src/Pattern/**/*.ts"],
+      rules: {
+        "no-restricted-imports": ["error", { patterns: ["../Query/*", "../Query/**"] }],
+      },
+    },
+    {
+      files: ["src/Workspace/**/*.ts"],
+      rules: {
+        "no-restricted-imports": ["error", { patterns: ["../Draft/*", "../Plan/*", "../Overlay/*", "../Preview/*", "../Verification/*", "../Application/*"] }],
+      },
+    },
+  ],
 })

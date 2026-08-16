@@ -18,7 +18,8 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepack": "pnpm build",
-    "check": "tsc --noEmit && oxlint",
+    "check": "pnpm typecheck && pnpm effect:check && pnpm lint && pnpm test",
+    "check:fast": "pnpm typecheck && pnpm effect:check && pnpm lint",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "effect:check": "effect-tsgo diagnostics --project tsconfig.json",
