@@ -14,6 +14,7 @@ import { nativeRequest, type NativeCompilerError } from "../prototype/native-com
 import type { TransformationPlan } from "../prototype/plan.ts"
 import {
   type PlanPreview,
+  type PolicyResult,
   previewPlan,
   StalePlanError,
   VerificationFailure,
@@ -177,6 +178,21 @@ const verify = <Input, E, R>(
       })
     }
 
+    const policyResults: Array<{ readonly name: string; readonly passed: boolean; readonly detail?: string }> = []
+    if (plan.policies.matchCount.min !== undefined || plan.policies.matchCount.max !== undefined) {
+      policyResults.push({ name: "match-count", passed: true })
+    }
+    if (plan.policies.maxAffectedFiles !== undefined) {
+      policyResults.push({ name: "affected-files", passed: true })
+    }
+    const introducedErrors = diagnosticDiff.introduced.filter((diagnostic) => diagnostic.category === "error")
+    policyResults.push(plan.policies.diagnostics === "no-new-errors"
+      ? { name: "no-new-errors", passed: introducedErrors.length === 0 }
+      : { name: "diagnostic-diff", passed: true })
+    if (plan.policies.idempotence === "required") {
+      policyResults.push({ name: "idempotence", passed: proposedRun.replayEdits === 0 })
+    }
+
     // Evaluate custom policy rules
     const context: PolicyEvaluationContext = {
       actualMatches: matches ?? 0,
@@ -188,7 +204,13 @@ const verify = <Input, E, R>(
     if (recipe.policies.rules !== undefined) {
       for (const rule of recipe.policies.rules) {
         const result = rule.evaluate(context)
-        if (result !== true) {
+        const passed = result === true
+        policyResults.push({
+          name: rule.name,
+          passed,
+          ...(typeof result === "string" ? { detail: result } : {}),
+        })
+        if (!passed) {
           return yield* new VerificationFailure({
             planId: plan.planId,
             policy: "diagnostics",
@@ -206,10 +228,12 @@ const verify = <Input, E, R>(
       baselineErrorCount: number
       proposedErrorCount: number
       secondPlanEditCount?: number
+      policyResults?: ReadonlyArray<PolicyResult>
     } = {
       actualMatches: matches ?? 0,
       baselineErrorCount,
       proposedErrorCount,
+      policyResults,
     }
     if (proposedRun.replayEdits !== undefined) {
       observation.secondPlanEditCount = proposedRun.replayEdits

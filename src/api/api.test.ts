@@ -87,6 +87,7 @@ describe("candidate public API (@effect/vitest)", () => {
         expect(preview.files).toHaveLength(2)
         expect(verified.receipt.diagnosticDelta).toBe(0)
         expect(verified.receipt.idempotenceChecked).toBe(true)
+        expect(verified.receipt.policyResults.length).toBeGreaterThan(0)
         expect(receipt.outputs).toHaveLength(2)
 
         const consumer = yield* Effect.tryPromise(() => Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8"))

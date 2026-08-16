@@ -1165,5 +1165,6 @@ export const Draft = {
   classes,
   functions,
   args,
+  arguments: args,
   objectLiteral,
 }

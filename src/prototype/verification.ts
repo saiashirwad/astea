@@ -50,6 +50,13 @@ export interface VerificationObservation {
   readonly baselineErrorCount: number
   readonly proposedErrorCount: number
   readonly secondPlanEditCount?: number
+  readonly policyResults?: ReadonlyArray<PolicyResult>
+}
+
+export interface PolicyResult {
+  readonly name: string
+  readonly passed: boolean
+  readonly detail?: string
 }
 
 export interface VerificationReceipt {
@@ -61,6 +68,7 @@ export interface VerificationReceipt {
   readonly proposedErrorCount: number
   readonly diagnosticDelta: number
   readonly idempotenceChecked: boolean
+  readonly policyResults: ReadonlyArray<PolicyResult>
 }
 
 // SAFETY: nominal brand symbol creation
@@ -268,6 +276,7 @@ export const verifyPreview = (
     proposedErrorCount: observation.proposedErrorCount,
     diagnosticDelta: observation.proposedErrorCount - observation.baselineErrorCount,
     idempotenceChecked: plan.policies.idempotence === "required",
+    policyResults: observation.policyResults ?? [],
   }
   return { [VerifiedPlanTypeId]: VerifiedPlanTypeId, plan, preview, receipt }
 })
