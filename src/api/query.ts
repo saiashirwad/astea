@@ -10,16 +10,25 @@
 import * as Path from "node:path"
 import { Data, Effect, Stream } from "effect"
 import {
+  getJSDocTags,
   SyntaxKind,
   type CallExpression,
+  type Identifier,
   type ImportDeclaration,
   type Node,
+  type PropertyAccessExpression,
   type SourceFile,
 } from "typescript/unstable/ast"
-import { isCallExpression, isImportDeclaration } from "typescript/unstable/ast/is"
+import {
+  isCallExpression,
+  isIdentifier,
+  isImportDeclaration,
+  isPropertyAccessExpression,
+} from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol } from "typescript/unstable/async"
 import { type NativeCompilerError, nativeRequest } from "../prototype/native-compiler.ts"
 import { isWithinProject, projectRelativePath } from "../prototype/project-path.ts"
+import type { Pattern } from "./pattern.ts"
 import type { ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "./workspace.ts"
 
 export type EvidenceFact = string | number | boolean | null
@@ -65,6 +74,91 @@ export interface Criterion<A, E = never, R = never> {
   readonly select: (
     selections: ReadonlyArray<Selection<A>>,
   ) => Effect.Effect<ReadonlyArray<Readonly<Record<string, EvidenceFact>> | undefined>, E, R>
+}
+
+const criterionMake = <A, E = never, R = never>(options: {
+  readonly id: string
+  readonly batchSize?: number
+  readonly select: (
+    selections: ReadonlyArray<Selection<A>>,
+  ) => Effect.Effect<ReadonlyArray<Readonly<Record<string, EvidenceFact>> | undefined>, E, R>
+}): Criterion<A, E, R> => options
+
+const criterionPredicate = <A>(
+  id: string,
+  predicateFn: (selection: Selection<A>) => boolean | Readonly<Record<string, EvidenceFact>> | undefined,
+): Criterion<A> => ({
+  id,
+  select: (selections) =>
+    Effect.sync(() =>
+      selections.map((selection) => {
+        const res = predicateFn(selection)
+        if (typeof res === "boolean") {
+          return res ? { matched: true } : undefined
+        }
+        return res
+      })
+    ),
+})
+
+/** Combinator that admits candidates only when all given criteria admit them. */
+const criterionAll = <A, E, R>(
+  ...criteria: ReadonlyArray<Criterion<A, E, R>>
+): Criterion<A, E, R> => ({
+  id: `all(${criteria.map((c) => c.id).join(", ")})`,
+  select: (selections) =>
+    Effect.gen(function*() {
+      let accumulated: Array<Record<string, EvidenceFact> | undefined> = selections.map(() => ({}))
+      for (const criterion of criteria) {
+        const batchResults = yield* criterion.select(selections)
+        accumulated = accumulated.map((curr, idx) => {
+          if (curr === undefined) return undefined
+          const next = batchResults[idx]
+          if (next === undefined) return undefined
+          return { ...curr, ...next }
+        })
+      }
+      return accumulated
+    }),
+})
+
+/** Combinator that admits candidates when at least one criterion admits them. */
+const criterionAny = <A, E, R>(
+  ...criteria: ReadonlyArray<Criterion<A, E, R>>
+): Criterion<A, E, R> => ({
+  id: `any(${criteria.map((c) => c.id).join(", ")})`,
+  select: (selections) =>
+    Effect.gen(function*() {
+      const results: Array<Record<string, EvidenceFact> | undefined> = new Array(selections.length)
+      for (const criterion of criteria) {
+        const batchResults = yield* criterion.select(selections)
+        for (let i = 0; i < selections.length; i++) {
+          if (results[i] === undefined && batchResults[i] !== undefined) {
+            results[i] = { criterion: criterion.id, ...batchResults[i] }
+          }
+        }
+      }
+      return results
+    }),
+})
+
+/** Inverts a criterion. */
+const criterionNot = <A, E, R>(
+  criterion: Criterion<A, E, R>,
+): Criterion<A, E, R> => ({
+  id: `not(${criterion.id})`,
+  select: (selections) =>
+    Effect.map(criterion.select(selections), (batchResults) =>
+      batchResults.map((res) => (res === undefined ? { negated: criterion.id } : undefined))
+    ),
+})
+
+export const Criterion = {
+  make: criterionMake,
+  predicate: criterionPredicate,
+  all: criterionAll,
+  any: criterionAny,
+  not: criterionNot,
 }
 
 const collectNodes = <A extends Node>(
@@ -123,6 +217,67 @@ export const calls = (project: ProjectSnapshot): Query<CallExpression, ProjectSn
 export const imports = (project: ProjectSnapshot): Query<ImportDeclaration, ProjectSnapshotError> =>
   nodes(project, isImportDeclaration)
 
+export const identifiers = (project: ProjectSnapshot): Query<Identifier, ProjectSnapshotError> =>
+  nodes(project, isIdentifier)
+
+export const propertyAccesses = (
+  project: ProjectSnapshot,
+): Query<PropertyAccessExpression, ProjectSnapshotError> =>
+  nodes(project, isPropertyAccessExpression)
+
+/** Structural pattern matching query. */
+export const match = <Out>(
+  project: ProjectSnapshot,
+  pattern: Pattern<Node, Out>,
+): Query<Out, ProjectSnapshotError> =>
+  Stream.fromIterableEffect(project.sourceFileNames()).pipe(
+    Stream.flatMap((fileName) =>
+      Stream.fromEffect(project.unsafeNative((nativeProject) =>
+        nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
+      ))
+    ),
+    Stream.flatMap((sourceFile) => {
+      if (sourceFile === undefined) return Stream.empty
+      const candidateNodes: Array<Node> = []
+      const visit = (node: Node) => {
+        candidateNodes.push(node)
+        node.forEachChild((child) => {
+          visit(child)
+          return undefined
+        })
+      }
+      visit(sourceFile)
+
+      return Stream.fromIterable(candidateNodes).pipe(
+        Stream.mapEffect((node) =>
+          pattern.match(node, project).pipe(
+            Effect.map((result): Selection<Out> | undefined => {
+              if (!result.matched) return undefined
+              const fileName = isWithinProject(project.root, sourceFile.fileName)
+                ? projectRelativePath(project.root, sourceFile.fileName)
+                : sourceFile.fileName
+              return {
+                value: result.value,
+                project,
+                fileName,
+                start: node.getStart(sourceFile),
+                end: node.getEnd(),
+                evidence: [{
+                  criterion: pattern.kind ?? "pattern-match",
+                  facts: {
+                    kind: SyntaxKind[node.kind] ?? node.kind,
+                    ...(result.facts ?? {}),
+                  },
+                }],
+              }
+            })
+          )
+        ),
+        Stream.filter((selection): selection is Selection<Out> => selection !== undefined),
+      )
+    }),
+  )
+
 /** Admit only selections the criterion produces evidence for. */
 export const where = <A, E2, R2>(
   criterion: Criterion<A, E2, R2>,
@@ -156,9 +311,7 @@ export const where = <A, E2, R2>(
 
 /**
  * Admit nodes that resolve to the given canonical symbol, through import
- * aliases and re-exports. Uses the native checker's batched position lookups;
- * each selection's own Project Snapshot answers for it, so a stream may mix
- * selections from several Configured Projects.
+ * aliases and re-exports. Uses the native checker's batched position lookups.
  */
 export const resolvesTo = <A extends Node>(
   symbol: NativeSymbol,
@@ -167,10 +320,6 @@ export const resolvesTo = <A extends Node>(
   id: "resolves-to-symbol",
   select: (selections) =>
     Effect.gen(function*() {
-      // Position requests are intentional. TypeScript 7 may retain decoded
-      // nodes for unchanged files across snapshots while checker handles
-      // remain generation-local; sending retained nodes to a newer checker
-      // can produce stale handles. Stable file/position inputs are equivalent.
       const byProjectFile = Map.groupBy(
         selections.map((selection, index) => ({ selection, index })),
         ({ selection }) => `${selection.project.project.id}${selection.fileName}`,
@@ -215,6 +364,39 @@ export const resolvesTo = <A extends Node>(
     }),
 })
 
+/** Admit nodes that have a specific JSDoc tag (e.g. `@deprecated`, `@internal`). */
+export const hasJSDocTag = <A extends Node>(
+  tagName: string,
+): Criterion<A> =>
+  criterionPredicate(`jsdoc-tag:${tagName}`, (selection) => {
+    const normalizedTag = tagName.replace(/^@/, "")
+    const tags = getJSDocTags(selection.value)
+    const match = tags.find((t) => t.tagName.text === normalizedTag)
+    return match !== undefined ? { tag: normalizedTag } : undefined
+  })
+
+/** Admit nodes that have an export modifier. */
+export const isExported = <A extends Node>(): Criterion<A> =>
+  criterionPredicate("is-exported", (selection) => {
+    const node = selection.value
+    const modifiers = "modifiers" in node && Array.isArray((node as any).modifiers)
+      ? (node as any).modifiers
+      : undefined
+    const hasExport = modifiers?.some((m: any) => m.kind === SyntaxKind.ExportKeyword) ?? false
+    return hasExport ? { exported: true } : undefined
+  })
+
+/** Admit nodes whose text matches a string or regular expression. */
+export const textMatches = <A extends Node>(
+  pattern: string | RegExp,
+): Criterion<A> =>
+  criterionPredicate(`text-matches:${String(pattern)}`, (selection) => {
+    const sourceFile = selection.value.getSourceFile()
+    const text = selection.value.getText(sourceFile)
+    const matched = typeof pattern === "string" ? text.includes(pattern) : pattern.test(text)
+    return matched ? { matchedText: text } : undefined
+  })
+
 /** Selection-level predicate filter; evidence of surviving selections is preserved. */
 export const filter = <A, E, R>(
   predicate: (selection: Selection<A>) => boolean,
@@ -243,8 +425,14 @@ export const Query = {
   nodes,
   calls,
   imports,
+  identifiers,
+  propertyAccesses,
+  match,
   where,
   resolvesTo,
+  hasJSDocTag,
+  isExported,
+  textMatches,
   filter,
   collect,
 }

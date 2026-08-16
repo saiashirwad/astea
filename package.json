@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
+  "exports": {
+    ".": "./src/api/index.ts"
+  },
   "packageManager": "pnpm@11.17.0",
   "engines": {
     "node": ">=24"

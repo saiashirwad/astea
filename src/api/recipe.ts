@@ -11,7 +11,7 @@
 import * as Fs from "node:fs/promises"
 import * as Path from "node:path"
 import { createHash } from "node:crypto"
-import { Effect } from "effect"
+import { Data, Effect, Schema } from "effect"
 import { textHash } from "../prototype/edits.ts"
 import { NativeCompilerError } from "../prototype/native-compiler.ts"
 import {
@@ -22,10 +22,11 @@ import {
   type TransformationPlan,
 } from "../prototype/plan.ts"
 import { isWithinProject, projectRelativePath } from "../prototype/project-path.ts"
-import type { Draft } from "./draft.ts"
-import { Policy } from "./policy.ts"
+import { Draft } from "./draft.ts"
+import { type CustomPolicyRule, Policy } from "./policy.ts"
 import type { PlanPolicies } from "./plan.ts"
 import {
+  overlay,
   Workspace,
   WorkspaceSnapshot,
   type ProjectNotInSnapshot,
@@ -45,6 +46,11 @@ export const TOOLCHAIN = {
   effectVersion: "4.0.0-rc.109",
 } as const
 
+export class RecipeInputError extends Data.TaggedError("RecipeInputError")<{
+  readonly recipe: string
+  readonly cause: unknown
+}> {}
+
 /**
  * A reusable transformation. `run` is the recipe body: it evaluates inside a
  * Workspace Snapshot region and returns a Draft — nothing has been written,
@@ -54,19 +60,21 @@ export interface Recipe<Input = undefined, E = never, R = never> {
   readonly name: string
   readonly version: string
   readonly implementationHash: string
-  readonly policies: PlanPolicies
-  readonly run: (input: Input) => Effect.Effect<Draft, E, R | WorkspaceSnapshot>
+  readonly policies: PlanPolicies & { readonly rules?: ReadonlyArray<CustomPolicyRule> }
+  readonly schema?: Schema.Schema<Input>
+  readonly run: (input: Input) => Effect.Effect<Draft, E, R | WorkspaceSnapshot | Workspace>
 }
 
 export interface RecipeDefinition<Input, E, R> {
   readonly version: string
+  readonly schema?: Schema.Schema<Input>
   /**
    * Digest of the recipe implementation, supplied by the build/release
    * process. Defaults to a name@version digest suitable for development only.
    */
   readonly implementationHash?: string
   readonly policies?: ReadonlyArray<Policy>
-  readonly run: (input: Input) => Effect.Effect<Draft, E, R | WorkspaceSnapshot>
+  readonly run: (input: Input) => Effect.Effect<Draft, E, R | WorkspaceSnapshot | Workspace>
 }
 
 const define = <Input = undefined, E = never, R = never>(
@@ -76,11 +84,93 @@ const define = <Input = undefined, E = never, R = never>(
   Object.freeze({
     name,
     version: definition.version,
+    schema: definition.schema,
     implementationHash: definition.implementationHash ??
       createHash("sha256").update(`${name}@${definition.version}`).digest("hex"),
     policies: Policy.all(definition.policies ?? []),
     run: definition.run,
   })
+
+/** Sequentially compose recipes, projecting intermediate states via in-memory snapshot overlays. */
+export const pipe = <Input = undefined, E = never, R = never>(
+  ...recipes: ReadonlyArray<Recipe<Input, any, any>>
+): Recipe<Input, E, R> => {
+  const name = recipes.map((r) => r.name).join(" >> ")
+  const version = recipes.map((r) => r.version).join("+")
+  const policies = Policy.all(recipes.flatMap((r) => [r.policies]))
+
+  return define(name, {
+    version,
+    policies: [policies],
+    run: (input: Input) =>
+      Effect.gen(function*() {
+        let accumulatedDraft = Draft.empty
+        for (const recipe of recipes) {
+          if (accumulatedDraft.edits.length > 0) {
+            const nextDraft = yield* overlay(accumulatedDraft, recipe.run(input))
+            accumulatedDraft = Draft.concat(accumulatedDraft, nextDraft)
+          } else {
+            const nextDraft = yield* recipe.run(input)
+            accumulatedDraft = Draft.concat(accumulatedDraft, nextDraft)
+          }
+        }
+        return accumulatedDraft
+      }),
+  })
+}
+
+/** Concurrently run recipes over the current snapshot and merge their drafts. */
+export const all = <Input = undefined, E = never, R = never>(
+  recipes: ReadonlyArray<Recipe<Input, any, any>>,
+): Recipe<Input, E, R> => {
+  const name = `all(${recipes.map((r) => r.name).join(", ")})`
+  const version = recipes.map((r) => r.version).join("+")
+  const policies = Policy.all(recipes.flatMap((r) => [r.policies]))
+
+  return define(name, {
+    version,
+    policies: [policies],
+    run: (input: Input) =>
+      Effect.forEach(recipes, (r) => r.run(input), { concurrency: "unbounded" }).pipe(
+        Effect.map((drafts) => Draft.concat(...drafts)),
+      ),
+  })
+}
+
+/** Conditionally execute one of two recipes based on a snapshot predicate. */
+export const branch = <Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never>(
+  predicate: (snapshot: WorkspaceSnapshotService) => Effect.Effect<boolean, any, any> | boolean,
+  ifTrue: Recipe<Input, E1, R1>,
+  ifFalse: Recipe<Input, E2, R2>,
+): Recipe<Input, E1 | E2, R1 | R2> => {
+  const name = `branch(${ifTrue.name}, ${ifFalse.name})`
+  const version = `${ifTrue.version}|${ifFalse.version}`
+
+  return define(name, {
+    version,
+    run: (input: Input) =>
+      Effect.gen(function*() {
+        const snapshot = yield* WorkspaceSnapshot
+        const result = predicate(snapshot)
+        const cond = typeof result === "boolean" ? result : yield* result
+        return cond ? yield* ifTrue.run(input) : yield* ifFalse.run(input)
+      }),
+  })
+}
+
+/** Conditionally execute a recipe if a snapshot predicate holds. */
+export const when = <Input = undefined, E = never, R = never>(
+  predicate: (snapshot: WorkspaceSnapshotService) => Effect.Effect<boolean, any, any> | boolean,
+  recipe: Recipe<Input, E, R>,
+): Recipe<Input, E, R> =>
+  branch(
+    predicate,
+    recipe,
+    define(`${recipe.name}:noop`, {
+      version: recipe.version,
+      run: () => Effect.succeed(Draft.empty),
+    }),
+  )
 
 const readText = (fileName: string): Effect.Effect<string, NativeCompilerError> =>
   Effect.tryPromise({
@@ -133,6 +223,7 @@ const run = <Input, E, R>(
 ): Effect.Effect<
   TransformationPlan,
   | E
+  | RecipeInputError
   | PlanBuildError
   | NativeCompilerError
   | ProjectNotInSnapshot
@@ -140,23 +231,33 @@ const run = <Input, E, R>(
   Workspace | Exclude<R, WorkspaceSnapshot>
 > =>
   Effect.gen(function*() {
+    let validatedInput = input
+    if (recipe.schema !== undefined) {
+      const decoded: Input = yield* (Schema.decodeUnknownEffect(recipe.schema)(input) as Effect.Effect<Input, unknown>).pipe(
+        Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
+      )
+      validatedInput = decoded
+    }
+
     const workspace = yield* Workspace
     return yield* workspace.withSnapshot(transition, Effect.gen(function*() {
       const snapshot = yield* WorkspaceSnapshot
-      const draft = yield* recipe.run(input)
+      const draft = yield* recipe.run(validatedInput)
+      const sources = yield* fingerprintWorkspace(workspace.root, snapshot)
+
       return yield* finalizePlan({
         recipe: {
           name: recipe.name,
           version: recipe.version,
           implementationHash: recipe.implementationHash,
-          options: (input ?? {}) as Json,
+          options: (validatedInput === undefined ? null : validatedInput) as Json,
         },
         toolchain: TOOLCHAIN,
-        projects: snapshot.projects.map((project) => ({
-          id: project.id,
-          configFileName: project.config,
+        projects: snapshot.projects.map((configured) => ({
+          id: configured.id,
+          configFileName: configured.config,
         })),
-        sources: yield* fingerprintWorkspace(workspace.root, snapshot),
+        sources,
         edits: draft.edits,
         evidence: draft.evidence,
         policies: recipe.policies,
@@ -167,5 +268,9 @@ const run = <Input, E, R>(
 
 export const Recipe = {
   define,
+  pipe,
+  all,
+  branch,
+  when,
   run,
 }

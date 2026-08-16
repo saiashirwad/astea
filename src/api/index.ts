@@ -18,6 +18,8 @@ export {
 export type { ApplicationReceipt } from "./application.ts"
 export { Draft } from "./draft.ts"
 export type { Draft as DraftPlan, EditRangeOptions, ProposedEdit, Replacement } from "./draft.ts"
+export { Pattern } from "./pattern.ts"
+export type { PatternMatchResult, PatternMismatch, PatternResult } from "./pattern.ts"
 export { Plan, PlanBuildError, PlanDecodeError } from "./plan.ts"
 export type {
   EvidenceRecord,
@@ -29,16 +31,25 @@ export type {
   TextEdit,
   TransformationPlan,
 } from "./plan.ts"
-export { Policy } from "./policy.ts"
-export { Query, QueryContractError } from "./query.ts"
-export type { Criterion, EvidenceFact, QueryEvidence, Selection } from "./query.ts"
-export { Recipe, TOOLCHAIN } from "./recipe.ts"
+export { computeDiagnosticDiff, Policy } from "./policy.ts"
+export type {
+  CustomPolicyRule,
+  DiagnosticDiff,
+  DiagnosticRecord,
+  PolicyEvaluationContext,
+} from "./policy.ts"
+export { Criterion, Query, QueryContractError } from "./query.ts"
+export type { EvidenceFact, QueryEvidence, Selection } from "./query.ts"
+export { Recipe, RecipeInputError, TOOLCHAIN } from "./recipe.ts"
 export type { RecipeDefinition } from "./recipe.ts"
 export { Preview, StalePlanError, Verification, VerificationFailure } from "./verification.ts"
 export type { FilePreview, PlanPreview, VerificationReceipt, VerifiedPlan } from "./verification.ts"
 export {
+  computeOverlayMap,
   ConfiguredProject,
   DuplicateConfiguredProject,
+  FileNotFound,
+  overlay,
   ProjectNotInSnapshot,
   SnapshotExpired,
   SymbolNotFound,

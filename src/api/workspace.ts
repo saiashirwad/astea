@@ -9,15 +9,18 @@
  */
 import * as Path from "node:path"
 import { Context, Data, Effect, Layer, Semaphore } from "effect"
+import type { SourceFile } from "typescript/unstable/ast"
 import type { APIOptions, Project as NativeProject, Symbol as NativeSymbol } from "typescript/unstable/async"
 import { SymbolFlags } from "typescript/unstable/async"
 import type { FileChanges } from "typescript/unstable/proto"
+import { applyFileEdits, type EditConflict, type InvalidEdit, type TextEdit } from "../prototype/edits.ts"
 import {
   layer as nativeCompilerLayer,
   NativeCompiler,
   type NativeCompilerError,
   nativeRequest,
 } from "../prototype/native-compiler.ts"
+import type { PlannedTextEdit } from "../prototype/plan.ts"
 
 export type { NativeCompilerError }
 
@@ -81,6 +84,11 @@ export class SymbolNotFound extends Data.TaggedError("SymbolNotFound")<{
   readonly fileName: string
 }> {}
 
+export class FileNotFound extends Data.TaggedError("FileNotFound")<{
+  readonly fileName: string
+  readonly projectId: string
+}> {}
+
 export type ProjectSnapshotError = NativeCompilerError | SnapshotExpired
 
 /**
@@ -94,6 +102,8 @@ export interface ProjectSnapshot {
   readonly root: string
   readonly rootFiles: ReadonlyArray<string>
   readonly sourceFileNames: () => Effect.Effect<ReadonlyArray<string>, ProjectSnapshotError>
+  readonly sourceFile: (fileName: string) => Effect.Effect<SourceFile | undefined, ProjectSnapshotError>
+  readonly sourceText: (fileName: string) => Effect.Effect<string, FileNotFound | ProjectSnapshotError>
   readonly semanticDiagnosticCount: () => Effect.Effect<number, ProjectSnapshotError>
   /** Resolve the symbol at a position in a project-relative file. */
   readonly symbolAt: (
@@ -233,6 +243,24 @@ export const make = (
             return yield* nativeRequest("getSourceFileNames", () => nativeProject.program.getSourceFileNames())
           })
 
+          const sourceFile = Effect.fn("ProjectSnapshot.sourceFile")(function*(fileName: string) {
+            yield* ensureActive
+            const absolute = Path.resolve(projectRoot, fileName)
+            return yield* nativeRequest(
+              "getSourceFile",
+              () => nativeProject.program.getSourceFile(absolute),
+            )
+          })
+
+          const sourceText = Effect.fn("ProjectSnapshot.sourceText")(function*(fileName: string) {
+            yield* ensureActive
+            const file = yield* sourceFile(fileName)
+            if (file === undefined) {
+              return yield* new FileNotFound({ fileName, projectId: configured.id })
+            }
+            return file.text
+          })
+
           const semanticDiagnosticCount = Effect.fn("ProjectSnapshot.semanticDiagnosticCount")(function*() {
             yield* ensureActive
             const diagnostics = yield* nativeRequest(
@@ -292,6 +320,8 @@ export const make = (
             root: projectRoot,
             rootFiles: nativeProject.rootFiles,
             sourceFileNames,
+            sourceFile,
+            sourceText,
             semanticDiagnosticCount,
             symbolAt,
             symbolNamed,
@@ -358,3 +388,65 @@ export const layer = (
   options: APIOptions = {},
 ): Layer.Layer<Workspace, DuplicateConfiguredProject> =>
   layerWithoutDependencies(definition, options).pipe(Layer.provide(nativeCompilerLayer(options)))
+
+export const computeOverlayMap = (
+  snapshot: WorkspaceSnapshotService,
+  edits: ReadonlyArray<PlannedTextEdit>,
+): Effect.Effect<
+  Record<string, string>,
+  ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict
+> =>
+  Effect.gen(function*() {
+    const overlay: Record<string, string> = {}
+    if (edits.length === 0) return overlay
+
+    const byProjectFile = new Map<string, { projectId: string; fileName: string; edits: Array<PlannedTextEdit> }>()
+    for (const edit of edits) {
+      const key = `${edit.projectId}:${edit.fileName}`
+      let group = byProjectFile.get(key)
+      if (group === undefined) {
+        group = { projectId: edit.projectId, fileName: edit.fileName, edits: [] }
+        byProjectFile.set(key, group)
+      }
+      group.edits.push(edit)
+    }
+
+    for (const group of byProjectFile.values()) {
+      const configured = snapshot.projects.find((p) => p.id === group.projectId)
+      if (configured === undefined) {
+        return yield* new ProjectNotInSnapshot({ projectId: group.projectId, generation: snapshot.generation })
+      }
+      const project = yield* snapshot.project(configured)
+      const source = yield* project.sourceText(group.fileName)
+      const textEdits: Array<TextEdit> = group.edits.map((edit) => ({
+        projectConfigFileName: edit.projectId,
+        fileName: edit.fileName,
+        start: edit.start,
+        end: edit.end,
+        newText: edit.newText,
+        expectedTextHash: edit.expectedTextHash,
+        evidence: edit.evidenceIds,
+      }))
+      const applied = yield* applyFileEdits(source, textEdits)
+      const absolutePath = Path.resolve(project.root, group.fileName)
+      overlay[absolutePath] = applied
+    }
+
+    return overlay
+  })
+
+export const overlay = <A, E, R>(
+  planOrDraft: { readonly edits: ReadonlyArray<PlannedTextEdit> },
+  program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
+): Effect.Effect<
+  A,
+  E | ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict,
+  Workspace | WorkspaceSnapshot | Exclude<R, WorkspaceSnapshot>
+> =>
+  Effect.gen(function*() {
+    const workspace = yield* Workspace
+    const snapshot = yield* WorkspaceSnapshot
+    const overlayMap = yield* computeOverlayMap(snapshot, planOrDraft.edits)
+    return yield* workspace.withIsolatedSnapshot(overlayMap, program)
+  })
+

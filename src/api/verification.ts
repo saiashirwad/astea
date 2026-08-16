@@ -10,6 +10,7 @@
  */
 import * as Path from "node:path"
 import { Effect } from "effect"
+import { nativeRequest, type NativeCompilerError } from "../prototype/native-compiler.ts"
 import type { TransformationPlan } from "../prototype/plan.ts"
 import {
   type PlanPreview,
@@ -19,7 +20,12 @@ import {
   type VerifiedPlan,
   verifyPreview,
 } from "../prototype/verification.ts"
-import type { NativeCompilerError } from "../prototype/native-compiler.ts"
+import {
+  computeDiagnosticDiff,
+  type DiagnosticDiff,
+  type DiagnosticRecord,
+  type PolicyEvaluationContext,
+} from "./policy.ts"
 import type { Recipe } from "./recipe.ts"
 import {
   Workspace,
@@ -40,6 +46,8 @@ export type {
   VerificationReceipt,
   VerifiedPlan,
 } from "../prototype/verification.ts"
+
+export type { DiagnosticDiff, DiagnosticRecord, PolicyEvaluationContext } from "./policy.ts"
 
 const absoluteTarget = (
   workspaceRoot: string,
@@ -69,16 +77,38 @@ export const Preview = {
   of: preview,
 }
 
-const countDiagnostics = Effect.gen(function*() {
+const collectDiagnostics = Effect.gen(function*() {
   const snapshot = yield* WorkspaceSnapshot
-  const counts = yield* Effect.all(
-    snapshot.projects.map((configured) =>
-      snapshot.project(configured).pipe(
-        Effect.flatMap((project) => project.semanticDiagnosticCount()),
+  const allDiagnostics: Array<DiagnosticRecord> = []
+
+  for (const configured of snapshot.projects) {
+    const project = yield* snapshot.project(configured)
+    const diags = yield* project.unsafeNative((nativeProject) =>
+      nativeRequest(
+        "getSemanticDiagnostics",
+        () => nativeProject.program.getSemanticDiagnostics(),
       )
-    ),
-  )
-  return counts.reduce((total, count) => total + count, 0)
+    )
+    for (const d of diags as ReadonlyArray<any>) {
+      allDiagnostics.push({
+        code: d.code,
+        message: typeof d.messageText === "string"
+          ? d.messageText
+          : (d.messageText?.messageText ?? String(d.messageText)),
+        category: d.category === 0
+          ? "warning"
+          : d.category === 2
+          ? "suggestion"
+          : d.category === 3
+          ? "message"
+          : "error",
+        fileName: d.file?.fileName,
+        start: d.start,
+        length: d.length,
+      })
+    }
+  }
+  return allDiagnostics
 })
 
 /**
@@ -93,7 +123,7 @@ const verify = <Input, E, R>(
   recipe: Recipe<Input, E, R>,
   input: Input,
 ): Effect.Effect<
-  VerifiedPlan,
+  VerifiedPlan & { readonly diagnosticDiff: DiagnosticDiff },
   | E
   | VerificationFailure
   | StalePlanError
@@ -111,16 +141,18 @@ const verify = <Input, E, R>(
       overlay[absoluteTarget(workspace.root, plan, file.projectId, file.fileName)] = file.afterText
     }
 
-    const baselineErrorCount = yield* workspace.withIsolatedSnapshot({}, countDiagnostics)
+    const baselineDiagnostics = yield* workspace.withIsolatedSnapshot({}, collectDiagnostics)
 
     const proposedRun = yield* workspace.withIsolatedSnapshot(overlay, Effect.gen(function*() {
-      const errors = yield* countDiagnostics
+      const diagnostics = yield* collectDiagnostics
       if (plan.policies.idempotence !== "required") {
-        return { errors, replayEdits: undefined as number | undefined }
+        return { diagnostics, replayEdits: undefined as number | undefined }
       }
       const replay = yield* recipe.run(input)
-      return { errors, replayEdits: replay.edits.length as number | undefined }
+      return { diagnostics, replayEdits: replay.edits.length as number | undefined }
     }))
+
+    const diagnosticDiff = computeDiagnosticDiff(baselineDiagnostics, proposedRun.diagnostics)
 
     const matches = plan.measurements?.matches
     const { min, max } = plan.policies.matchCount
@@ -132,12 +164,38 @@ const verify = <Input, E, R>(
       })
     }
 
-    return yield* verifyPreview(plan, proposed, {
+    // Evaluate custom policy rules
+    const context: PolicyEvaluationContext = {
+      actualMatches: matches ?? 0,
+      affectedFiles: proposed.files.length,
+      diagnosticDiff,
+      replayEdits: proposedRun.replayEdits,
+    }
+
+    if (recipe.policies.rules !== undefined) {
+      for (const rule of recipe.policies.rules) {
+        const result = rule.evaluate(context)
+        if (result !== true) {
+          return yield* new VerificationFailure({
+            planId: plan.planId,
+            policy: "diagnostics",
+            detail: typeof result === "string" ? result : `Policy rule '${rule.name}' failed`,
+          })
+        }
+      }
+    }
+
+    const baselineErrorCount = baselineDiagnostics.filter((d) => d.category === "error").length
+    const proposedErrorCount = proposedRun.diagnostics.filter((d) => d.category === "error").length
+
+    const verified = yield* verifyPreview(plan, proposed, {
       actualMatches: matches ?? 0,
       baselineErrorCount,
-      proposedErrorCount: proposedRun.errors,
+      proposedErrorCount,
       ...(proposedRun.replayEdits === undefined ? {} : { secondPlanEditCount: proposedRun.replayEdits }),
     })
+
+    return Object.assign(verified, { diagnosticDiff })
   })
 
 export const Verification = {
