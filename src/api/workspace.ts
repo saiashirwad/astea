@@ -18,14 +18,12 @@ import type {
 } from "typescript/unstable/async"
 import { SymbolFlags } from "typescript/unstable/async"
 import type { FileChanges } from "typescript/unstable/proto"
-import { applyFileEdits, type EditConflict, type InvalidEdit } from "../Edit/index.ts"
 import {
   layer as nativeCompilerLayer,
   NativeCompiler,
   type NativeCompilerError,
   nativeRequest,
 } from "../internal/native-compiler.ts"
-import type { PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
 import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
 
 export type { NativeCompilerError }
@@ -744,85 +742,3 @@ export const layer = (
   options: APIOptions = {},
 ): Layer.Layer<Workspace, DuplicateConfiguredProject> =>
   layerWithoutDependencies(definition, options).pipe(Layer.provide(nativeCompilerLayer(options)))
-
-export const computeOverlayMap = (
-  snapshot: WorkspaceSnapshotService,
-  edits: ReadonlyArray<PlannedTextEdit>,
-  fileOperations: ReadonlyArray<PlannedFileOperation> = [],
-): Effect.Effect<
-  Record<string, string>,
-  ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict
-> =>
-  Effect.gen(function*() {
-    const overlay: Record<string, string> = {}
-
-    for (const op of fileOperations) {
-      const configured = snapshot.projects.find((p) => p.id === op.projectId)
-      if (configured === undefined) {
-        return yield* new ProjectNotInSnapshot({ projectId: op.projectId, generation: snapshot.generation })
-      }
-      const project = yield* snapshot.project(configured)
-      if (op.kind === "create") {
-        const absolutePath = Path.resolve(project.root, op.path)
-        overlay[absolutePath] = op.content ?? ""
-      } else if (op.kind === "delete") {
-        const absolutePath = Path.resolve(project.root, op.path)
-        overlay[absolutePath] = ""
-      } else if (op.kind === "move" && op.toPath !== undefined) {
-        const fromAbs = Path.resolve(project.root, op.path)
-        const toAbs = Path.resolve(project.root, op.toPath)
-        const content = op.content ?? (yield* project.sourceText(op.path))
-        overlay[fromAbs] = ""
-        overlay[toAbs] = content
-      }
-    }
-
-    if (edits.length === 0) return overlay
-
-    const byProjectFile = new Map<string, { projectId: string; fileName: string; edits: Array<PlannedTextEdit> }>()
-    for (const edit of edits) {
-      const key = `${edit.projectId}:${edit.fileName}`
-      let group = byProjectFile.get(key)
-      if (group === undefined) {
-        group = { projectId: edit.projectId, fileName: edit.fileName, edits: [] }
-        byProjectFile.set(key, group)
-      }
-      group.edits.push(edit)
-    }
-
-    for (const group of byProjectFile.values()) {
-      const configured = snapshot.projects.find((p) => p.id === group.projectId)
-      if (configured === undefined) {
-        return yield* new ProjectNotInSnapshot({ projectId: group.projectId, generation: snapshot.generation })
-      }
-      const project = yield* snapshot.project(configured)
-      const source = yield* project.sourceText(group.fileName)
-      const applied = yield* applyFileEdits(source, group.edits)
-      const absolutePath = Path.resolve(project.root, group.fileName)
-      overlay[absolutePath] = applied
-    }
-
-    return overlay
-  })
-
-export const overlay = <A, E, R>(
-  planOrDraft: {
-    readonly edits: ReadonlyArray<PlannedTextEdit>
-    readonly fileOperations?: ReadonlyArray<PlannedFileOperation>
-  },
-  program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
-): Effect.Effect<
-  A,
-  E | ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict,
-  Workspace | WorkspaceSnapshot | Exclude<R, WorkspaceSnapshot>
-> =>
-  Effect.gen(function*() {
-    const workspace = yield* Workspace
-    const snapshot = yield* WorkspaceSnapshot
-    const overlayMap = yield* computeOverlayMap(
-      snapshot,
-      planOrDraft.edits,
-      planOrDraft.fileOperations ?? [],
-    )
-    return yield* workspace.withIsolatedSnapshot(overlayMap, program)
-  })

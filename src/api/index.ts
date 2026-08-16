@@ -123,12 +123,10 @@ export type { FilePrecondition } from "./precondition.ts"
 export { Preview, StalePlanError, Verification, VerificationFailure } from "./verification.ts"
 export type { FilePreview, PlanPreview, VerificationReceipt, VerifiedPlan } from "./verification.ts"
 export {
-  computeOverlayMap,
   ConfiguredProject,
   DuplicateConfiguredProject,
   FileNotFound,
   isProjectFile,
-  overlay,
   ProjectFileTypeSymbol,
   ProjectNotInSnapshot,
   SnapshotExpired,
@@ -136,6 +134,7 @@ export {
   Workspace,
   WorkspaceSnapshot,
 } from "./workspace.ts"
+export { computeOverlayMap, overlay } from "../Overlay/index.ts"
 export type {
   DependencyGraphOptions,
   NativeCompilerError,

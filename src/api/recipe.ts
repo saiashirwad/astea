@@ -25,8 +25,8 @@ import { isWithinProject, projectRelativePath } from "../internal/project-path.t
 import { Draft } from "./draft.ts"
 import { type VerificationRule, Policy } from "./policy.ts"
 import type { PlanPolicies } from "./plan.ts"
+import { overlay } from "../Overlay/index.ts"
 import {
-  overlay,
   Workspace,
   WorkspaceSnapshot,
   type ProjectNotInSnapshot,
