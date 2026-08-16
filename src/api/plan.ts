@@ -6,12 +6,12 @@
  * Authors never finalize plans by hand — `Recipe.run` owns finalization.
  * This surface is the codec plus the durable types.
  */
-import { parsePlan, serializePlan } from "../prototype/plan.ts"
+import { parsePlan, serializePlan } from "../internal/plan.ts"
 
 export {
   PlanBuildError,
   PlanDecodeError,
-} from "../prototype/plan.ts"
+} from "../internal/plan.ts"
 
 export type {
   EvidenceRecord,
@@ -23,9 +23,9 @@ export type {
   ProjectEvidence,
   SourceFingerprint,
   TransformationPlan,
-} from "../prototype/plan.ts"
+} from "../internal/plan.ts"
 
-import type { PlannedTextEdit } from "../prototype/plan.ts"
+import type { PlannedTextEdit } from "../internal/plan.ts"
 
 /** The canonical durable change primitive: a guarded, half-open source range replacement. */
 export type TextEdit = PlannedTextEdit

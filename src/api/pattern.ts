@@ -5,7 +5,7 @@
  * It matches structural syntax and semantic criteria (symbols, types) while extracting
  * strongly typed bindings and producing deterministic query evidence.
  */
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 import {
   type CallExpression,
   type Identifier,
@@ -26,15 +26,15 @@ import {
   isStringLiteral,
 } from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
-import { nativeRequest } from "../prototype/native-compiler.ts"
-import { projectRelativePath } from "../prototype/project-path.ts"
+import { nativeRequest } from "../internal/native-compiler.ts"
+import { projectRelativePath } from "../internal/project-path.ts"
 import type { EvidenceFact } from "./query.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "./workspace.ts"
 
 export interface PatternMatchResult<Out> {
   readonly matched: true
   readonly value: Out
-  readonly facts?: Record<string, EvidenceFact>
+  readonly facts?: Readonly<Record<string, EvidenceFact>>
 }
 
 export interface PatternMismatch {
@@ -42,6 +42,10 @@ export interface PatternMismatch {
 }
 
 export type PatternResult<Out> = PatternMatchResult<Out> | PatternMismatch
+
+const isPattern = <Out>(
+  value: Pattern<Node, Out> | ReadonlyArray<AnyPattern>,
+): value is Pattern<Node, Out> => "match" in value
 
 export interface Pattern<N extends Node = Node, Out = N> {
   readonly kind?: string
@@ -53,14 +57,23 @@ export interface Pattern<N extends Node = Node, Out = N> {
 
 const matchSuccess = <Out>(
   value: Out,
-  facts?: Record<string, EvidenceFact>,
-): PatternResult<Out> => ({
-  matched: true,
-  value,
-  ...(facts !== undefined ? { facts } : {}),
-})
+  facts?: Readonly<Record<string, EvidenceFact>>,
+): PatternResult<Out> => {
+  if (facts === undefined) {
+    return { matched: true, value }
+  }
+  return { matched: true, value, facts }
+}
 
 const matchFailure: PatternMismatch = { matched: false }
+
+type NameMatcher = { readonly kind: "exact"; readonly value: string } | { readonly kind: "regex"; readonly value: RegExp }
+
+const nameMatcher = (name: string | RegExp): NameMatcher =>
+  name instanceof RegExp ? { kind: "regex", value: name } : { kind: "exact", value: name }
+
+const matchesName = (matcher: NameMatcher, text: string): boolean =>
+  matcher.kind === "exact" ? text === matcher.value : matcher.value.test(text)
 
 /** Matches any node and yields it as-is. */
 export const any: Pattern<Node, Node> = {
@@ -77,9 +90,12 @@ export const predicate = <N extends Node = Node, Out = N>(
   match: (node) =>
     Effect.sync(() => {
       const result = test(node)
-      if (typeof result === "boolean") {
-        return result ? matchSuccess(node as unknown as Out) : matchFailure
+      if (result === true) {
+        // SAFETY: predicate authors return true only when `node` is a valid Out
+        const out = node as unknown as Out
+        return matchSuccess(out)
       }
+      if (result === false) return matchFailure
       return result
     }),
 })
@@ -103,29 +119,31 @@ export const bind = <K extends string, N extends Node, Out>(
   kind: `bind(${key})`,
   match: (node, project) =>
     pattern.match(node, project).pipe(
-      Effect.map((res) =>
-        res.matched
-          ? matchSuccess({ [key]: res.value } as { readonly [P in K]: Out }, res.facts)
-          : matchFailure
-      ),
+      Effect.map((res) => {
+        if (!res.matched) return matchFailure
+        const bound = { [key]: res.value } as { readonly [P in K]: Out }
+        // SAFETY: computed key K is preserved by the mapped object construction above
+        return matchSuccess(bound, res.facts)
+      }),
     ),
 })
 
+type AnyPattern = Pattern<Node, unknown>
+
 /** Matches an array of patterns against an array of nodes (e.g. call arguments). */
-export const tuple = <P extends ReadonlyArray<Pattern<any, any>>>(
+export const tuple = <P extends ReadonlyArray<AnyPattern>>(
   patterns: P,
-): Pattern<Node, { [K in keyof P]: P[K] extends Pattern<any, infer Out> ? Out : never }> => ({
+): Pattern<Node, { [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never }> => ({
   kind: "tuple",
   match: (node, project) =>
     Effect.gen(function*() {
-      // If node is an array-like container or if evaluating child nodes
       const elements: ReadonlyArray<Node> = isCallExpression(node)
         ? node.arguments
-        : (Array.isArray(node) ? node : [node])
+        : [node]
 
       if (elements.length !== patterns.length) return matchFailure
 
-      const values: Array<any> = []
+      const values: Array<unknown> = []
       const facts: Record<string, EvidenceFact> = {}
 
       for (let i = 0; i < patterns.length; i++) {
@@ -134,10 +152,14 @@ export const tuple = <P extends ReadonlyArray<Pattern<any, any>>>(
         const result = yield* pattern.match(elem, project)
         if (!result.matched) return matchFailure
         values.push(result.value)
-        if (result.facts) Object.assign(facts, result.facts)
+        if (result.facts !== undefined) Object.assign(facts, result.facts)
       }
 
-      return matchSuccess(values as any, facts)
+      // SAFETY: values length and order match the pattern tuple contract
+      return matchSuccess(
+        values as { [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never },
+        facts,
+      )
     }),
 })
 
@@ -151,10 +173,7 @@ export const identifier = (options?: {
     Effect.gen(function*() {
       if (!isIdentifier(node)) return matchFailure
       if (options?.name !== undefined) {
-        const nameMatches = typeof options.name === "string"
-          ? node.text === options.name
-          : options.name.test(node.text)
-        if (!nameMatches) return matchFailure
+        if (!matchesName(nameMatcher(options.name), node.text)) return matchFailure
       }
       if (options?.resolvesTo !== undefined) {
         const expectedSymbol = options.resolvesTo
@@ -174,11 +193,17 @@ export const identifier = (options?: {
     }),
 })
 
+export interface CallExpressionMatch<EOut, AOut> {
+  readonly call: CallExpression
+  readonly expression: EOut
+  readonly args: AOut
+}
+
 /** Matches a CallExpression node, optionally verifying expression pattern and arguments. */
 export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?: {
-  readonly expression?: Pattern<any, EOut>
-  readonly arguments?: Pattern<any, AOut> | ReadonlyArray<Pattern<any, any>>
-}): Pattern<CallExpression, { readonly call: CallExpression; readonly expression: EOut; readonly args: AOut }> => ({
+  readonly expression?: Pattern<Node, EOut>
+  readonly arguments?: Pattern<Node, AOut> | ReadonlyArray<AnyPattern>
+}): Pattern<CallExpression, CallExpressionMatch<EOut, AOut>> => ({
   kind: "callExpression",
   match: (node, project) =>
     Effect.gen(function*() {
@@ -187,24 +212,33 @@ export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?
         kind: SyntaxKind[node.kind] ?? node.kind,
       }
 
-      let expressionVal: any = node.expression
+      let expressionVal: EOut = node.expression as EOut
       if (options?.expression !== undefined) {
         const expRes = yield* options.expression.match(node.expression, project)
         if (!expRes.matched) return matchFailure
         expressionVal = expRes.value
-        if (expRes.facts) Object.assign(facts, expRes.facts)
+        if (expRes.facts !== undefined) Object.assign(facts, expRes.facts)
       }
 
-      let argsVal: any = node.arguments
+      let argsVal: AOut = node.arguments as AOut
       if (options?.arguments !== undefined) {
-        const argPattern: Pattern<any, any> = Array.isArray(options.arguments)
-          ? tuple(options.arguments)
-          : (options.arguments as Pattern<any, any>)
+        const argumentPatterns = options.arguments
+        if (!isPattern(argumentPatterns)) {
+          const argsRes = yield* tuple(argumentPatterns).match(node, project)
+          if (!argsRes.matched) return matchFailure
+          // SAFETY: the generic tuple output is the caller-selected AOut for this overload.
+          argsVal = argsRes.value as AOut
+          if (argsRes.facts !== undefined) Object.assign(facts, argsRes.facts)
+          return matchSuccess(
+            { call: node, expression: expressionVal, args: argsVal },
+            facts,
+          )
+        }
 
-        const argsRes = yield* argPattern.match(node, project)
+        const argsRes = yield* argumentPatterns.match(node, project)
         if (!argsRes.matched) return matchFailure
         argsVal = argsRes.value
-        if (argsRes.facts) Object.assign(facts, argsRes.facts)
+        if (argsRes.facts !== undefined) Object.assign(facts, argsRes.facts)
       }
 
       return matchSuccess(
@@ -216,7 +250,7 @@ export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?
 
 /** Matches a PropertyAccessExpression node (e.g. `obj.prop`). */
 export const propertyAccess = (options?: {
-  readonly expression?: Pattern<any, any>
+  readonly expression?: Pattern<Node, unknown>
   readonly name?: string | RegExp
 }): Pattern<PropertyAccessExpression, PropertyAccessExpression> => ({
   kind: "propertyAccess",
@@ -224,10 +258,7 @@ export const propertyAccess = (options?: {
     Effect.gen(function*() {
       if (!isPropertyAccessExpression(node)) return matchFailure
       if (options?.name !== undefined) {
-        const nameMatches = typeof options.name === "string"
-          ? node.name.text === options.name
-          : options.name.test(node.name.text)
-        if (!nameMatches) return matchFailure
+        if (!matchesName(nameMatcher(options.name), node.name.text)) return matchFailure
       }
       if (options?.expression !== undefined) {
         const expRes = yield* options.expression.match(node.expression, project)
@@ -246,10 +277,7 @@ export const stringLiteral = (options?: {
     Effect.sync(() => {
       if (!isStringLiteral(node)) return matchFailure
       if (options?.text !== undefined) {
-        const matches = typeof options.text === "string"
-          ? node.text === options.text
-          : options.text.test(node.text)
-        if (!matches) return matchFailure
+        if (!matchesName(nameMatcher(options.text), node.text)) return matchFailure
       }
       return matchSuccess(node, { text: node.text })
     }),
@@ -290,9 +318,14 @@ export const objectLiteral = (options?: {
     }),
 })
 
+export type IntrinsicTypeName = "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void"
+
+const isIntrinsicTypeName = (value: NativeType | IntrinsicTypeName): value is IntrinsicTypeName =>
+  Predicate.isString(value)
+
 /** Matches a node based on its inferred TypeScript type. */
 export const typed = (options?: {
-  readonly assignableTo?: NativeType | "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void"
+  readonly assignableTo?: NativeType | IntrinsicTypeName
   readonly typeString?: string | RegExp
 }): Pattern<Node, Node> => ({
   kind: "typed",
@@ -306,19 +339,13 @@ export const typed = (options?: {
 
       if (options?.typeString !== undefined) {
         const str = yield* project.typeToString(type)
-        const matches = typeof options.typeString === "string"
-          ? str === options.typeString
-          : options.typeString.test(str)
-        if (!matches) return matchFailure
+        if (!matchesName(nameMatcher(options.typeString), str)) return matchFailure
       }
 
       if (options?.assignableTo !== undefined) {
-        let targetType: NativeType
-        if (typeof options.assignableTo === "string") {
-          targetType = yield* project.intrinsicType(options.assignableTo)
-        } else {
-          targetType = options.assignableTo
-        }
+        const targetType = isIntrinsicTypeName(options.assignableTo)
+          ? yield* project.intrinsicType(options.assignableTo)
+          : options.assignableTo
         const assignable = yield* project.isTypeAssignableTo(type, targetType)
         if (!assignable) return matchFailure
       }

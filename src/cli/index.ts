@@ -1,14 +1,15 @@
 /**
  * teatime CLI — Interactive command-line runner and inspection tool.
  */
-import * as Path from "node:path"
-import { Effect, Layer } from "effect"
+import { path as Path } from "../platform/node.ts"
+import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"
 import {
   Application,
   ConfiguredProject,
   planApplicationLayerNode,
   Preview,
-  Recipe,
+  type Recipe,
+  Recipe as RecipeApi,
   Verification,
   Workspace,
 } from "../api/index.ts"
@@ -24,24 +25,54 @@ export interface CliOptions {
   readonly noColor?: boolean
 }
 
-export const runCli = (options: CliOptions): Effect.Effect<void, unknown, any> =>
+export class CliError extends Data.TaggedError("CliError")<{
+  readonly message: string
+}> {}
+
+const isRecipe = (value: unknown): value is Recipe<unknown> => {
+  if (value === null || !Predicate.isObject(value)) return false
+  return "run" in value && "version" in value && "name" in value
+}
+
+const loadRecipe = (resolvedRecipe: string): Effect.Effect<Recipe<unknown>, CliError> =>
+  Effect.tryPromise({
+    try: () => import(resolvedRecipe),
+    catch: (cause) => new CliError({ message: `Failed to import recipe module: ${String(cause)}` }),
+  }).pipe(
+    Effect.flatMap((imported) => {
+      if (!Predicate.isObject(imported)) {
+        return Effect.fail(new CliError({ message: `Recipe module is not an object: ${resolvedRecipe}` }))
+      }
+      if ("default" in imported && isRecipe(imported.default)) {
+        return Effect.succeed(imported.default)
+      }
+      if ("recipe" in imported && isRecipe(imported.recipe)) {
+        return Effect.succeed(imported.recipe)
+      }
+      for (const value of Object.values(imported)) {
+        if (isRecipe(value)) return Effect.succeed(value)
+      }
+      return Effect.fail(new CliError({ message: `Could not find an exported Recipe in ${resolvedRecipe}` }))
+    }),
+  )
+
+const JsonText = Schema.fromJsonString(Schema.Unknown)
+
+export const runCli = (options: CliOptions): Effect.Effect<void, CliError> =>
   Effect.gen(function*() {
-    const targetCwd = options.cwd ? Path.resolve(process.cwd(), options.cwd) : process.cwd()
+    const targetCwd = options.cwd !== undefined
+      ? Path.resolve(process.cwd(), options.cwd)
+      : process.cwd()
     const resolvedRecipe = Path.resolve(process.cwd(), options.recipePath)
 
-    // Dynamic import recipe
-    const imported = yield* Effect.tryPromise(() => import(resolvedRecipe))
-    // SAFETY: Recipe is exported from target module
-    const recipe = (imported.default ?? imported.recipe ?? Object.values(imported).find((v: any) => v && typeof v === "object" && "run" in v && "version" in v)) as Recipe<any, any, any>
+    const recipe = yield* loadRecipe(resolvedRecipe)
 
-    if (recipe === undefined) {
-      console.error(`Error: Could not find an exported Recipe in ${resolvedRecipe}`)
-      process.exit(1)
-    }
-
-    if (options.toolSchema) {
+    if (options.toolSchema === true) {
       const tool = recipeToAgentTool(recipe)
-      console.log(JSON.stringify(tool, null, 2))
+      const encoded = yield* Schema.encodeEffect(JsonText)(tool).pipe(
+        Effect.mapError((cause) => new CliError({ message: String(cause) })),
+      )
+      yield* Console.log(encoded)
       return
     }
 
@@ -49,28 +80,31 @@ export const runCli = (options: CliOptions): Effect.Effect<void, unknown, any> =
     const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: targetCwd })
     const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
-    const recipeInput = (options.input !== null && typeof options.input === "object" && !("project" in options.input))
-      ? { ...options.input, project: app }
-      : (options.input === undefined ? undefined : options.input)
-
-    const useColor = options.noColor !== true && process.env.NO_COLOR === undefined
+    const noColorConfig = yield* Config.string("NO_COLOR").pipe(
+      Config.option,
+      Effect.orDie,
+    )
+    const useColor = options.noColor !== true && Option.isNone(noColorConfig)
 
     yield* Effect.gen(function*() {
-      const plan = yield* Recipe.run(recipe, recipeInput)
+      const plan = yield* RecipeApi.run(recipe, options.input)
       const preview = yield* Preview.of(plan)
 
-      console.log(renderPlanPreview(preview, { color: useColor }))
+      yield* Console.log(renderPlanPreview(preview, { color: useColor }))
 
       if (options.mode === "verify" || options.mode === "apply") {
-        const verified = yield* Verification.verify(plan, recipe, recipeInput)
+        const verified = yield* Verification.verify(plan, recipe, options.input)
         if (verified.diagnosticDiff) {
-          console.log(renderDiagnosticDiff(verified.diagnosticDiff, { color: useColor }))
+          yield* Console.log(renderDiagnosticDiff(verified.diagnosticDiff, { color: useColor }))
         }
 
         if (options.mode === "apply") {
           const receipt = yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
-          console.log(`\n✔ Applied ${receipt.outputs.length} file changes successfully!`)
+          yield* Console.log(`\n✔ Applied ${receipt.outputs.length} file changes successfully!`)
         }
       }
-    }).pipe(Effect.provide(workspaceLayer))
+    }).pipe(
+      Effect.provide(workspaceLayer),
+      Effect.mapError((cause) => new CliError({ message: String(cause) })),
+    )
   })

@@ -8,7 +8,7 @@
  * the durable guard data from the snapshot. Finalization (ordering, conflict
  * rejection, plan identity) belongs to the engine in `Recipe.run`.
  */
-import * as Path from "node:path"
+import { path as Path } from "../platform/node.ts"
 import { Effect } from "effect"
 import type {
   ArrowFunction,
@@ -31,10 +31,10 @@ import {
   isStringLiteral,
 } from "typescript/unstable/ast/is"
 import type { Symbol as NativeSymbol } from "typescript/unstable/async"
-import { textHash } from "../prototype/edits.ts"
-import { type NativeCompilerError, nativeRequest } from "../prototype/native-compiler.ts"
-import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../prototype/plan.ts"
-import { projectRelativePath } from "../prototype/project-path.ts"
+import { textHash } from "../internal/edits.ts"
+import { type NativeCompilerError, nativeRequest } from "../internal/native-compiler.ts"
+import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
+import { projectRelativePath } from "../internal/project-path.ts"
 import { Query, type QueryContractError, type Selection } from "./query.ts"
 import type { FileNotFound, ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "./workspace.ts"
 
@@ -280,7 +280,7 @@ export const files = {
       const toBase = toPath.replace(/\.(ts|tsx|js|jsx)$/, "")
 
       const importEdits: Array<ProposedEdit> = []
-      const sourceNames = yield* project.sourceFileNames()
+      const sourceNames = yield* project.sourceFileNames
 
       for (const absFile of sourceNames) {
         const file = yield* project.sourceFile(absFile)
@@ -1115,7 +1115,7 @@ export const cleanUnused = (
 ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
   Effect.gen(function*() {
     let accumulated = empty
-    const sourceNames = yield* project.sourceFileNames()
+    const sourceNames = yield* project.sourceFileNames
 
     for (const absPath of sourceNames) {
       const file = yield* project.sourceFile(absPath)

@@ -7,8 +7,8 @@
  * argument and compose across a multi-project workspace. Native node types
  * flow through with exact inference — there is no wrapper hierarchy.
  */
-import * as Path from "node:path"
-import { Data, Effect, Stream } from "effect"
+import { path as Path } from "../platform/node.ts"
+import { Data, Effect, Predicate, Stream } from "effect"
 import {
   getJSDocTags,
   SyntaxKind,
@@ -26,8 +26,8 @@ import {
   isPropertyAccessExpression,
 } from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
-import { type NativeCompilerError, nativeRequest } from "../prototype/native-compiler.ts"
-import { isWithinProject, projectRelativePath } from "../prototype/project-path.ts"
+import { type NativeCompilerError, nativeRequest } from "../internal/native-compiler.ts"
+import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
 import type { Pattern } from "./pattern.ts"
 import type { ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "./workspace.ts"
 
@@ -84,18 +84,19 @@ const criterionMake = <A, E = never, R = never>(options: {
   ) => Effect.Effect<ReadonlyArray<Readonly<Record<string, EvidenceFact>> | undefined>, E, R>
 }): Criterion<A, E, R> => options
 
+type PredicateOutcome = boolean | Readonly<Record<string, EvidenceFact>> | undefined
+
 const criterionPredicate = <A>(
   id: string,
-  predicateFn: (selection: Selection<A>) => boolean | Readonly<Record<string, EvidenceFact>> | undefined,
+  predicateFn: (selection: Selection<A>) => PredicateOutcome,
 ): Criterion<A> => ({
   id,
   select: (selections) =>
     Effect.sync(() =>
       selections.map((selection) => {
         const res = predicateFn(selection)
-        if (typeof res === "boolean") {
-          return res ? { matched: true } : undefined
-        }
+        if (res === true) return { matched: true }
+        if (res === false || res === undefined) return undefined
         return res
       })
     ),
@@ -129,7 +130,7 @@ const criterionAny = <A, E, R>(
   id: `any(${criteria.map((c) => c.id).join(", ")})`,
   select: (selections) =>
     Effect.gen(function*() {
-      const results: Array<Record<string, EvidenceFact> | undefined> = new Array(selections.length)
+      const results: Array<Record<string, EvidenceFact> | undefined> = Array.from({ length: selections.length })
       for (const criterion of criteria) {
         const batchResults = yield* criterion.select(selections)
         for (let i = 0; i < selections.length; i++) {
@@ -200,7 +201,7 @@ export const nodes = <A extends Node>(
   project: ProjectSnapshot,
   guard: (node: Node) => node is A,
 ): Query<A, ProjectSnapshotError> =>
-  Stream.fromIterableEffect(project.sourceFileNames()).pipe(
+  Stream.fromIterableEffect(project.sourceFileNames).pipe(
     Stream.flatMap((fileName) =>
       Stream.fromEffect(project.unsafeNative((nativeProject) =>
         nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
@@ -230,7 +231,7 @@ export const match = <Out>(
   project: ProjectSnapshot,
   pattern: Pattern<Node, Out>,
 ): Query<Out, ProjectSnapshotError> =>
-  Stream.fromIterableEffect(project.sourceFileNames()).pipe(
+  Stream.fromIterableEffect(project.sourceFileNames).pipe(
     Stream.flatMap((fileName) =>
       Stream.fromEffect(project.unsafeNative((nativeProject) =>
         nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName))
@@ -264,10 +265,9 @@ export const match = <Out>(
                 end: node.getEnd(),
                 evidence: [{
                   criterion: pattern.kind ?? "pattern-match",
-                  facts: {
-                    kind: SyntaxKind[node.kind] ?? node.kind,
-                    ...(result.facts ?? {}),
-                  },
+                  facts: result.facts === undefined
+                    ? { kind: SyntaxKind[node.kind] ?? node.kind }
+                    : { kind: SyntaxKind[node.kind] ?? node.kind, ...result.facts },
                 }],
               }
             })
@@ -324,7 +324,9 @@ export const resolvesTo = <A extends Node>(
         selections.map((selection, index) => ({ selection, index })),
         ({ selection }) => `${selection.project.project.id}${selection.fileName}`,
       )
-      const facts = new Array<Readonly<Record<string, EvidenceFact>> | undefined>(selections.length)
+      const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
+        length: selections.length,
+      })
       yield* Effect.all([...byProjectFile.values()].map((group) =>
         Effect.gen(function*() {
           const project = group[0]!.selection.project
@@ -375,27 +377,45 @@ export const hasJSDocTag = <A extends Node>(
     return match !== undefined ? { tag: normalizedTag } : undefined
   })
 
+interface NodeWithModifiers extends Node {
+  readonly modifiers?: ReadonlyArray<{ readonly kind: SyntaxKind }>
+}
+
+const hasModifiers = (node: Node): node is NodeWithModifiers => "modifiers" in node
+
+const readModifiers = (node: Node): ReadonlyArray<{ readonly kind: SyntaxKind }> | undefined => {
+  if (!hasModifiers(node) || node.modifiers === undefined) return undefined
+  return node.modifiers
+}
+
 /** Admit nodes that have an export modifier. */
 export const isExported = <A extends Node>(): Criterion<A> =>
   criterionPredicate("is-exported", (selection) => {
-    const node = selection.value
-    const modifiers = "modifiers" in node && Array.isArray((node as any).modifiers)
-      ? (node as any).modifiers
-      : undefined
-    const hasExport = modifiers?.some((m: any) => m.kind === SyntaxKind.ExportKeyword) ?? false
+    const modifiers = readModifiers(selection.value)
+    const hasExport = modifiers?.some((modifier) => modifier.kind === SyntaxKind.ExportKeyword) ?? false
     return hasExport ? { exported: true } : undefined
   })
+
+const textIncludes = (pattern: string) => <A extends Node>(selection: Selection<A>) => {
+  const sourceFile = selection.value.getSourceFile()
+  const text = selection.value.getText(sourceFile)
+  return text.includes(pattern) ? { matchedText: text } : undefined
+}
+
+const textMatchesRegExp = (pattern: RegExp) => <A extends Node>(selection: Selection<A>) => {
+  const sourceFile = selection.value.getSourceFile()
+  const text = selection.value.getText(sourceFile)
+  return pattern.test(text) ? { matchedText: text } : undefined
+}
 
 /** Admit nodes whose text matches a string or regular expression. */
 export const textMatches = <A extends Node>(
   pattern: string | RegExp,
 ): Criterion<A> =>
-  criterionPredicate(`text-matches:${String(pattern)}`, (selection) => {
-    const sourceFile = selection.value.getSourceFile()
-    const text = selection.value.getText(sourceFile)
-    const matched = typeof pattern === "string" ? text.includes(pattern) : pattern.test(text)
-    return matched ? { matchedText: text } : undefined
-  })
+  criterionPredicate(
+    `text-matches:${String(pattern)}`,
+    pattern instanceof RegExp ? textMatchesRegExp(pattern) : textIncludes(pattern),
+  )
 
 /** Selection-level predicate filter; evidence of surviving selections is preserved. */
 export const filter = <A, E, R>(
@@ -439,38 +459,48 @@ export const typeOf = (
   return project.typeAt(fileName, pos)
 }
 
+export type IntrinsicTypeName = "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void"
+
+const isIntrinsicTypeName = (value: NativeType | IntrinsicTypeName): value is IntrinsicTypeName =>
+  Predicate.isString(value)
+
 /** Admit nodes whose computed type is assignable to `target`. */
 export const typeAssignableTo = <A extends Node>(
-  target: NativeType | "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void",
-): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
-  id: `type-assignable-to:${typeof target === "string" ? target : "custom-type"}`,
-  select: (selections) =>
-    Effect.gen(function*() {
-      const facts = new Array<Readonly<Record<string, EvidenceFact>> | undefined>(selections.length)
-      for (let i = 0; i < selections.length; i++) {
-        const selection = selections[i]!
-        const node = selection.value
-        const sourceFile = node.getSourceFile()
-        const pos = node.getStart(sourceFile)
-        const nodeType = yield* selection.project.typeAt(selection.fileName, pos)
-        if (nodeType === undefined) continue
+  target: NativeType | IntrinsicTypeName,
+): Criterion<A, NativeCompilerError | SnapshotExpired> => {
+  const targetLabel = isIntrinsicTypeName(target) ? target : "custom-type"
+  return {
+    id: `type-assignable-to:${targetLabel}`,
+    select: (selections) =>
+      Effect.gen(function*() {
+        const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
+          length: selections.length,
+        })
+        for (let i = 0; i < selections.length; i++) {
+          const selection = selections[i]!
+          const node = selection.value
+          const sourceFile = node.getSourceFile()
+          const pos = node.getStart(sourceFile)
+          const nodeType = yield* selection.project.typeAt(selection.fileName, pos)
+          if (nodeType === undefined) continue
 
-        let expectedType: NativeType
-        if (typeof target === "string") {
-          expectedType = yield* selection.project.intrinsicType(target)
-        } else {
-          expectedType = target
-        }
+          const expectedType = isIntrinsicTypeName(target)
+            ? yield* selection.project.intrinsicType(target)
+            : target
 
-        const assignable = yield* selection.project.isTypeAssignableTo(nodeType, expectedType)
-        if (assignable) {
-          const typeStr = yield* selection.project.typeToString(nodeType)
-          facts[i] = { type: typeStr, assignableTo: typeof target === "string" ? target : "type" }
+          const assignable = yield* selection.project.isTypeAssignableTo(nodeType, expectedType)
+          if (assignable) {
+            const typeStr = yield* selection.project.typeToString(nodeType)
+            facts[i] = {
+              type: typeStr,
+              assignableTo: isIntrinsicTypeName(target) ? target : "type",
+            }
+          }
         }
-      }
-      return facts
-    }),
-})
+        return facts
+      }),
+  }
+}
 
 /** Admit nodes whose computed type satisfies a custom predicate. */
 export const typeSatisfies = <A extends Node>(
@@ -480,7 +510,9 @@ export const typeSatisfies = <A extends Node>(
   id: `type-satisfies:${id}`,
   select: (selections) =>
     Effect.gen(function*() {
-      const facts = new Array<Readonly<Record<string, EvidenceFact>> | undefined>(selections.length)
+      const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
+        length: selections.length,
+      })
       for (let i = 0; i < selections.length; i++) {
         const selection = selections[i]!
         const node = selection.value

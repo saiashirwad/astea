@@ -8,20 +8,19 @@
  * policies, and finalizes the durable Transformation Plan. Recipes can never
  * forge snapshot evidence or return partial plans.
  */
-import * as Fs from "node:fs/promises"
-import * as Path from "node:path"
+import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { createHash } from "node:crypto"
 import { Data, Effect, Schema } from "effect"
-import { textHash } from "../prototype/edits.ts"
-import { NativeCompilerError } from "../prototype/native-compiler.ts"
+import { EditConflict, InvalidEdit, textHash } from "../internal/edits.ts"
+import { NativeCompilerError } from "../internal/native-compiler.ts"
 import {
   finalizePlan,
   type Json,
   type PlanBuildError,
   type SourceFingerprint,
   type TransformationPlan,
-} from "../prototype/plan.ts"
-import { isWithinProject, projectRelativePath } from "../prototype/project-path.ts"
+} from "../internal/plan.ts"
+import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
 import { Draft } from "./draft.ts"
 import { type CustomPolicyRule, Policy } from "./policy.ts"
 import type { PlanPolicies } from "./plan.ts"
@@ -33,6 +32,7 @@ import {
   type SnapshotExpired,
   type SnapshotTransition,
   type WorkspaceSnapshotService,
+  FileNotFound,
 } from "./workspace.ts"
 
 /**
@@ -91,10 +91,12 @@ const define = <Input = undefined, E = never, R = never>(
     run: definition.run,
   })
 
+type ComposableRecipe<Input, E, R> = Recipe<Input, E, R>
+
 /** Sequentially compose recipes, projecting intermediate states via in-memory snapshot overlays. */
 export const pipe = <Input = undefined, E = never, R = never>(
-  ...recipes: ReadonlyArray<Recipe<Input, any, any>>
-): Recipe<Input, E, R> => {
+  ...recipes: ReadonlyArray<ComposableRecipe<Input, E, R>>
+): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> => {
   const name = recipes.map((r) => r.name).join(" >> ")
   const version = recipes.map((r) => r.version).join("+")
   const policies = Policy.all(recipes.flatMap((r) => [r.policies]))
@@ -121,8 +123,8 @@ export const pipe = <Input = undefined, E = never, R = never>(
 
 /** Concurrently run recipes over the current snapshot and merge their drafts. */
 export const all = <Input = undefined, E = never, R = never>(
-  recipes: ReadonlyArray<Recipe<Input, any, any>>,
-): Recipe<Input, E, R> => {
+  recipes: ReadonlyArray<ComposableRecipe<Input, E, R>>,
+): Recipe<Input, E | EditConflict | InvalidEdit | FileNotFound | NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired, R> => {
   const name = `all(${recipes.map((r) => r.name).join(", ")})`
   const version = recipes.map((r) => r.version).join("+")
   const policies = Policy.all(recipes.flatMap((r) => [r.policies]))
@@ -137,9 +139,13 @@ export const all = <Input = undefined, E = never, R = never>(
   })
 }
 
+export type SnapshotPredicate = (
+  snapshot: WorkspaceSnapshotService,
+) => boolean | Effect.Effect<boolean>
+
 /** Conditionally execute one of two recipes based on a snapshot predicate. */
 export const branch = <Input = undefined, E1 = never, R1 = never, E2 = never, R2 = never>(
-  predicate: (snapshot: WorkspaceSnapshotService) => Effect.Effect<boolean, any, any> | boolean,
+  predicate: SnapshotPredicate,
   ifTrue: Recipe<Input, E1, R1>,
   ifFalse: Recipe<Input, E2, R2>,
 ): Recipe<Input, E1 | E2, R1 | R2> => {
@@ -152,7 +158,7 @@ export const branch = <Input = undefined, E1 = never, R1 = never, E2 = never, R2
       Effect.gen(function*() {
         const snapshot = yield* WorkspaceSnapshot
         const result = predicate(snapshot)
-        const cond = typeof result === "boolean" ? result : yield* result
+        const cond = Effect.isEffect(result) ? yield* result : result
         return cond ? yield* ifTrue.run(input) : yield* ifFalse.run(input)
       }),
   })
@@ -160,7 +166,7 @@ export const branch = <Input = undefined, E1 = never, R1 = never, E2 = never, R2
 
 /** Conditionally execute a recipe if a snapshot predicate holds. */
 export const when = <Input = undefined, E = never, R = never>(
-  predicate: (snapshot: WorkspaceSnapshotService) => Effect.Effect<boolean, any, any> | boolean,
+  predicate: SnapshotPredicate,
   recipe: Recipe<Input, E, R>,
 ): Recipe<Input, E, R> =>
   branch(
@@ -194,7 +200,7 @@ const fingerprintWorkspace = (
     const sources: Array<SourceFingerprint> = []
     for (const configured of snapshot.projects) {
       const project = yield* snapshot.project(configured)
-      const owned = (yield* project.sourceFileNames()).filter((fileName) =>
+      const owned = (yield* project.sourceFileNames).filter((fileName) =>
         isWithinProject(project.root, fileName)
       )
       const files = [...new Set(owned)].sort()
@@ -233,9 +239,9 @@ const run = <Input, E, R>(
   Effect.gen(function*() {
     let validatedInput = input
     if (recipe.schema !== undefined) {
-      // SAFETY: schema decodeUnknownEffect validates untrusted input into type Input
-      const decoder = Schema.decodeUnknownEffect(recipe.schema) as (u: unknown) => Effect.Effect<Input, unknown>
-      const decoded: Input = yield* decoder(input).pipe(
+      // SAFETY: Schema decoding is a pure operation with no service requirements.
+      const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: unknown) => Effect.Effect<Input, unknown, never>
+      const decoded = yield* decode(input).pipe(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )
       validatedInput = decoded

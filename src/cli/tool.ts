@@ -4,7 +4,7 @@
  * Turns any `Recipe` into a typed, validated agent tool conforming
  * to standard LLM function-calling protocols (OpenAI / MCP / Anthropic).
  */
-import { Effect, Layer } from "effect"
+import { Data, Effect, Layer, Schema } from "effect"
 import * as JSONSchema from "effect/JSONSchema"
 import {
   Application,
@@ -13,6 +13,7 @@ import {
   Recipe,
   Verification,
   Workspace,
+  type WorkspaceSnapshot,
 } from "../api/index.ts"
 
 export type ToolAction = "create" | "delete" | "modify"
@@ -31,50 +32,72 @@ export interface AgentToolResult {
   readonly files: ReadonlyArray<ToolFileResult>
 }
 
-export interface AgentTool {
+export type JsonPrimitive = null | boolean | number | string
+export type JsonValue = JsonPrimitive | ReadonlyArray<JsonValue> | JsonObject
+export interface JsonObject {
+  readonly [key: string]: JsonValue
+}
+
+export type JsonSchemaDoc = JsonObject
+
+export interface AgentTool<R = never> {
   readonly name: string
   readonly description: string
   readonly schema: JsonSchemaDoc
   readonly execute: (
-    input: JsonPayload,
+    input: JsonValue,
     options?: { readonly apply?: boolean },
-  ) => Effect.Effect<AgentToolResult, unknown, any>
+  ) => Effect.Effect<AgentToolResult, ToolExecutionError, Workspace | R>
 }
 
-export type JsonPayload = null | boolean | number | string | ReadonlyArray<any> | { readonly [key: string]: any }
-export type JsonSchemaDoc = { readonly [key: string]: any }
+export class ToolExecutionError extends Data.TaggedError("ToolExecutionError")<{
+  readonly recipe: string
+  readonly cause: unknown
+}> {}
+
+const emptyObjectSchema: JsonSchemaDoc = { type: "object", properties: {} }
 
 /** Convert a recipe into a structured Agent Tool. */
 export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
   recipe: Recipe<Input, E, R>,
   description = `Transform codebase using ${recipe.name}`,
-): AgentTool => {
-  // SAFETY: JSONSchema generation produces valid document structure
-  const jsonSchema: JsonSchemaDoc = recipe.schema !== undefined
-    // SAFETY: Effect Schema AST is compatible with JSONSchema generator
-    ? (JSONSchema.fromSchemaDraft2020_12(recipe.schema as never) as unknown as JsonSchemaDoc)
-    : { type: "object", properties: {} }
+): AgentTool<Exclude<R, WorkspaceSnapshot>> => {
+  let jsonSchema: JsonSchemaDoc = emptyObjectSchema
+  if (recipe.schema !== undefined) {
+    // SAFETY: JSONSchema generator yields a JSON-object document for object schemas
+    const generated = JSONSchema.fromSchemaDraft2020_12(recipe.schema as never)
+    // SAFETY: draft generator returns a JSON object document
+    jsonSchema = generated as unknown as JsonSchemaDoc
+  }
 
   return {
     name: `teatime_${recipe.name.replace(/[^a-zA-Z0-9_]/g, "_")}`,
     description,
     schema: jsonSchema,
-    execute: (rawInput: JsonPayload, options = {}) =>
+    execute: (rawInput, options = {}) =>
       Effect.gen(function*() {
         const workspace = yield* Workspace
         const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(Layer.succeed(Workspace, workspace)))
 
-        // SAFETY: Recipe.run internally validates input against recipe.schema
-        const typedInput = rawInput as Input
-        const plan = yield* Recipe.run(recipe, typedInput)
-        const preview = yield* Preview.of(plan)
-        const verified = yield* Verification.verify(plan, recipe, typedInput)
+        const typedInput = yield* decodeToolInput(recipe, rawInput)
+        const plan = yield* Recipe.run(recipe, typedInput).pipe(
+          Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
+        )
+        const preview = yield* Preview.of(plan).pipe(
+          Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
+        )
+        const verified = yield* Verification.verify(plan, recipe, typedInput).pipe(
+          Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
+        )
 
         if (options.apply === true) {
-          yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
+          yield* Application.apply(verified).pipe(
+            Effect.provide(mainLayer),
+            Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
+          )
         }
 
-        const files: ReadonlyArray<ToolFileResult> = preview.files.map((f) => {
+        const files: ReadonlyArray<ToolFileResult> = preview.files.map((f: (typeof preview.files)[number]) => {
           const action: ToolAction = f.beforeText === "" ? "create" : f.afterText === "" ? "delete" : "modify"
           return { fileName: f.fileName, action }
         })
@@ -89,4 +112,19 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
         }
       }),
   }
+}
+
+const decodeToolInput = <Input, E, R>(
+  recipe: Recipe<Input, E, R>,
+  rawInput: JsonValue,
+): Effect.Effect<Input, ToolExecutionError> => {
+  if (recipe.schema === undefined) {
+    // SAFETY: recipes without schemas accept the caller-provided input contract
+    return Effect.succeed(rawInput as Input)
+  }
+  // SAFETY: decoding a schema only needs the schema's pure validation context.
+  const decode = Schema.decodeUnknownEffect(recipe.schema) as (value: unknown) => Effect.Effect<Input, unknown, never>
+  return decode(rawInput).pipe(
+    Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
+  )
 }

@@ -7,6 +7,7 @@
  * is accepted. Application is the sole stage that writes project files.
  */
 import { Effect, Layer } from "effect"
+import { layer as nodeLayer } from "../platform/node.ts"
 import {
   type ApplicationFailure,
   type ApplicationIndeterminate,
@@ -15,7 +16,7 @@ import {
   PlanApplication,
   type StalePlanError,
   type VerifiedPlan,
-} from "../prototype/verification.ts"
+} from "../internal/verification.ts"
 import { Workspace } from "./workspace.ts"
 
 export { PlanApplication }
@@ -37,5 +38,5 @@ export const Application = {
     ApplicationReceipt,
     StalePlanError | ApplicationFailure | ApplicationIndeterminate,
     PlanApplication
-  > => PlanApplication.use((application) => application.apply(verified)),
+  > => PlanApplication.use((application) => application.apply(verified).pipe(Effect.provide(nodeLayer))),
 }

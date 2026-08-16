@@ -7,7 +7,7 @@
  * the region-provided capability that keeps native values honest about their
  * generation. `ConfiguredProject` and `ProjectSnapshot` are plain values.
  */
-import * as Path from "node:path"
+import { path as Path } from "../platform/node.ts"
 import { Context, Data, Effect, Layer, Semaphore } from "effect"
 import type { SourceFile } from "typescript/unstable/ast"
 import type {
@@ -18,14 +18,14 @@ import type {
 } from "typescript/unstable/async"
 import { SymbolFlags } from "typescript/unstable/async"
 import type { FileChanges } from "typescript/unstable/proto"
-import { applyFileEdits, type EditConflict, type InvalidEdit, type TextEdit } from "../prototype/edits.ts"
+import { applyFileEdits, type EditConflict, type InvalidEdit, type TextEdit } from "../internal/edits.ts"
 import {
   layer as nativeCompilerLayer,
   NativeCompiler,
   type NativeCompilerError,
   nativeRequest,
-} from "../prototype/native-compiler.ts"
-import type { PlannedFileOperation, PlannedTextEdit } from "../prototype/plan.ts"
+} from "../internal/native-compiler.ts"
+import type { PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
 
 export type { NativeCompilerError }
 
@@ -106,10 +106,10 @@ export interface ProjectSnapshot {
   /** Absolute directory containing the project configuration. Runtime detail; never durable. */
   readonly root: string
   readonly rootFiles: ReadonlyArray<string>
-  readonly sourceFileNames: () => Effect.Effect<ReadonlyArray<string>, ProjectSnapshotError>
+  readonly sourceFileNames: Effect.Effect<ReadonlyArray<string>, ProjectSnapshotError>
   readonly sourceFile: (fileName: string) => Effect.Effect<SourceFile | undefined, ProjectSnapshotError>
   readonly sourceText: (fileName: string) => Effect.Effect<string, FileNotFound | ProjectSnapshotError>
-  readonly semanticDiagnosticCount: () => Effect.Effect<number, ProjectSnapshotError>
+  readonly semanticDiagnosticCount: Effect.Effect<number, ProjectSnapshotError>
   /** Resolve the symbol at a position in a project-relative file. */
   readonly symbolAt: (
     fileName: string,
@@ -192,13 +192,30 @@ export class Workspace extends Context.Service<Workspace, WorkspaceService>()(
   ): Layer.Layer<Workspace, DuplicateConfiguredProject> => layer(definition, options)
 }
 
+interface NativeFileChangeLists {
+  changed?: Array<string>
+  created?: Array<string>
+  deleted?: Array<string>
+}
+
+interface OpenSnapshotParams {
+  openProjects?: Array<string>
+  fileChanges?: FileChanges
+}
+
 const toNativeChanges = (changes: WorkspaceChanges | undefined): FileChanges | undefined => {
   if (changes === undefined) return undefined
   if ("invalidateAll" in changes) return { invalidateAll: true }
-  const result: { changed?: Array<string>; created?: Array<string>; deleted?: Array<string> } = {}
-  if (changes.changed !== undefined) result.changed = [...changes.changed]
-  if (changes.created !== undefined) result.created = [...changes.created]
-  if (changes.deleted !== undefined) result.deleted = [...changes.deleted]
+  const result: NativeFileChangeLists = {}
+  if (changes.changed !== undefined) {
+    result.changed = [...changes.changed]
+  }
+  if (changes.created !== undefined) {
+    result.created = [...changes.created]
+  }
+  if (changes.deleted !== undefined) {
+    result.deleted = [...changes.deleted]
+  }
   return result
 }
 
@@ -233,7 +250,7 @@ export const make = (
       program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
     ): Effect.Effect<A, E | NativeCompilerError, Exclude<R, WorkspaceSnapshot>> =>
       Effect.scoped(Effect.gen(function*() {
-        const params: { openProjects?: Array<string>; fileChanges?: FileChanges } = {}
+        const params: OpenSnapshotParams = {}
         if (openProjects !== undefined) {
           params.openProjects = [...openProjects]
         }
@@ -263,7 +280,7 @@ export const make = (
 
           const projectRoot = Path.dirname(configFileName)
 
-          const sourceFileNames = Effect.fn("ProjectSnapshot.sourceFileNames")(function*() {
+          const sourceFileNames = Effect.gen(function*() {
             yield* ensureActive
             return yield* nativeRequest("getSourceFileNames", () => nativeProject.program.getSourceFileNames())
           })
@@ -286,7 +303,7 @@ export const make = (
             return file.text
           })
 
-          const semanticDiagnosticCount = Effect.fn("ProjectSnapshot.semanticDiagnosticCount")(function*() {
+          const semanticDiagnosticCount = Effect.gen(function*() {
             yield* ensureActive
             const diagnostics = yield* nativeRequest(
               "getSemanticDiagnostics",
@@ -552,4 +569,3 @@ export const overlay = <A, E, R>(
     )
     return yield* workspace.withIsolatedSnapshot(overlayMap, program)
   })
-

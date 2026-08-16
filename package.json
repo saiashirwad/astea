@@ -20,21 +20,10 @@
     "lint": "oxlint",
     "effect:check": "effect-tsgo diagnostics --project tsconfig.json",
     "prepare": "effect-tsgo patch --no-typescript --oxlint",
-    "test": "vitest run src", 
-    "prototype:native": "tsx src/prototype/run-native-api.ts",
-    "prototype:lifecycle": "tsx src/prototype/run-native-lifecycle.ts",
-    "prototype:workspace": "tsx src/prototype/run-workspace-snapshot.ts",
-    "prototype:query": "tsx src/prototype/run-semantic-query.ts",
-    "prototype:identity": "vitest run src/prototype/identity.test.ts",
-    "prototype:edits": "vitest run src/prototype/edits.test.ts",
-    "prototype:requests": "vitest run src/prototype/semantic-request.test.ts",
-    "prototype:plan": "vitest run src/prototype/plan.test.ts",
-    "prototype:verification": "vitest run src/prototype/verification.test.ts",
-    "prototype:end-to-end": "vitest run src/prototype/end-to-end.test.ts",
-    "prototype:stress": "vitest run src/prototype/stress-recipes.test.ts",
-    "prototype:contract": "vitest run src/prototype/public-api-probe.test.ts src/prototype/snapshot-manifest.test.ts"
+    "test": "vitest run src"
   },
   "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.109",
     "effect": "4.0.0-rc.109"
   },
   "devDependencies": {

@@ -8,19 +8,21 @@
  * declared, and returns the process-local Verified Plan: the only input
  * Application accepts. Neither stage writes project files.
  */
-import * as Path from "node:path"
-import { Effect } from "effect"
-import { nativeRequest, type NativeCompilerError } from "../prototype/native-compiler.ts"
-import type { TransformationPlan } from "../prototype/plan.ts"
+import { path as Path } from "../platform/node.ts"
+import { Effect, Predicate } from "effect"
+import { layer as nodeLayer } from "../platform/node.ts"
+import { nativeRequest, type NativeCompilerError } from "../internal/native-compiler.ts"
+import type { TransformationPlan } from "../internal/plan.ts"
 import {
   type PlanPreview,
   type PolicyResult,
   previewPlan,
   StalePlanError,
+  type VerificationObservation,
   VerificationFailure,
   type VerifiedPlan,
   verifyPreview,
-} from "../prototype/verification.ts"
+} from "../internal/verification.ts"
 import {
   computeDiagnosticDiff,
   type DiagnosticDiff,
@@ -38,7 +40,7 @@ import {
 export {
   StalePlanError,
   VerificationFailure,
-} from "../prototype/verification.ts"
+} from "../internal/verification.ts"
 
 export type {
   ApplicationReceipt,
@@ -46,9 +48,27 @@ export type {
   PlanPreview,
   VerificationReceipt,
   VerifiedPlan,
-} from "../prototype/verification.ts"
+} from "../internal/verification.ts"
 
 export type { DiagnosticDiff, DiagnosticRecord, PolicyEvaluationContext } from "./policy.ts"
+
+interface NativeDiagnosticMessage {
+  readonly messageText: string
+}
+
+interface NativeDiagnostic {
+  readonly code: number
+  readonly messageText?: string | NativeDiagnosticMessage
+  readonly category: number
+  readonly file?: { readonly fileName?: string }
+  readonly start?: number
+  readonly length?: number
+}
+
+const diagnosticMessageText = (messageText: string | NativeDiagnosticMessage | undefined): string => {
+  if (Predicate.isString(messageText)) return messageText
+  return messageText?.messageText ?? "Unknown diagnostic"
+}
 
 const absoluteTarget = (
   workspaceRoot: string,
@@ -72,7 +92,7 @@ const absoluteTarget = (
 const preview = (
   plan: TransformationPlan,
 ): Effect.Effect<PlanPreview, StalePlanError | VerificationFailure, Workspace> =>
-  Workspace.use((workspace) => previewPlan(plan, workspace.root))
+  Workspace.use((workspace) => previewPlan(plan, workspace.root).pipe(Effect.provide(nodeLayer)))
 
 export const Preview = {
   of: preview,
@@ -90,19 +110,10 @@ const collectDiagnostics = Effect.gen(function*() {
         () => nativeProject.program.getSemanticDiagnostics(),
       )
     )
-    // SAFETY: TypeScript compiler native diagnostics return collection of diagnostic objects
-    const diagnosticList = diags as unknown as ReadonlyArray<{
-      code: number
-      messageText: string | { messageText: string }
-      category: number
-      file?: { fileName?: string }
-      start?: number
-      length?: number
-    }>
+    // SAFETY: TypeScript native diagnostics expose the NativeDiagnostic shape
+    const diagnosticList = diags as unknown as ReadonlyArray<NativeDiagnostic>
     for (const d of diagnosticList) {
-      const message = typeof d.messageText === "string"
-        ? d.messageText
-        : d.messageText?.messageText ?? "Unknown diagnostic"
+      const message = diagnosticMessageText(d.messageText)
       allDiagnostics.push({
         code: d.code,
         message,
@@ -159,10 +170,12 @@ const verify = <Input, E, R>(
       Effect.gen(function*() {
         const diagnostics = yield* collectDiagnostics
         if (plan.policies.idempotence !== "required") {
-          return { diagnostics, replayEdits: undefined }
+          // SAFETY: no replay is requested, so this optional count is absent by construction.
+          return { diagnostics, replayEdits: undefined as number | undefined }
         }
         const replay = yield* recipe.run(input)
-        return { diagnostics, replayEdits: replay.edits.length }
+        // SAFETY: replay.edits is the normalized edit list produced by the recipe.
+        return { diagnostics, replayEdits: replay.edits.length as number | undefined }
       }),
     )
 
@@ -178,7 +191,7 @@ const verify = <Input, E, R>(
       })
     }
 
-    const policyResults: Array<{ readonly name: string; readonly passed: boolean; readonly detail?: string }> = []
+    const policyResults: Array<PolicyResult> = []
     if (plan.policies.matchCount.min !== undefined || plan.policies.matchCount.max !== undefined) {
       policyResults.push({ name: "match-count", passed: true })
     }
@@ -186,14 +199,15 @@ const verify = <Input, E, R>(
       policyResults.push({ name: "affected-files", passed: true })
     }
     const introducedErrors = diagnosticDiff.introduced.filter((diagnostic) => diagnostic.category === "error")
-    policyResults.push(plan.policies.diagnostics === "no-new-errors"
-      ? { name: "no-new-errors", passed: introducedErrors.length === 0 }
-      : { name: "diagnostic-diff", passed: true })
+    if (plan.policies.diagnostics === "no-new-errors") {
+      policyResults.push({ name: "no-new-errors", passed: introducedErrors.length === 0 })
+    } else {
+      policyResults.push({ name: "diagnostic-diff", passed: true })
+    }
     if (plan.policies.idempotence === "required") {
       policyResults.push({ name: "idempotence", passed: proposedRun.replayEdits === 0 })
     }
 
-    // Evaluate custom policy rules
     const context: PolicyEvaluationContext = {
       actualMatches: matches ?? 0,
       affectedFiles: proposed.files.length,
@@ -204,17 +218,15 @@ const verify = <Input, E, R>(
     if (recipe.policies.rules !== undefined) {
       for (const rule of recipe.policies.rules) {
         const result = rule.evaluate(context)
-        const passed = result === true
-        policyResults.push({
-          name: rule.name,
-          passed,
-          ...(typeof result === "string" ? { detail: result } : {}),
-        })
-        if (!passed) {
+        if (result === true) {
+          policyResults.push({ name: rule.name, passed: true })
+        } else {
+          const detail = result === false ? `Policy rule '${rule.name}' failed` : result
+          policyResults.push({ name: rule.name, passed: false, detail })
           return yield* new VerificationFailure({
             planId: plan.planId,
             policy: "diagnostics",
-            detail: typeof result === "string" ? result : `Policy rule '${rule.name}' failed`,
+            detail,
           })
         }
       }
@@ -223,21 +235,20 @@ const verify = <Input, E, R>(
     const baselineErrorCount = baselineDiagnostics.filter((d) => d.category === "error").length
     const proposedErrorCount = proposedRun.diagnostics.filter((d) => d.category === "error").length
 
-    const observation: {
-      actualMatches: number
-      baselineErrorCount: number
-      proposedErrorCount: number
-      secondPlanEditCount?: number
-      policyResults?: ReadonlyArray<PolicyResult>
-    } = {
-      actualMatches: matches ?? 0,
-      baselineErrorCount,
-      proposedErrorCount,
-      policyResults,
-    }
-    if (proposedRun.replayEdits !== undefined) {
-      observation.secondPlanEditCount = proposedRun.replayEdits
-    }
+    const observation: VerificationObservation = proposedRun.replayEdits === undefined
+      ? {
+        actualMatches: matches ?? 0,
+        baselineErrorCount,
+        proposedErrorCount,
+        policyResults,
+      }
+      : {
+        actualMatches: matches ?? 0,
+        baselineErrorCount,
+        proposedErrorCount,
+        policyResults,
+        secondPlanEditCount: proposedRun.replayEdits,
+      }
 
     const verified = yield* verifyPreview(plan, proposed, observation)
 

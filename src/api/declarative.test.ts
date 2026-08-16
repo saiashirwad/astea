@@ -1,5 +1,4 @@
-import * as Fs from "node:fs/promises"
-import * as Path from "node:path"
+import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { fileURLToPath } from "node:url"
 import { describe, effect, expect, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"

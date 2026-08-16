@@ -6,7 +6,7 @@
  * merging; unset dimensions fall back to the system defaults (no new error
  * diagnostics, unbounded cardinality, idempotence not promised).
  */
-import type { PlanPolicies } from "../prototype/plan.ts"
+import type { PlanPolicies } from "../internal/plan.ts"
 
 export interface DiagnosticRecord {
   readonly code: number | string
