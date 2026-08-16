@@ -10,20 +10,24 @@ import {
   type CallExpression,
   type Identifier,
   type Node,
+  type NoSubstitutionTemplateLiteral,
   type NumericLiteral,
   type ObjectLiteralExpression,
   type PropertyAccessExpression,
   type StringLiteral,
+  type TemplateExpression,
   SyntaxKind,
 } from "typescript/unstable/ast"
 import {
   isCallExpression,
   isIdentifier,
+  isNoSubstitutionTemplateLiteral,
   isNumericLiteral,
   isObjectLiteralExpression,
   isPropertyAccessExpression,
   isPropertyAssignment,
   isStringLiteral,
+  isTemplateExpression,
 } from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
 import { nativeRequest } from "../internal/native-compiler.ts"
@@ -360,6 +364,16 @@ export const typed = (options?: {
     }),
 })
 
+export type StringLike = StringLiteral | NoSubstitutionTemplateLiteral | TemplateExpression
+
+/** Check if an AST node is a string literal or template expression. */
+export const isStringLike = (node: Node): node is StringLike =>
+  isStringLiteral(node) || isNoSubstitutionTemplateLiteral(node) || isTemplateExpression(node)
+
+/** Match any string-like node (string literal or template expression). */
+export const stringLike = (): Pattern<Node, StringLike> =>
+  predicate<Node, StringLike>("string-like", isStringLike)
+
 export const Pattern = {
   any,
   predicate,
@@ -370,6 +384,8 @@ export const Pattern = {
   callExpression,
   propertyAccess,
   stringLiteral,
+  stringLike,
+  isStringLike,
   numericLiteral,
   objectLiteral,
   typed,

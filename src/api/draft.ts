@@ -9,7 +9,7 @@
  * rejection, plan identity) belongs to the engine in `Recipe.run`.
  */
 import { path as Path } from "../platform/node.ts"
-import { Effect } from "effect"
+import { Effect, Option, Predicate } from "effect"
 import type {
   ArrowFunction,
   CallExpression,
@@ -165,41 +165,104 @@ export const replaceWith = (
 /** The replacement a selection maps to: text only (replace the selected node) or an explicit target node. */
 export type Replacement = string | { readonly node: Node; readonly text: string }
 
+/** Replace a specific argument of a call expression by 0-based index. */
+export const replaceArgument = (
+  project: ProjectSnapshot,
+  call: CallExpression,
+  index: number,
+  newText: string,
+  options?: EditRangeOptions,
+): Effect.Effect<Draft, SnapshotExpired> => {
+  const argument = call.arguments[index]
+  if (argument === undefined) {
+    return Effect.succeed(empty)
+  }
+  return replace(project, argument, newText, options)
+}
+
+/** Wrap a specific argument of a call expression by index using a formatting function. */
+export const wrapArgument = (
+  project: ProjectSnapshot,
+  call: CallExpression,
+  index: number,
+  transform: (argText: string) => string,
+  options?: EditRangeOptions,
+): Effect.Effect<Draft, SnapshotExpired> => {
+  const argument = call.arguments[index]
+  if (argument === undefined) {
+    return Effect.succeed(empty)
+  }
+  return replace(project, argument, transform(argument.getText()), options)
+}
+
 const isTextReplacement = (val: Replacement): val is string => typeof val === "string"
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Type guard boundary for candidate draft values.
+export const isDraft = (value: unknown): value is Draft =>
+  Predicate.isObject(value) && "edits" in value && "evidence" in value && "matches" in value
 
 /**
  * Propose one replacement per selection. Each edit inherits its selection's
  * Query Evidence automatically; the draft records the selection count as the
  * primary-run match measurement.
  */
-export const replaceEach = <A extends Node>(
+export const replaceEach = <A extends Node, E = never, R = never>(
   selections: ReadonlyArray<Selection<A>>,
-  replacement: (selection: Selection<A>) => Replacement,
-): Effect.Effect<Draft, SnapshotExpired> =>
+  replacement: (selection: Selection<A>) => Replacement | Draft | Effect.Effect<Replacement | Draft, E, R>,
+): Effect.Effect<Draft, E | SnapshotExpired, R> =>
   Effect.forEach(selections, (selection) => {
-    const proposed = replacement(selection)
-    const node = isTextReplacement(proposed) ? selection.value : proposed.node
-    const text = isTextReplacement(proposed) ? proposed : proposed.text
-    const evidenceId =
-      `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}`
-    return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
-      Effect.map((edit): Draft => ({
-        edits: [edit],
-        evidence: [{
-          id: evidenceId,
-          kind: "selection",
-          facts: {
-            fileName: selection.fileName,
-            start: selection.start,
-            end: selection.end,
-            criteria: selection.evidence.map((item) => ({
-              criterion: item.criterion,
-              facts: { ...item.facts },
-            })),
-          },
-        }],
-        matches: 1,
-      })),
+    const raw = replacement(selection)
+    const effect = Effect.isEffect(raw) ? raw : Effect.succeed(raw)
+    return effect.pipe(
+      Effect.flatMap((proposed) => {
+        if (isDraft(proposed)) {
+          const evidenceId =
+            `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}`
+          const evidence = proposed.evidence.length > 0
+            ? proposed.evidence
+            : [{
+              id: evidenceId,
+              kind: "selection",
+              facts: {
+                fileName: selection.fileName,
+                start: selection.start,
+                end: selection.end,
+                criteria: selection.evidence.map((item) => ({
+                  criterion: item.criterion,
+                  facts: { ...item.facts },
+                })),
+              },
+            }]
+          return Effect.succeed({
+            ...proposed,
+            evidence,
+            matches: proposed.matches > 0 ? proposed.matches : 1,
+          })
+        }
+        const node = isTextReplacement(proposed) ? selection.value : proposed.node
+        const text = isTextReplacement(proposed) ? proposed : proposed.text
+        const evidenceId =
+          `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}`
+        return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
+          Effect.map((edit): Draft => ({
+            edits: [edit],
+            evidence: [{
+              id: evidenceId,
+              kind: "selection",
+              facts: {
+                fileName: selection.fileName,
+                start: selection.start,
+                end: selection.end,
+                criteria: selection.evidence.map((item) => ({
+                  criterion: item.criterion,
+                  facts: { ...item.facts },
+                })),
+              },
+            }],
+            matches: 1,
+          })),
+        )
+      }),
     )
   }).pipe(Effect.map((drafts) => concat(...drafts)))
 
@@ -1109,6 +1172,24 @@ export const renameSymbol = (
     return yield* replaceEach(references, () => newName)
   })
 
+/**
+ * Convenience helper to find and rename a symbol by name in a project-relative file.
+ * Returns `Draft.empty` if the symbol is not found (providing natural idempotency).
+ */
+export const renameSymbolNamed = (
+  project: ProjectSnapshot,
+  oldName: string,
+  newName: string,
+  options: { readonly within: string },
+): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
+  Effect.gen(function*() {
+    const symbolOption = yield* project.findSymbolNamed(oldName, options)
+    if (Option.isNone(symbolOption)) {
+      return empty
+    }
+    return yield* renameSymbol(project, symbolOption.value, newName)
+  })
+
 /** Clean up unused imports and unused declarations identified by TypeScript compiler diagnostics. */
 export const cleanUnused = (
   project: ProjectSnapshot,
@@ -1152,12 +1233,15 @@ export const Draft = {
   concat,
   replace,
   replaceWith,
+  replaceArgument,
+  wrapArgument,
   remove,
   insertBefore,
   insertAfter,
   print,
   replaceEach,
   renameSymbol,
+  renameSymbolNamed,
   cleanUnused,
   files,
   imports,

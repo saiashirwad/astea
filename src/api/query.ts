@@ -530,6 +530,35 @@ export const typeSatisfies = <A extends Node>(
     }),
 })
 
+/** Filter selections to only those whose project-relative fileName matches a glob pattern, suffix, or RegExp. */
+export const within = <A>(
+  pattern: string | RegExp,
+) => <E, R>(query: Query<A, E, R>): Query<A, E, R> => {
+  const predicate = Predicate.isString(pattern)
+    ? (fileName: string) => {
+        if (pattern.includes("*")) {
+          const regex = new RegExp("^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*") + "$")
+          return regex.test(fileName)
+        }
+        return fileName.includes(pattern) || fileName.endsWith(pattern)
+      }
+    : (fileName: string) => pattern.test(fileName)
+
+  return Stream.filter(query, (selection) => predicate(selection.fileName))
+}
+
+/** Filter call expressions by argument count. */
+export const withArgCount = (
+  count: number | { readonly min?: number; readonly max?: number },
+) => <E, R>(query: Query<CallExpression, E, R>): Query<CallExpression, E, R> =>
+  Stream.filter(query, (selection) => {
+    const len = selection.value.arguments.length
+    if (Predicate.isNumber(count)) return len === count
+    if (count.min !== undefined && len < count.min) return false
+    if (count.max !== undefined && len > count.max) return false
+    return true
+  })
+
 export const Query = {
   nodes,
   calls,
@@ -542,6 +571,8 @@ export const Query = {
   typeSatisfies,
   match,
   where,
+  within,
+  withArgCount,
   resolvesTo,
   hasJSDocTag,
   isExported,

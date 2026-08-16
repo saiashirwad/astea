@@ -65,6 +65,9 @@ Effect.runPromise(
     noColor,
   }),
 ).catch((err) => {
-  console.error("Error executing safemods recipe:", err)
+  const msg = err && typeof err === "object" && "message" in err && typeof err.message === "string"
+    ? err.message
+    : String(err)
+  console.error(`\n✖ ${msg}`)
   process.exit(1)
 })

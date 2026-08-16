@@ -8,7 +8,7 @@
  * generation. `ConfiguredProject` and `ProjectSnapshot` are plain values.
  */
 import { path as Path } from "../platform/node.ts"
-import { Context, Data, Effect, Layer, Semaphore } from "effect"
+import { Context, Data, Effect, Layer, Option, Semaphore } from "effect"
 import type { SourceFile } from "typescript/unstable/ast"
 import type {
   APIOptions,
@@ -124,6 +124,14 @@ export interface ProjectSnapshot {
     name: string,
     options: { readonly within: string },
   ) => Effect.Effect<NativeSymbol, SymbolNotFound | ProjectSnapshotError>
+  /**
+   * Find the canonical symbol declared under `name` in a project-relative
+   * file, returning `Option.none()` if not found instead of failing.
+   */
+  readonly findSymbolNamed: (
+    name: string,
+    options: { readonly within: string },
+  ) => Effect.Effect<Option.Option<NativeSymbol>, ProjectSnapshotError>
   /** Resolve the type at a position in a project-relative file. */
   readonly typeAt: (
     fileName: string,
@@ -354,6 +362,15 @@ export const make = (
             },
           )
 
+          const findSymbolNamed = Effect.fn("ProjectSnapshot.findSymbolNamed")(
+            function*(name: string, options: { readonly within: string }) {
+              return yield* symbolNamed(name, options).pipe(
+                Effect.map(Option.some),
+                Effect.catchTag("SymbolNotFound", () => Effect.succeed(Option.none())),
+              )
+            },
+          )
+
           const typeAt = Effect.fn("ProjectSnapshot.typeAt")(function*(fileName: string, position: number) {
             yield* ensureActive
             const types = yield* nativeRequest(
@@ -411,6 +428,7 @@ export const make = (
             semanticDiagnosticCount,
             symbolAt,
             symbolNamed,
+            findSymbolNamed,
             typeAt,
             typeToString,
             isTypeAssignableTo,

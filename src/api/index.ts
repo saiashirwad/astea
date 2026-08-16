@@ -27,8 +27,8 @@ export {
 export type { ApplicationReceipt } from "./application.ts"
 export { Draft } from "./draft.ts"
 export type { Draft as DraftPlan, EditRangeOptions, ProposedEdit, Replacement } from "./draft.ts"
-export { Pattern } from "./pattern.ts"
-export type { PatternMatchResult, PatternMismatch, PatternResult } from "./pattern.ts"
+export { isStringLike, Pattern, stringLike } from "./pattern.ts"
+export type { PatternMatchResult, PatternMismatch, PatternResult, StringLike } from "./pattern.ts"
 export { Plan, PlanBuildError, PlanDecodeError } from "./plan.ts"
 export type {
   EvidenceRecord,

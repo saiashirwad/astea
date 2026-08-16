@@ -29,6 +29,54 @@ export class CliError extends Data.TaggedError("CliError")<{
   readonly message: string
 }> {}
 
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
+const formatCliError = (cause: unknown): string => {
+  if (cause && typeof cause === "object") {
+    const raw = cause as Record<string, unknown>
+    if ("_tag" in raw && typeof raw._tag === "string") {
+      switch (raw._tag) {
+        case "VerificationFailure": {
+          const v = raw as { readonly policy: string; readonly detail: string }
+          return `Verification Failed: Policy '${v.policy}' failed (${v.detail})`
+        }
+        case "RecipeInputError": {
+          const r = raw as { readonly recipe: string; readonly cause: unknown }
+          return `Invalid Recipe Input for '${r.recipe}': ${String(r.cause)}`
+        }
+        case "SymbolNotFound": {
+          const s = raw as { readonly name: string; readonly fileName: string }
+          return `Symbol Not Found: '${s.name}' was not found in '${s.fileName}'`
+        }
+        case "FileNotFound": {
+          const f = raw as { readonly projectId: string; readonly fileName: string }
+          return `File Not Found: '${f.fileName}' in project '${f.projectId}'`
+        }
+        case "StalePlanError": {
+          const sp = raw as { readonly projectId: string; readonly fileName: string }
+          return `Stale Plan: '${sp.fileName}' in project '${sp.projectId}' was modified after snapshot`
+        }
+        case "EditConflict": {
+          const ec = raw as { readonly left: { readonly fileName: string; readonly start: number; readonly end: number } }
+          return `Edit Conflict: Overlapping edits detected in '${ec.left.fileName}'`
+        }
+        case "InvalidEdit": {
+          const ie = raw as { readonly edit: { readonly fileName: string }; readonly reason: string }
+          return `Invalid Edit (${ie.reason}) in '${ie.edit.fileName}'`
+        }
+        case "CliError": {
+          const ce = raw as { readonly message: string }
+          return ce.message
+        }
+      }
+    }
+    if ("message" in raw && Predicate.isString(raw.message)) {
+      return raw.message
+    }
+  }
+  return String(cause)
+}
+/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
+
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This type guard is the dynamic module-import boundary.
 const isRecipe = (value: unknown): value is Recipe<unknown> => {
   if (value === null || !Predicate.isObject(value)) return false
@@ -106,6 +154,6 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError> =>
       }
     }).pipe(
       Effect.provide(workspaceLayer),
-      Effect.mapError((cause) => new CliError({ message: String(cause) })),
+      Effect.mapError((cause) => new CliError({ message: formatCliError(cause) })),
     )
   })

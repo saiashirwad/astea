@@ -273,6 +273,88 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
 
+    effect("composes sequential recipes on the SAME file via Recipe.pipe without edit corruption", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          const step1 = Recipe.define("step1-add-import", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
+                  module: "./library.js",
+                  name: "TargetInput",
+                })
+              }),
+          })
+
+          const step2 = Recipe.define("step2-wrap-arg", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                const target = yield* project.symbolNamed("target", { within: "src/library.ts" })
+                const calls = yield* Query.calls(project).pipe(
+                  Query.within("src/consumer.ts"),
+                  Query.where(Query.resolvesTo(target, { location: (c) => c.expression })),
+                  Query.collect,
+                )
+                return yield* Draft.replaceEach(calls, ({ project: p, value: call }) =>
+                  Draft.wrapArgument(p, call, 0, (arg) => `{ value: ${arg} }`)
+                )
+              }),
+          })
+
+          const piped = Recipe.pipe(step1, step2)
+          const plan = yield* Recipe.run(piped, undefined)
+          const verified = yield* Verification.verify(plan, piped, undefined)
+          yield* Application.apply(verified).pipe(
+            Effect.provide(planApplicationLayerNode),
+          )
+
+          const consumerContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+          )
+          expect(consumerContent).toContain("TargetInput")
+          expect(consumerContent).toContain("renamed(/* keep this comment */ { value: 1 })")
+        })
+      ),
+      60_000,
+    )
+
+    effect("Draft.renameSymbolNamed provides idempotent symbol renaming by name", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          const renameRecipe = Recipe.define("rename-by-name", {
+            version: "1.0.0",
+            policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                return yield* Draft.renameSymbolNamed(project, "target", "newTarget", {
+                  within: "src/library.ts",
+                })
+              }),
+          })
+
+          const plan = yield* Recipe.run(renameRecipe, undefined)
+          const verified = yield* Verification.verify(plan, renameRecipe, undefined)
+          yield* Application.apply(verified).pipe(
+            Effect.provide(planApplicationLayerNode),
+          )
+
+          const libContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/library.ts"), "utf8")
+          )
+          expect(libContent).toContain("export function newTarget")
+        })
+      ),
+      60_000,
+    )
+
     effect("composes concurrent recipes with Recipe.all and executes conditionally with Recipe.branch", () =>
       withFixture((_, app) =>
         Effect.gen(function*() {

@@ -11,12 +11,13 @@
 import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { createHash } from "node:crypto"
 import { Data, Effect, Schema } from "effect"
-import { EditConflict, InvalidEdit, textHash } from "../internal/edits.ts"
+import { EditConflict, InvalidEdit, applyFileEdits, textHash, type TextEdit } from "../internal/edits.ts"
 import { NativeCompilerError } from "../internal/native-compiler.ts"
 import {
   finalizePlan,
   type Json,
   type PlanBuildError,
+  type PlannedTextEdit,
   type SourceFingerprint,
   type TransformationPlan,
 } from "../internal/plan.ts"
@@ -29,6 +30,7 @@ import {
   Workspace,
   WorkspaceSnapshot,
   type ProjectNotInSnapshot,
+  type ProjectSnapshotError,
   type SnapshotExpired,
   type SnapshotTransition,
   type WorkspaceSnapshotService,
@@ -93,6 +95,101 @@ const define = <Input = undefined, E = never, R = never>(
 
 type ComposableRecipe<Input, E, R> = Recipe<Input, E, R>
 
+const composeDrafts = (
+  snapshot: WorkspaceSnapshotService,
+  accumulated: Draft,
+  next: Draft,
+): Effect.Effect<Draft, ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict> =>
+  Effect.gen(function*() {
+    if (accumulated.edits.length === 0) return next
+    if (next.edits.length === 0) return accumulated
+
+    const accumulatedByFile = Map.groupBy(accumulated.edits, (e) => `${e.projectId}\0${e.fileName}`)
+    const nextByFile = Map.groupBy(next.edits, (e) => `${e.projectId}\0${e.fileName}`)
+
+    const allKeys = new Set([...accumulatedByFile.keys(), ...nextByFile.keys()])
+    const combinedEdits: Array<PlannedTextEdit> = []
+
+    for (const key of allKeys) {
+      const accEdits = accumulatedByFile.get(key)
+      const nxtEdits = nextByFile.get(key)
+
+      if (accEdits && !nxtEdits) {
+        combinedEdits.push(...accEdits)
+      } else if (!accEdits && nxtEdits) {
+        combinedEdits.push(...nxtEdits)
+      } else if (accEdits && nxtEdits) {
+        // SAFETY: File keys in edit maps are composed by construction as `${projectId}\0${fileName}`.
+        const [projectId, fileName] = key.split("\0") as [string, string]
+        const projectDef = snapshot.projects.find((p) => p.id === projectId)
+        if (!projectDef) continue
+        const project = yield* snapshot.project(projectDef)
+        const t0 = yield* project.sourceText(fileName)
+
+        const textEdits1: Array<TextEdit> = accEdits.map((edit) => ({
+          projectConfigFileName: edit.projectId,
+          fileName: edit.fileName,
+          start: edit.start,
+          end: edit.end,
+          newText: edit.newText,
+          expectedTextHash: edit.expectedTextHash,
+          evidence: edit.evidenceIds,
+        }))
+        const t1 = yield* applyFileEdits(t0, textEdits1)
+
+        const textEdits2: Array<TextEdit> = nxtEdits.map((edit) => ({
+          projectConfigFileName: edit.projectId,
+          fileName: edit.fileName,
+          start: edit.start,
+          end: edit.end,
+          newText: edit.newText,
+          expectedTextHash: edit.expectedTextHash,
+          evidence: edit.evidenceIds,
+        }))
+        const t2 = yield* applyFileEdits(t1, textEdits2)
+
+        if (t0 === t2) {
+          continue
+        }
+
+        let start = 0
+        while (start < t0.length && start < t2.length && t0[start] === t2[start]) {
+          start++
+        }
+
+        let end0 = t0.length
+        let end2 = t2.length
+        while (end0 > start && end2 > start && t0[end0 - 1] === t2[end2 - 1]) {
+          end0--
+          end2--
+        }
+
+        const newText = t2.slice(start, end2)
+        const evidenceIds = [...new Set([...accEdits.flatMap((e) => e.evidenceIds), ...nxtEdits.flatMap((e) => e.evidenceIds)])]
+
+        combinedEdits.push({
+          projectId,
+          fileName,
+          start,
+          end: end0,
+          expectedTextHash: textHash(t0.slice(start, end0)),
+          newText,
+          evidenceIds,
+        })
+      }
+    }
+
+    return {
+      edits: combinedEdits,
+      fileOperations: [
+        ...(accumulated.fileOperations ?? []),
+        ...(next.fileOperations ?? []),
+      ],
+      evidence: [...accumulated.evidence, ...next.evidence],
+      matches: accumulated.matches + next.matches,
+    }
+  })
+
 /** Sequentially compose recipes, projecting intermediate states via in-memory snapshot overlays. */
 export const pipe = <Input = undefined, E = never, R = never>(
   ...recipes: ReadonlyArray<ComposableRecipe<Input, E, R>>
@@ -106,11 +203,12 @@ export const pipe = <Input = undefined, E = never, R = never>(
     policies: [policies],
     run: (input: Input) =>
       Effect.gen(function*() {
+        const snapshot = yield* WorkspaceSnapshot
         let accumulatedDraft = Draft.empty
         for (const recipe of recipes) {
           if (accumulatedDraft.edits.length > 0) {
             const nextDraft = yield* overlay(accumulatedDraft, recipe.run(input))
-            accumulatedDraft = Draft.concat(accumulatedDraft, nextDraft)
+            accumulatedDraft = yield* composeDrafts(snapshot, accumulatedDraft, nextDraft)
           } else {
             const nextDraft = yield* recipe.run(input)
             accumulatedDraft = Draft.concat(accumulatedDraft, nextDraft)
