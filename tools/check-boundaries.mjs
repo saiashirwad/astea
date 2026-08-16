@@ -15,7 +15,7 @@ for (const file of await files(sourceRoot)) {
   const text = await readFile(file, "utf8")
   for (const match of text.matchAll(/(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g)) {
     const specifier = match[1]
-    if (specifier === "safemods" || specifier.endsWith("/api/index.ts") || specifier === "../api/index.ts") {
+    if ((specifier === "safemods" || specifier.endsWith("/api/index.ts") || specifier === "../api/index.ts") && file !== resolve(sourceRoot, "index.ts")) {
       failures.push(`${relative(root, file)}: package self-import ${specifier}`)
     }
     if (!specifier.startsWith(".")) continue

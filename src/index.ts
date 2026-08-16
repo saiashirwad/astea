@@ -14,3 +14,6 @@ export * as Workspace from "./Workspace/index.ts"
 
 export { ConfiguredProject, WorkspaceSnapshot } from "./Workspace/index.ts"
 export { overlay } from "./Overlay/index.ts"
+
+// Deprecated flat exports remain available for one compatibility cycle.
+export * from "./api/index.ts"
