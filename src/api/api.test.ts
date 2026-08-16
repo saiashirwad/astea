@@ -1,9 +1,9 @@
 import * as Fs from "node:fs/promises"
 import * as Path from "node:path"
 import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import type { CallExpression } from "typescript/unstable/ast"
-import { describe, expect, it } from "vitest"
 import {
   Application,
   ConfiguredProject,
@@ -47,104 +47,105 @@ const _verifiedPlanIsApplicationAuthority = (verified: VerifiedPlan) => Applicat
 // --- End-to-end pipeline ---------------------------------------------------
 
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
+const stressFixture = fileURLToPath(new URL("../../fixtures/stress/", import.meta.url))
 
-describe("candidate public API", () => {
-  it("runs query → plan → preview → verify → apply as one typed pipeline", async () => {
-    const root = await Fs.mkdtemp("/tmp/teatime-api-")
-    await Fs.cp(fixtureSource, root, { recursive: true })
+const withFixture = <A, E, R>(
+  fixturePath: string,
+  use: (root: string, app: ConfiguredProject, workspaceLayer: Layer.Layer<Workspace, any>) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, unknown, Exclude<R, Workspace>> =>
+  Effect.acquireUseRelease(
+    Effect.tryPromise(async () => {
+      const root = await Fs.mkdtemp("/tmp/teatime-api-")
+      await Fs.cp(fixturePath, root, { recursive: true })
+      return root
+    }),
+    (root) => {
+      const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
+      const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+      return use(root, app, workspaceLayer).pipe(Effect.provide(workspaceLayer))
+    },
+    (root) => Effect.tryPromise(() => Fs.rm(root, { recursive: true, force: true })).pipe(Effect.ignore),
+  )
 
-    const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
-    const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
+describe("candidate public API (@effect/vitest)", () => {
+  it("runs query → plan → preview → verify → apply as one typed pipeline", () =>
+    withFixture(fixtureSource, (root, app, workspaceLayer) =>
+      Effect.gen(function*() {
+        const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
+        const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
-    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
-    const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+        const { plan, preview, receipt, verified } = yield* Effect.gen(function*() {
+          const plan = yield* Recipe.run(wrapTargetInput, input)
+          const preview = yield* Preview.of(plan)
+          const verified = yield* Verification.verify(plan, wrapTargetInput, input)
+          const receipt = yield* Application.apply(verified)
+          return { plan, preview, verified, receipt }
+        }).pipe(Effect.provide(mainLayer))
 
-    try {
-      const result = await Effect.runPromise(Effect.gen(function*() {
-        const plan = yield* Recipe.run(wrapTargetInput, input)
-        const preview = yield* Preview.of(plan)
-        const verified = yield* Verification.verify(plan, wrapTargetInput, input)
-        const receipt = yield* Application.apply(verified)
-        return { plan, preview, verified, receipt }
-      }).pipe(Effect.provide(mainLayer)))
+        expect(plan.recipe.name).toBe("wrap-target-input")
+        expect(plan.measurements?.matches).toBe(2)
+        expect(preview.files).toHaveLength(2)
+        expect(verified.receipt.diagnosticDelta).toBe(0)
+        expect(verified.receipt.idempotenceChecked).toBe(true)
+        expect(receipt.outputs).toHaveLength(2)
 
-      expect(result.plan.recipe.name).toBe("wrap-target-input")
-      expect(result.plan.measurements?.matches).toBe(2)
-      expect(result.preview.files).toHaveLength(2)
-      expect(result.verified.receipt.diagnosticDelta).toBe(0)
-      expect(result.verified.receipt.idempotenceChecked).toBe(true)
-      expect(result.receipt.outputs).toHaveLength(2)
+        const consumer = yield* Effect.tryPromise(() => Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8"))
+        const reexport = yield* Effect.tryPromise(() => Fs.readFile(Path.join(root, "src/reexport-consumer.ts"), "utf8"))
+        expect(consumer).toContain("renamed(/* keep this comment */ { value: 1 })")
+        expect(consumer).toContain("const first  =")
+        expect(consumer).toContain("other(2)")
+        expect(consumer).toContain("local.target(3)")
+        expect(reexport).toContain("publicTarget({ value: 4 })")
 
-      const consumer = await Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
-      const reexport = await Fs.readFile(Path.join(root, "src/reexport-consumer.ts"), "utf8")
-      expect(consumer).toContain("renamed(/* keep this comment */ { value: 1 })")
-      expect(consumer).toContain("const first  =")
-      expect(consumer).toContain("other(2)")
-      expect(consumer).toContain("local.target(3)")
-      expect(reexport).toContain("publicTarget({ value: 4 })")
+        // A durable plan crosses the process boundary intact.
+        const roundTripped = yield* Plan.parse(Plan.serialize(plan))
+        expect(roundTripped.planId).toBe(plan.planId)
 
-      // A durable plan crosses the process boundary intact.
-      const roundTripped = await Effect.runPromise(Plan.parse(Plan.serialize(result.plan)))
-      expect(roundTripped.planId).toBe(result.plan.planId)
+        // After application the recipe is a no-op: the reran plan has no edits.
+        const second = yield* Recipe.run(wrapTargetInput, input)
+        expect(second.edits).toHaveLength(0)
+        expect(second.measurements?.matches).toBe(0)
+      })
+    ),
+    60_000,
+  )
 
-      // After application the recipe is a no-op: the reran plan has no edits.
-      const second = await Effect.runPromise(
-        Recipe.run(wrapTargetInput, input).pipe(Effect.provide(workspaceLayer)),
-      )
-      expect(second.edits).toHaveLength(0)
-      expect(second.measurements?.matches).toBe(0)
-    } finally {
-      await Fs.rm(root, { recursive: true, force: true })
-    }
-  }, 60_000)
+  it("produces identical plan IDs for identical inputs", () =>
+    withFixture(fixtureSource, (_, app) =>
+      Effect.gen(function*() {
+        const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
+        const [first, second] = yield* Effect.all([
+          Recipe.run(wrapTargetInput, input),
+          Recipe.run(wrapTargetInput, input),
+        ])
+        expect(first.planId).toBe(second.planId)
+      })
+    ),
+    60_000,
+  )
 
-  it("produces identical plan IDs for identical inputs", async () => {
-    const root = await Fs.mkdtemp("/tmp/teatime-api-determinism-")
-    await Fs.cp(fixtureSource, root, { recursive: true })
+  it("migrates an import source, preserving quote style and trivia", () =>
+    withFixture(stressFixture, (root, app, workspaceLayer) =>
+      Effect.gen(function*() {
+        const input: MigrateImportSourceInput = { project: app, from: "./legacy.js", to: "./replacement.js" }
+        const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
-    const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
-    const input: WrapTargetInput = { project: app, declarationFile: "src/library.ts", property: "value" }
-    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+        const { plan, receipt } = yield* Effect.gen(function*() {
+          const plan = yield* Recipe.run(migrateImportSource, input)
+          const verified = yield* Verification.verify(plan, migrateImportSource, input)
+          const receipt = yield* Application.apply(verified)
+          return { plan, receipt }
+        }).pipe(Effect.provide(mainLayer))
 
-    try {
-      const [first, second] = await Effect.runPromise(Effect.all([
-        Recipe.run(wrapTargetInput, input),
-        Recipe.run(wrapTargetInput, input),
-      ]).pipe(Effect.provide(workspaceLayer)))
-      expect(first.planId).toBe(second.planId)
-    } finally {
-      await Fs.rm(root, { recursive: true, force: true })
-    }
-  }, 60_000)
+        expect(plan.edits).toHaveLength(1)
+        expect(receipt.outputs).toHaveLength(1)
 
-  it("migrates an import source, preserving quote style and trivia", async () => {
-    const stressFixture = fileURLToPath(new URL("../../fixtures/stress/", import.meta.url))
-    const root = await Fs.mkdtemp("/tmp/teatime-api-import-")
-    await Fs.cp(stressFixture, root, { recursive: true })
-
-    const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
-    const input: MigrateImportSourceInput = { project: app, from: "./legacy.js", to: "./replacement.js" }
-
-    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
-    const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
-
-    try {
-      const { plan, receipt } = await Effect.runPromise(Effect.gen(function*() {
-        const plan = yield* Recipe.run(migrateImportSource, input)
-        const verified = yield* Verification.verify(plan, migrateImportSource, input)
-        const receipt = yield* Application.apply(verified)
-        return { plan, receipt }
-      }).pipe(Effect.provide(mainLayer)))
-
-      expect(plan.edits).toHaveLength(1)
-      expect(receipt.outputs).toHaveLength(1)
-
-      const consumer = await Fs.readFile(Path.join(root, "src/import-consumer.ts"), "utf8")
-      expect(consumer).toContain("from './replacement.js'")
-      expect(consumer).toContain("/* preserve import trivia */")
-      expect(consumer).toContain("const importResult  =")
-    } finally {
-      await Fs.rm(root, { recursive: true, force: true })
-    }
-  }, 60_000)
+        const consumer = yield* Effect.tryPromise(() => Fs.readFile(Path.join(root, "src/import-consumer.ts"), "utf8"))
+        expect(consumer).toContain("from './replacement.js'")
+        expect(consumer).toContain("/* preserve import trivia */")
+        expect(consumer).toContain("const importResult  =")
+      })
+    ),
+    60_000,
+  )
 })
