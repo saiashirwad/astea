@@ -10,13 +10,13 @@
  */
 import { nodeFsPromises as Fs } from "../src/platform/node.ts"
 import { fileURLToPath } from "node:url";
+import { isObjectLiteralExpression } from "typescript/unstable/ast/is";
 import { Effect, Layer, Schema } from "effect";
 import {
   Application,
   ConfiguredProject,
   Criterion,
   Draft,
-  Pattern,
   planApplicationLayerNode,
   Policy,
   Preview,
@@ -49,21 +49,18 @@ export const wrapTargetRecipe = Recipe.define("wrap-target-call-sites", {
       const project = yield* snapshot.project(app);
       const targetSymbol = yield* project.symbolNamed("target", { within: "src/library.ts" });
 
-      // Pattern: match call expressions resolving to `target`, extracting the single argument
-      const callPattern = Pattern.callExpression({
-        expression: Pattern.identifier({ resolvesTo: targetSymbol }),
-        arguments: Pattern.tuple([Pattern.bind("arg", Pattern.not(Pattern.objectLiteral()))]),
-      });
+      const calls = yield* Query.calls(project).pipe(
+        Query.where(Query.resolvesTo(targetSymbol, { location: (call) => call.expression })),
+        Query.filter(
+          ({ value: call }) =>
+            call.arguments.length === 1 && !isObjectLiteralExpression(call.arguments[0]!),
+        ),
+        Query.collect,
+      );
 
-      const matches = yield* Query.match(project, callPattern).pipe(Query.collect);
-
-      // Propose edits using high-fidelity draft combinator
-      const wrapDraft = yield* Draft.replaceEach(matches, ({ value: matched }) => {
-        const argNode = matched.args[0]!.arg;
-        return {
-          node: argNode,
-          text: `{ ${input.propertyName}: ${argNode.getText(argNode.getSourceFile())} }`,
-        };
+      const wrapDraft = yield* Draft.replaceEach(calls, ({ value: call }) => {
+        const argument = call.arguments[0]!;
+        return { node: argument, text: `{ ${input.propertyName}: ${argument.getText()} }` };
       });
 
       // Optionally add named import to consumer files
@@ -84,8 +81,9 @@ export const wrapTargetRecipe = Recipe.define("wrap-target-call-sites", {
 
 export const cleanupRecipe = Recipe.define("cleanup-deprecated", {
   version: "1.0.0",
+  schema: WrapOptionsSchema,
   policies: [Policy.noNewErrors()],
-  run: () =>
+  run: (_input: WrapOptions) =>
     Effect.gen(function* () {
       const snapshot = yield* WorkspaceSnapshot;
       const project = yield* snapshot.project(app);

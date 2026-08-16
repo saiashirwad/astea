@@ -147,5 +147,5 @@ To execute the complete interactive tour:
 
 ```sh
 pnpm check
-npx tsx examples/declarative-api-tour.ts
+node examples/declarative-api-tour.ts
 ```
