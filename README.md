@@ -1,51 +1,29 @@
-# teatime
+# Teatime
 
-Effect-native TypeScript 7 transformations for reliable, reviewable codemods.
+Effect-native TypeScript 7 transformations for reliable codemods.
 
-Teatime gives developers and coding agents a semantic pipeline for changing TypeScript projects without re-printing whole files:
+Teatime lets you select code by TypeScript meaning, propose minimal edits, inspect and verify the result, and write it only with explicit authority.
 
 ```text
-Workspace snapshot → Query → Draft → Recipe → Plan → Preview → Verification → Application
+Workspace snapshot → Query → Draft → Transformation plan → Preview → Verification → Application
 ```
 
-Planning and verification are read-only. Only `Application.apply` writes to disk, and it accepts a verified plan rather than a raw plan.
+Planning, previewing, and verification are read-only. `Application.apply` is the only API that writes to disk, and it accepts a `VerifiedPlan` rather than an unverified plan.
 
-## Features
+## Run the tour
 
-- Semantic AST queries with composable criteria and pattern matchers.
-- Type inspection, assignability checks, symbol references, and project-wide renames.
-- In-memory snapshot overlays for multi-stage recipes.
-- Guarded, minimal text edits that preserve existing comments and formatting.
-- Declarative recipes with Effect Schema input validation and policy checks.
-- Diagnostic diffs, no-new-error policies, and idempotence verification.
-- File lifecycle plans: create, delete, and move files with relative-import rewriting.
-- Declaration combinators for interfaces, classes, and functions.
-- Import organization and unused-import cleanup.
-- ANSI unified diff rendering and an agent-tool adapter.
-- CLI support for previewing, verifying, and applying recipes.
-- Effect TypeScript-Go diagnostics through `@effect/tsgo` and Oxlint.
-- Vendored anti-slop Oxlint rules in `tools/oxlint/anti-slop`.
-
-## Requirements
-
-- Node.js 24+
-- pnpm 11+
-
-## Install and validate
+The executable tour copies a fixture to a temporary directory, runs a recipe through the full pipeline, and removes the temporary directory afterward.
 
 ```sh
 pnpm install
-pnpm typecheck
-pnpm lint
-pnpm effect:check
-pnpm test
+pnpm exec tsx examples/declarative-api-tour.ts
 ```
 
-`pnpm install` runs the `prepare` script, which patches Oxlint with the Effect TypeScript-Go integration. The patch is intentionally configured with `--no-typescript`; the project continues to use its pinned TypeScript 7 installation directly.
+It demonstrates semantic matching, minimal edits, diagnostic checks, idempotence, and explicit application.
 
-## Public API example
+## Write a recipe
 
-A recipe queries a project snapshot and returns a draft. No ranges, hashes, or filesystem writes are authored manually:
+A recipe reads a `WorkspaceSnapshot`, queries a configured project, and returns a `Draft`. Running it produces a durable transformation plan.
 
 ```ts
 import { Effect } from "effect"
@@ -61,7 +39,7 @@ import {
 
 const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
 
-export const wrapTargetInput = Recipe.define("wrap-target-input", {
+export default Recipe.define("wrap-target-input", {
   version: "1.0.0",
   policies: [Policy.matches({ min: 1 }), Policy.noNewErrors(), Policy.idempotent()],
   run: () =>
@@ -85,97 +63,85 @@ export const wrapTargetInput = Recipe.define("wrap-target-input", {
 })
 ```
 
-Run the explicit pipeline:
+The recipe declares its expected matches and safety checks as policies. Its draft contains guarded, focused edits rather than a reprinted file.
 
-```ts
-const plan = yield* Recipe.run(wrapTargetInput, undefined)
-const preview = yield* Preview.of(plan)
-const verified = yield* Verification.verify(plan, wrapTargetInput, undefined)
-const receipt = yield* Application.apply(verified)
-```
+## Preview, verify, then apply
 
-Provide `Workspace.layer(...)` for planning and `planApplicationLayerNode` only when write authority is wanted. See [`examples/declarative-api-tour.ts`](./examples/declarative-api-tour.ts) for a runnable end-to-end example.
-
-## File and declaration transformations
-
-```ts
-const created = yield* Draft.files.create(project, "src/new-feature.ts", content)
-const removed = yield* Draft.files.delete(project, "src/legacy.ts")
-const moved = yield* Draft.files.move(project, "src/old.ts", "src/new.ts")
-
-const withField = yield* Draft.interfaces.addProperty(project, interfaceNode, {
-  name: "id",
-  type: "string",
-})
-const withParameter = yield* Draft.functions.addParameter(project, functionNode, {
-  name: "options",
-  type: "Options",
-  optional: true,
-})
-const withMethod = yield* Draft.classes.addMethod(project, classNode, {
-  name: "dispose",
-  body: "this.closed = true;",
-})
-```
-
-All of these produce drafts. They do not mutate the project until a plan passes verification and is explicitly applied.
-
-## CLI
-
-Recipes are TypeScript modules exporting a `Recipe` as `default`, `recipe`, or another named export:
+Use the CLI to run a recipe against a target workspace. Preview is the default; `--apply` includes verification before it writes.
 
 ```sh
 pnpm exec tsx bin/teatime.ts run ./recipe.ts --cwd ./my-project --preview
 pnpm exec tsx bin/teatime.ts run ./recipe.ts --cwd ./my-project --verify
 pnpm exec tsx bin/teatime.ts run ./recipe.ts --cwd ./my-project --apply
-pnpm exec tsx bin/teatime.ts tool ./recipe.ts
 ```
 
-Useful flags:
+Useful options:
 
-- `--input '<json>'` — recipe input
-- `--cwd <path>` — target project directory
-- `--no-color` — disable ANSI output
-- `--help` — show usage
+- `--input '<json>'` supplies recipe input.
+- `--cwd <path>` selects the target workspace.
+- `--no-color` disables ANSI output.
+- `--help` shows command help.
 
-The diff renderer is also available programmatically through `computeUnifiedDiff`, `renderPlanPreview`, and `renderDiagnosticDiff`. `recipeToAgentTool` exposes a recipe as a validated agent-facing tool with schema, preview, verification, and optional application.
+A recipe module may export a `Recipe` as its default export, as `recipe`, or as another named export. `teatime tool ./recipe.ts` exposes an agent-facing tool description with the same schema, preview, verification, and optional application flow.
 
-## Tooling
+## Core capabilities
 
-### Effect TypeScript-Go
+- Semantic queries, type inspection, symbol references, and project-wide renames.
+- In-memory snapshot overlays for multi-stage transformations.
+- Guarded text edits that preserve source bytes outside explicit edit ranges.
+- Declarative recipes with Effect Schema validation and policies.
+- Diagnostic diffs, no-new-error checks, and idempotence verification.
+- File creation, deletion, and moves with relative-import rewriting.
+- Draft helpers for imports, arguments, object literals, interfaces, classes, and functions.
+- Unified diff rendering and an agent-tool adapter.
 
-The repository uses:
+For a complete end-to-end example, see [the declarative API tour](./examples/declarative-api-tour.ts). The companion [examples guide](./examples/README.md) covers overlays, query patterns, draft helpers, composition, and policies.
 
-- `@effect/tsgo` for Effect-specific diagnostics and the TypeScript-Go integration.
-- `oxlint-tsgolint` for type-aware Oxlint integration.
-- `oxlint.config.ts` extending the Effect recommended preset.
-- `tsconfig.json` configured with the Effect language-service plugin, with diagnostics disabled because Oxlint reports them after patching.
+## Programmatic execution
 
-Run Effect diagnostics directly with:
+Provide `Workspace.layer(...)` to create planning and verification authority. Add `planApplicationLayerNode` only at the boundary where writes are intended, then apply the verified plan.
+
+```ts
+import { Effect, Layer } from "effect"
+import {
+  Application,
+  planApplicationLayerNode,
+  Recipe,
+  Verification,
+  Workspace,
+} from "teatime"
+
+const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: "./my-project" })
+const applicationLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+
+const receipt = await Effect.runPromise(
+  Effect.gen(function*() {
+    const plan = yield* Recipe.run(recipe, input)
+    const verified = yield* Verification.verify(plan, recipe, input)
+    return yield* Application.apply(verified)
+  }).pipe(Effect.provide(applicationLayer)),
+)
+```
+
+## Development
+
+This repository requires Node.js 24+ and pnpm 11+.
 
 ```sh
+pnpm install
+pnpm typecheck
+pnpm lint
 pnpm effect:check
+pnpm test
 ```
 
-### Anti-slop
-
-The anti-slop plugin is vendored rather than treated as a fixed dependency. Its source is under `tools/oxlint/anti-slop`, and its rules are enabled in `oxlint.config.ts`. This keeps the rules reviewable and locally maintainable.
+`pnpm install` runs `effect-tsgo patch --no-typescript --oxlint`. Oxlint uses the Effect TypeScript-Go integration while the project continues to use its pinned TypeScript 7 installation.
 
 ## Repository layout
 
 - `src/api/` — public declarative API and integration tests.
-- `src/prototype/` — native compiler, plan, verification, and workspace foundations.
-- `src/cli/` — CLI, terminal diff renderer, and agent-tool protocol.
-- `examples/` — executable API tour and supporting guide.
-- `tools/oxlint/anti-slop/` — vendored anti-slop Oxlint plugin.
+- `src/prototype/` — compiler, plan, verification, and workspace foundations.
+- `src/cli/` — CLI, terminal diff rendering, and agent-tool protocol.
+- `examples/` — executable tour and supporting guide.
 - `fixtures/` — projects used by end-to-end tests.
-
-## Pinned foundation
-
-- TypeScript `7.0.2`
-- Effect `4.0.0-rc.109`
-- `@effect/vitest` `4.0.0-rc.109`
-- `@effect/tsgo` `0.36.5`
-- Oxlint `1.78.0`
-- Vitest `4.1.10`
-- tsx `4.23.12`
+- `tools/oxlint/anti-slop/` — vendored Oxlint rules.
