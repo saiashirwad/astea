@@ -567,35 +567,72 @@ describe("declarative transformations API (@effect/vitest)", () => {
               Effect.gen(function*() {
                 const snapshot = yield* WorkspaceSnapshot
                 const project = yield* snapshot.project(app)
-                const lib = yield* project.sourceFile("src/library.ts")
-                if (lib === undefined) return Draft.empty
 
-                let accumulated = Draft.empty
+                // 1. Create a class file
+                const classFileDraft = yield* Draft.files.create(
+                  project,
+                  "src/service.ts",
+                  "export class UserService {\n}\n",
+                )
 
-                for (const statement of lib.statements) {
-                  // 1. Interface combinators
-                  if (isInterfaceDeclaration(statement) && statement.name.text === "TargetInput") {
-                    const d1 = yield* Draft.interfaces.addProperty(project, statement, {
-                      name: "optionalFlag",
-                      type: "boolean",
-                      optional: true,
-                    })
-                    accumulated = Draft.concat(accumulated, d1)
+                // Overlay the class file so we can add members to it
+                const memberDraft = yield* overlay(classFileDraft, Effect.gen(function*() {
+                  const overlaySnapshot = yield* WorkspaceSnapshot
+                  const overlayProject = yield* overlaySnapshot.project(app)
+                  const serviceFile = yield* overlayProject.sourceFile("src/service.ts")
+                  if (serviceFile === undefined) return Draft.empty
+
+                  for (const stmt of serviceFile.statements) {
+                    if (isClassDeclaration(stmt)) {
+                      const dProp = yield* Draft.classes.addProperty(overlayProject, stmt, {
+                        name: "endpoint",
+                        type: "string",
+                        initializer: '"/api/users"',
+                        isReadonly: true,
+                        access: "public",
+                      })
+                      const dMethod = yield* Draft.classes.addMethod(overlayProject, stmt, {
+                        name: "getUser",
+                        parameters: "id: string",
+                        returnType: "Promise<User>",
+                        body: 'return fetch(`${this.endpoint}/${id}`).then(r => r.json());',
+                        isAsync: true,
+                        access: "public",
+                      })
+                      return Draft.concat(dProp, dMethod)
+                    }
                   }
+                  return Draft.empty
+                }))
 
-                  // 2. Function combinators
-                  if (isFunctionDeclaration(statement) && statement.name?.text === "other") {
-                    const d2 = yield* Draft.functions.addParameter(project, statement, {
-                      name: "tag",
-                      type: "string",
-                      optional: true,
-                    })
-                    const d3 = yield* Draft.functions.setReturnType(project, statement, "number")
-                    accumulated = Draft.concat(accumulated, d2, d3)
+                const lib = yield* project.sourceFile("src/library.ts")
+                let libAccumulated = Draft.empty
+                if (lib !== undefined) {
+                  for (const statement of lib.statements) {
+                    // Interface combinators
+                    if (isInterfaceDeclaration(statement) && statement.name.text === "TargetInput") {
+                      const d1 = yield* Draft.interfaces.addProperty(project, statement, {
+                        name: "optionalFlag",
+                        type: "boolean",
+                        optional: true,
+                      })
+                      libAccumulated = Draft.concat(libAccumulated, d1)
+                    }
+
+                    // Function combinators
+                    if (isFunctionDeclaration(statement) && statement.name?.text === "other") {
+                      const d2 = yield* Draft.functions.addParameter(project, statement, {
+                        name: "tag",
+                        type: "string",
+                        optional: true,
+                      })
+                      const d3 = yield* Draft.functions.setReturnType(project, statement, "number")
+                      libAccumulated = Draft.concat(libAccumulated, d2, d3)
+                    }
                   }
                 }
 
-                return accumulated
+                return Draft.concat(classFileDraft, memberDraft, libAccumulated)
               }),
           })
 
@@ -610,6 +647,12 @@ describe("declarative transformations API (@effect/vitest)", () => {
           )
           expect(libContent).toContain("optionalFlag?: boolean;")
           expect(libContent).toContain("function other(value: number, tag?: string): number")
+
+          const serviceContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/service.ts"), "utf8")
+          )
+          expect(serviceContent).toContain('public readonly endpoint: string = "/api/users";')
+          expect(serviceContent).toContain("public async getUser(id: string): Promise<User>")
         })
       ),
       60_000,
@@ -647,6 +690,57 @@ describe("declarative transformations API (@effect/vitest)", () => {
             Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
           )
           expect(consumerContent).toContain("import { other, target as renamed } from \"./library.js\";")
+        })
+      ),
+      60_000,
+    )
+
+    it("cleans up unused imports automatically with Draft.cleanUnused", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          const mainLayer = planApplicationLayerNode.pipe(
+            Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
+          )
+
+          // First add an unused import
+          const addUnusedRecipe = Recipe.define("add-unused-import", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
+                  module: "effect",
+                  name: "DanglingUnusedSymbol",
+                })
+              }),
+          })
+
+          const plan1 = yield* Recipe.run(addUnusedRecipe, undefined)
+          const verified1 = yield* Verification.verify(plan1, addUnusedRecipe, undefined)
+          yield* Application.apply(verified1).pipe(Effect.provide(mainLayer))
+
+          // Now run cleanUnused recipe
+          const cleanRecipe = Recipe.define("clean-unused-recipe", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                return yield* Draft.cleanUnused(project)
+              }),
+          })
+
+          const plan2 = yield* Recipe.run(cleanRecipe, undefined)
+          expect(plan2.edits.length).toBeGreaterThanOrEqual(1)
+
+          const verified2 = yield* Verification.verify(plan2, cleanRecipe, undefined)
+          yield* Application.apply(verified2).pipe(Effect.provide(mainLayer))
+
+          const consumerContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+          )
+          expect(consumerContent).not.toContain("DanglingUnusedSymbol")
         })
       ),
       60_000,

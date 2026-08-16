@@ -27,15 +27,15 @@ export interface CliOptions {
 
 export const runCli = (options: CliOptions): Effect.Effect<void, unknown, any> =>
   Effect.gen(function*() {
-    const cwd = options.cwd ?? process.cwd()
-    const resolvedRecipe = Path.resolve(cwd, options.recipePath)
+    const targetCwd = options.cwd ? Path.resolve(process.cwd(), options.cwd) : process.cwd()
+    const resolvedRecipe = Path.resolve(process.cwd(), options.recipePath)
 
     // Dynamic import recipe
     const imported = yield* Effect.tryPromise(() => import(resolvedRecipe))
     const recipe = (imported.default ?? imported.recipe ?? Object.values(imported).find((v: any) => v && typeof v === "object" && "run" in v && "version" in v)) as Recipe<any, any, any>
 
     if (recipe === undefined) {
-      console.error(`Error: Could not find a exported Recipe in ${resolvedRecipe}`)
+      console.error(`Error: Could not find an exported Recipe in ${resolvedRecipe}`)
       process.exit(1)
     }
 
@@ -46,19 +46,23 @@ export const runCli = (options: CliOptions): Effect.Effect<void, unknown, any> =
     }
 
     const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
-    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd })
+    const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: targetCwd })
     const mainLayer = planApplicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
+
+    const recipeInput = (options.input !== null && typeof options.input === "object" && !("project" in options.input))
+      ? { ...options.input, project: app }
+      : (options.input === undefined ? undefined : options.input)
 
     const useColor = options.noColor !== true && process.env.NO_COLOR === undefined
 
     yield* Effect.gen(function*() {
-      const plan = yield* Recipe.run(recipe, options.input)
+      const plan = yield* Recipe.run(recipe, recipeInput)
       const preview = yield* Preview.of(plan)
 
       console.log(renderPlanPreview(preview, { color: useColor }))
 
       if (options.mode === "verify" || options.mode === "apply") {
-        const verified = yield* Verification.verify(plan, recipe, options.input)
+        const verified = yield* Verification.verify(plan, recipe, recipeInput)
         if (verified.diagnosticDiff) {
           console.log(renderDiagnosticDiff(verified.diagnosticDiff, { color: useColor }))
         }
