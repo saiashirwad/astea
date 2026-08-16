@@ -26,7 +26,7 @@ import {
   nativeRequest,
 } from "../internal/native-compiler.ts"
 import type { PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
-import { projectRelativePath } from "../internal/project-path.ts"
+import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
 
 export type { NativeCompilerError }
 
@@ -645,9 +645,21 @@ const traverseGraph = (
             )
           })
 
-          const files: ProjectSnapshot["files"] = sourceFileNames.pipe(
-            Effect.map((names) => names.map((name) => makeProjectFile(snapshotView, projectRelativePath(projectRoot, name)))),
-          )
+          const files: ProjectSnapshot["files"] = Effect.gen(function*() {
+            yield* ensureActive
+            const allFileNames = yield* nativeRequest("getSourceFileNames", () => nativeProject.program.getSourceFileNames())
+            const projectFileHandles: Array<ProjectFile> = []
+            for (const fn of allFileNames) {
+              const sf = yield* nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fn))
+              if (sf === undefined) continue
+              const isDefault = yield* nativeRequest("isSourceFileDefaultLibrary", () => nativeProject.program.isSourceFileDefaultLibrary(sf))
+              const isExternal = yield* nativeRequest("isSourceFileFromExternalLibrary", () => nativeProject.program.isSourceFileFromExternalLibrary(sf))
+              if (!isDefault && !isExternal && isWithinProject(projectRoot, fn)) {
+                projectFileHandles.push(makeProjectFile(snapshotView, projectRelativePath(projectRoot, fn)))
+              }
+            }
+            return projectFileHandles
+          })
 
           const snapshotView: ProjectSnapshot = {
             project: configured,

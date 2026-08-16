@@ -15,6 +15,7 @@ import {
   Pattern,
   planApplicationLayerNode,
   Policy,
+  Precondition,
   Preview,
   Query,
   Recipe,
@@ -1156,6 +1157,229 @@ describe("declarative transformations API (@effect/vitest)", () => {
             expect(libTransitiveReferenced.map((f) => f.path)).not.toContain("src/library.ts")
             expect(libTransitiveReferenced.map((f) => f.path)).toContain("src/consumer.ts")
           }))
+        })
+      ),
+      60_000,
+    )
+
+    effect("Precondition fast file-level filters and combinators narrow query candidate sets", () =>
+      withFixture((_root, app) =>
+        Effect.gen(function*() {
+          const workspace = yield* Workspace
+          yield* workspace.withSnapshot({}, Effect.gen(function*() {
+            const snapshot = yield* WorkspaceSnapshot
+            const project = yield* snapshot.project(app)
+
+            const libraryFile = yield* project.file("src/library.ts")
+            const consumerFile = yield* project.file("src/consumer.ts")
+            const barrelFile = yield* project.file("src/barrel.ts")
+            const reexportFile = yield* project.file("src/reexport-consumer.ts")
+
+            // 1. fileTextIncludes
+            const hasSentinels = yield* Precondition.satisfies(
+              consumerFile,
+              Precondition.fileTextIncludes("renamed"),
+            )
+            expect(hasSentinels).toBe(true)
+
+            const libraryHasSentinel = yield* Precondition.satisfies(
+              libraryFile,
+              Precondition.fileTextIncludes("renamed"),
+            )
+            expect(libraryHasSentinel).toBe(false)
+
+            // 2. fileTextMatches (including stateful /g regex evaluated concurrently)
+            const globalRegex = /export\s+const\s+(\w+)/g
+            const constMatches = yield* Precondition.filesMatching(
+              project,
+              Precondition.fileTextMatches(globalRegex),
+            )
+            expect(constMatches.map((f) => f.path)).toEqual([
+              "src/consumer.ts",
+              "src/reexport-consumer.ts",
+            ])
+
+            // 3. hasImport (static imports, re-exports, regex module specifier)
+            const libraryImporters = yield* Precondition.filesMatching(
+              project,
+              Precondition.hasImport("./library.js"),
+            )
+            expect(libraryImporters.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+              "src/consumer.ts",
+            ])
+
+            const barrelImporters = yield* Precondition.filesMatching(
+              project,
+              Precondition.hasImport("./barrel.js"),
+            )
+            expect(barrelImporters.map((f) => f.path)).toEqual([
+              "src/reexport-consumer.ts",
+            ])
+
+            const regexImporters = yield* Precondition.filesMatching(
+              project,
+              Precondition.hasImport(/library/),
+            )
+            expect(regexImporters.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+              "src/consumer.ts",
+            ])
+
+            const nonExistentImporters = yield* Precondition.filesMatching(
+              project,
+              Precondition.hasImport("@nonexistent/package"),
+            )
+            expect(nonExistentImporters).toEqual([])
+
+            // 4. pathMatches (exact, glob, substring, regex)
+            const exactPath = yield* Precondition.filesMatching(
+              project,
+              Precondition.pathMatches("src/consumer.ts"),
+            )
+            expect(exactPath.map((f) => f.path)).toEqual(["src/consumer.ts"])
+
+            const globPath = yield* Precondition.filesMatching(
+              project,
+              Precondition.pathMatches("src/*.ts"),
+            )
+            expect(globPath.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+              "src/consumer.ts",
+              "src/library.ts",
+              "src/reexport-consumer.ts",
+            ])
+
+            const regexPath = yield* Precondition.filesMatching(
+              project,
+              Precondition.pathMatches(/reexport/),
+            )
+            expect(regexPath.map((f) => f.path)).toEqual(["src/reexport-consumer.ts"])
+
+            // 5. Combinators: all, any, not, custom
+            const allMatch = yield* Precondition.filesMatching(
+              project,
+              Precondition.all(
+                Precondition.pathMatches(/consumer/),
+                Precondition.hasImport("./library.js"),
+              ),
+            )
+            expect(allMatch.map((f) => f.path)).toEqual(["src/consumer.ts"])
+
+            const anyMatch = yield* Precondition.filesMatching(
+              project,
+              Precondition.any(
+                Precondition.pathMatches("src/barrel.ts"),
+                Precondition.pathMatches("src/consumer.ts"),
+              ),
+            )
+            expect(anyMatch.map((f) => f.path)).toEqual([
+              "src/barrel.ts",
+              "src/consumer.ts",
+            ])
+
+            const notBarrel = yield* Precondition.filesMatching(
+              [barrelFile, consumerFile],
+              Precondition.not(Precondition.pathMatches("src/barrel.ts")),
+            )
+            expect(notBarrel.map((f) => f.path)).toEqual(["src/consumer.ts"])
+
+            const customCondition = Precondition.custom("contains-other", (f) =>
+              f.sourceText.pipe(
+                Effect.map((text) => text.includes("other")),
+                Effect.catchTag("FileNotFound", () => Effect.succeed(false)),
+              )
+            )
+            const customMatched = yield* Precondition.filesMatching(project, customCondition)
+            expect(customMatched.map((f) => f.path)).toEqual([
+              "src/consumer.ts",
+              "src/library.ts",
+            ])
+
+            // 6. Running Query.calls scoped to pre-filtered files
+            const targetSymbol = yield* libraryFile.symbolNamed("target")
+            const filteredFiles = yield* Precondition.filesMatching(
+              project,
+              Precondition.all(
+                Precondition.hasImport("./library.js"),
+                Precondition.fileTextIncludes("renamed"),
+              ),
+            )
+            expect(filteredFiles.map((f) => f.path)).toEqual(["src/consumer.ts"])
+
+            const callsInFiltered = yield* Query.calls(filteredFiles).pipe(
+              Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
+              Query.collect,
+            )
+            expect(callsInFiltered.length).toBe(1)
+            expect(callsInFiltered[0]?.fileName).toBe("src/consumer.ts")
+          }))
+        })
+      ),
+      60_000,
+    )
+
+    effect("Preconditions respect Recipe.pipe overlays when evaluating chained transformations", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          // Recipe 1: Adds import of publicTarget from ./barrel.js to consumer.ts
+          const step1 = Recipe.define("step1-add-barrel-import", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
+                  module: "./barrel.js",
+                  name: "publicTarget",
+                })
+              }),
+          })
+
+          // Recipe 2: Uses Precondition.hasImport("./barrel.js") to find matching files in the overlay
+          const step2 = Recipe.define("step2-transform-matching", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+
+                // Step 2 sees the overlay from Step 1 containing import of ./barrel.js in consumer.ts
+                const barrelFiles = yield* Precondition.filesMatching(
+                  project,
+                  Precondition.hasImport("./barrel.js"),
+                )
+                expect(barrelFiles.map((f) => f.path)).toEqual([
+                  "src/consumer.ts",
+                  "src/reexport-consumer.ts",
+                ])
+
+                const libraryFile = yield* project.file("src/library.ts")
+                const targetSymbol = yield* libraryFile.symbolNamed("target")
+
+                const targetCalls = yield* Query.calls(barrelFiles).pipe(
+                  Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
+                  Query.collect,
+                )
+
+                return yield* Draft.replaceEach(targetCalls, ({ project: p, value: call }) =>
+                  Draft.wrapArgument(p, call, 0, (arg) => `publicTarget(${arg})`)
+                )
+              }),
+          })
+
+          const pipeline = Recipe.pipe(step1, step2)
+          const plan = yield* Recipe.run(pipeline, undefined)
+          const verified = yield* Verification.verify(plan, pipeline, undefined)
+          yield* Application.apply(verified).pipe(
+            Effect.provide(planApplicationLayerNode),
+          )
+
+          const consumerContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+          )
+          expect(consumerContent).toContain("publicTarget")
+          expect(consumerContent).toContain("renamed(/* keep this comment */ publicTarget(1))")
         })
       ),
       60_000,
