@@ -27,8 +27,41 @@ export {
 export type { ApplicationReceipt } from "./application.ts"
 export { Draft } from "./draft.ts"
 export type { Draft as DraftPlan, EditRangeOptions, ProposedEdit, Replacement } from "./draft.ts"
-export { isStringLike, Pattern, stringLike } from "./pattern.ts"
-export type { PatternMatchResult, PatternMismatch, PatternResult, StringLike } from "./pattern.ts"
+export {
+  awaitExpression,
+  classDeclaration,
+  doStatement,
+  forInStatement,
+  forOfStatement,
+  forStatement,
+  functionDeclaration,
+  ifStatement,
+  isStringLike,
+  loop,
+  Pattern,
+  returnStatement,
+  stringLike,
+  tryStatement,
+  variableDeclaration,
+  variableStatement,
+  whileStatement,
+} from "./pattern.ts"
+export type {
+  AwaitExpressionPatternOptions,
+  ClassDeclarationPatternOptions,
+  FunctionDeclarationPatternOptions,
+  IfStatementPatternOptions,
+  LoopPatternOptions,
+  LoopStatement,
+  PatternMatchResult,
+  PatternMismatch,
+  PatternResult,
+  ReturnStatementPatternOptions,
+  StringLike,
+  TryStatementPatternOptions,
+  VariableDeclarationPatternOptions,
+  VariableStatementPatternOptions,
+} from "./pattern.ts"
 export { Plan, PlanBuildError, PlanDecodeError } from "./plan.ts"
 export type {
   EvidenceRecord,
@@ -47,8 +80,27 @@ export type {
   DiagnosticRecord,
   PolicyEvaluationContext,
 } from "./policy.ts"
-export { Criterion, Query, QueryContractError } from "./query.ts"
-export type { EvidenceFact, ProjectScope, QueryEvidence, Selection } from "./query.ts"
+export {
+  Criterion,
+  following,
+  follows,
+  has,
+  inside,
+  precedes,
+  preceding,
+  Query,
+  QueryContractError,
+} from "./query.ts"
+export type {
+  EvidenceFact,
+  HasOptions,
+  InsideOptions,
+  ProjectScope,
+  QueryEvidence,
+  RelationalMatcher,
+  Selection,
+  SiblingOptions,
+} from "./query.ts"
 export { Recipe, RecipeInputError, TOOLCHAIN } from "./recipe.ts"
 export type { RecipeDefinition } from "./recipe.ts"
 export { Preview, StalePlanError, Verification, VerificationFailure } from "./verification.ts"

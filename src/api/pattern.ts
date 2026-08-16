@@ -7,27 +7,53 @@
  */
 import { Effect, Predicate } from "effect"
 import {
+  type AwaitExpression,
   type CallExpression,
+  type ClassDeclaration,
+  type DoStatement,
+  type ForInStatement,
+  type ForOfStatement,
+  type ForStatement,
+  type FunctionDeclaration,
   type Identifier,
+  type IfStatement,
   type Node,
   type NoSubstitutionTemplateLiteral,
   type NumericLiteral,
   type ObjectLiteralExpression,
   type PropertyAccessExpression,
+  type ReturnStatement,
   type StringLiteral,
   type TemplateExpression,
+  type TryStatement,
+  type VariableDeclaration,
+  type VariableStatement,
+  type WhileStatement,
   SyntaxKind,
 } from "typescript/unstable/ast"
 import {
+  isAwaitExpression,
   isCallExpression,
+  isClassDeclaration,
+  isDoStatement,
+  isForInStatement,
+  isForOfStatement,
+  isForStatement,
+  isFunctionDeclaration,
   isIdentifier,
+  isIfStatement,
   isNoSubstitutionTemplateLiteral,
   isNumericLiteral,
   isObjectLiteralExpression,
   isPropertyAccessExpression,
   isPropertyAssignment,
+  isReturnStatement,
   isStringLiteral,
   isTemplateExpression,
+  isTryStatement,
+  isVariableDeclaration,
+  isVariableStatement,
+  isWhileStatement,
 } from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol, type Type as NativeType } from "typescript/unstable/async"
 import { nativeRequest } from "../internal/native-compiler.ts"
@@ -374,6 +400,297 @@ export const isStringLike = (node: Node): node is StringLike =>
 export const stringLike = (): Pattern<Node, StringLike> =>
   predicate<Node, StringLike>("string-like", isStringLike)
 
+export interface FunctionDeclarationPatternOptions {
+  readonly name?: string | RegExp
+  readonly async?: boolean
+  readonly exported?: boolean
+}
+
+/** Matches a FunctionDeclaration node, optionally filtering by name, async modifier, or export modifier. */
+export const functionDeclaration = (
+  options?: FunctionDeclarationPatternOptions,
+): Pattern<FunctionDeclaration, FunctionDeclaration> => ({
+  kind: "functionDeclaration",
+  match: (node) =>
+    Effect.sync(() => {
+      if (!isFunctionDeclaration(node)) return matchFailure
+      if (options?.name !== undefined) {
+        if (node.name === undefined || !matchesName(nameMatcher(options.name), node.name.text)) {
+          return matchFailure
+        }
+      }
+      if (options?.async !== undefined) {
+        const isAsync = node.modifiers?.some((m) => m.kind === SyntaxKind.AsyncKeyword) ?? false
+        if (isAsync !== options.async) return matchFailure
+      }
+      if (options?.exported !== undefined) {
+        const isExp = node.modifiers?.some((m) => m.kind === SyntaxKind.ExportKeyword) ?? false
+        if (isExp !== options.exported) return matchFailure
+      }
+      if (node.name !== undefined) {
+        return matchSuccess(node, {
+          kind: SyntaxKind[node.kind] ?? node.kind,
+          name: node.name.text,
+        })
+      }
+      return matchSuccess(node, {
+        kind: SyntaxKind[node.kind] ?? node.kind,
+      })
+    }),
+})
+
+export interface ClassDeclarationPatternOptions {
+  readonly name?: string | RegExp
+  readonly exported?: boolean
+}
+
+/** Matches a ClassDeclaration node, optionally filtering by name or export modifier. */
+export const classDeclaration = (
+  options?: ClassDeclarationPatternOptions,
+): Pattern<ClassDeclaration, ClassDeclaration> => ({
+  kind: "classDeclaration",
+  match: (node) =>
+    Effect.sync(() => {
+      if (!isClassDeclaration(node)) return matchFailure
+      if (options?.name !== undefined) {
+        if (node.name === undefined || !matchesName(nameMatcher(options.name), node.name.text)) {
+          return matchFailure
+        }
+      }
+      if (options?.exported !== undefined) {
+        const isExp = node.modifiers?.some((m) => m.kind === SyntaxKind.ExportKeyword) ?? false
+        if (isExp !== options.exported) return matchFailure
+      }
+      if (node.name !== undefined) {
+        return matchSuccess(node, {
+          kind: SyntaxKind[node.kind] ?? node.kind,
+          name: node.name.text,
+        })
+      }
+      return matchSuccess(node, {
+        kind: SyntaxKind[node.kind] ?? node.kind,
+      })
+    }),
+})
+
+export interface TryStatementPatternOptions {
+  readonly hasCatch?: boolean
+  readonly hasFinally?: boolean
+}
+
+/** Matches a TryStatement node, optionally checking for catch and finally clauses. */
+export const tryStatement = (
+  options?: TryStatementPatternOptions,
+): Pattern<TryStatement, TryStatement> => ({
+  kind: "tryStatement",
+  match: (node) =>
+    Effect.sync(() => {
+      if (!isTryStatement(node)) return matchFailure
+      if (options?.hasCatch !== undefined) {
+        const hasCatch = node.catchClause !== undefined
+        if (hasCatch !== options.hasCatch) return matchFailure
+      }
+      if (options?.hasFinally !== undefined) {
+        const hasFinally = node.finallyBlock !== undefined
+        if (hasFinally !== options.hasFinally) return matchFailure
+      }
+      return matchSuccess(node, {
+        kind: SyntaxKind[node.kind] ?? node.kind,
+        hasCatch: node.catchClause !== undefined,
+        hasFinally: node.finallyBlock !== undefined,
+      })
+    }),
+})
+
+export type LoopStatement = ForStatement | ForOfStatement | ForInStatement | WhileStatement | DoStatement
+
+export interface LoopPatternOptions {
+  readonly kind?: "for" | "for-of" | "for-in" | "while" | "do-while"
+}
+
+/** Matches any loop statement (`for`, `for-of`, `for-in`, `while`, `do-while`). */
+export const loop = (
+  options?: LoopPatternOptions,
+): Pattern<LoopStatement, LoopStatement> => ({
+  kind: "loop",
+  match: (node) =>
+    Effect.sync(() => {
+      if (options?.kind === "for") {
+        if (!isForStatement(node)) return matchFailure
+        return matchSuccess(node, { loopKind: "ForStatement" })
+      }
+      if (options?.kind === "for-of") {
+        if (!isForOfStatement(node)) return matchFailure
+        return matchSuccess(node, { loopKind: "ForOfStatement" })
+      }
+      if (options?.kind === "for-in") {
+        if (!isForInStatement(node)) return matchFailure
+        return matchSuccess(node, { loopKind: "ForInStatement" })
+      }
+      if (options?.kind === "while") {
+        if (!isWhileStatement(node)) return matchFailure
+        return matchSuccess(node, { loopKind: "WhileStatement" })
+      }
+      if (options?.kind === "do-while") {
+        if (!isDoStatement(node)) return matchFailure
+        return matchSuccess(node, { loopKind: "DoStatement" })
+      }
+      if (
+        !isForStatement(node) &&
+        !isForOfStatement(node) &&
+        !isForInStatement(node) &&
+        !isWhileStatement(node) &&
+        !isDoStatement(node)
+      ) {
+        return matchFailure
+      }
+      // SAFETY: node is verified to be one of the LoopStatement subtypes by the if-guard above.
+      const loopNode = node as LoopStatement
+      return matchSuccess(loopNode, { loopKind: SyntaxKind[node.kind] ?? node.kind })
+    }),
+})
+
+/** Matches a `for (...)` statement. */
+export const forStatement = (): Pattern<ForStatement, ForStatement> =>
+  predicate<ForStatement, ForStatement>("forStatement", isForStatement)
+
+/** Matches a `for (... of ...)` statement. */
+export const forOfStatement = (): Pattern<ForOfStatement, ForOfStatement> =>
+  predicate<ForOfStatement, ForOfStatement>("forOfStatement", isForOfStatement)
+
+/** Matches a `for (... in ...)` statement. */
+export const forInStatement = (): Pattern<ForInStatement, ForInStatement> =>
+  predicate<ForInStatement, ForInStatement>("forInStatement", isForInStatement)
+
+/** Matches a `while (...)` statement. */
+export const whileStatement = (): Pattern<WhileStatement, WhileStatement> =>
+  predicate<WhileStatement, WhileStatement>("whileStatement", isWhileStatement)
+
+/** Matches a `do ... while (...)` statement. */
+export const doStatement = (): Pattern<DoStatement, DoStatement> =>
+  predicate<DoStatement, DoStatement>("doStatement", isDoStatement)
+
+export interface AwaitExpressionPatternOptions<EOut = Node> {
+  readonly expression?: Pattern<Node, EOut>
+}
+
+/** Matches an AwaitExpression node, optionally verifying its inner expression pattern. */
+export const awaitExpression = <EOut = Node>(
+  options?: AwaitExpressionPatternOptions<EOut>,
+): Pattern<AwaitExpression, AwaitExpression> => ({
+  kind: "awaitExpression",
+  match: (node, project) =>
+    Effect.gen(function*() {
+      if (!isAwaitExpression(node)) return matchFailure
+      if (options?.expression !== undefined) {
+        const expRes = yield* options.expression.match(node.expression, project)
+        if (!expRes.matched) return matchFailure
+      }
+      return matchSuccess(node, { kind: SyntaxKind[node.kind] ?? node.kind })
+    }),
+})
+
+export interface VariableStatementPatternOptions {
+  readonly name?: string | RegExp
+  readonly exported?: boolean
+}
+
+/** Matches a VariableStatement node, optionally filtering by variable name or export modifier. */
+export const variableStatement = (
+  options?: VariableStatementPatternOptions,
+): Pattern<VariableStatement, VariableStatement> => ({
+  kind: "variableStatement",
+  match: (node) =>
+    Effect.sync(() => {
+      if (!isVariableStatement(node)) return matchFailure
+      if (options?.exported !== undefined) {
+        const isExp = node.modifiers?.some((m) => m.kind === SyntaxKind.ExportKeyword) ?? false
+        if (isExp !== options.exported) return matchFailure
+      }
+      if (options?.name !== undefined) {
+        const matcher = nameMatcher(options.name)
+        const hasMatchingName = node.declarationList.declarations.some(
+          (decl) => isIdentifier(decl.name) && matchesName(matcher, decl.name.text),
+        )
+        if (!hasMatchingName) return matchFailure
+      }
+      return matchSuccess(node, { kind: SyntaxKind[node.kind] ?? node.kind })
+    }),
+})
+
+export interface VariableDeclarationPatternOptions {
+  readonly name?: string | RegExp
+}
+
+/** Matches a VariableDeclaration node, optionally filtering by variable name. */
+export const variableDeclaration = (
+  options?: VariableDeclarationPatternOptions,
+): Pattern<VariableDeclaration, VariableDeclaration> => ({
+  kind: "variableDeclaration",
+  match: (node) =>
+    Effect.sync(() => {
+      if (!isVariableDeclaration(node)) return matchFailure
+      if (options?.name !== undefined) {
+        if (!isIdentifier(node.name) || !matchesName(nameMatcher(options.name), node.name.text)) {
+          return matchFailure
+        }
+      }
+      if (isIdentifier(node.name)) {
+        return matchSuccess(node, {
+          kind: SyntaxKind[node.kind] ?? node.kind,
+          name: node.name.text,
+        })
+      }
+      return matchSuccess(node, {
+        kind: SyntaxKind[node.kind] ?? node.kind,
+      })
+    }),
+})
+
+export interface IfStatementPatternOptions {
+  readonly hasElse?: boolean
+}
+
+/** Matches an IfStatement node, optionally checking for presence of an else branch. */
+export const ifStatement = (
+  options?: IfStatementPatternOptions,
+): Pattern<IfStatement, IfStatement> => ({
+  kind: "ifStatement",
+  match: (node) =>
+    Effect.sync(() => {
+      if (!isIfStatement(node)) return matchFailure
+      if (options?.hasElse !== undefined) {
+        const hasElse = node.elseStatement !== undefined
+        if (hasElse !== options.hasElse) return matchFailure
+      }
+      return matchSuccess(node, {
+        kind: SyntaxKind[node.kind] ?? node.kind,
+        hasElse: node.elseStatement !== undefined,
+      })
+    }),
+})
+
+export interface ReturnStatementPatternOptions<EOut = Node> {
+  readonly expression?: Pattern<Node, EOut>
+}
+
+/** Matches a ReturnStatement node, optionally verifying its returned expression pattern. */
+export const returnStatement = <EOut = Node>(
+  options?: ReturnStatementPatternOptions<EOut>,
+): Pattern<ReturnStatement, ReturnStatement> => ({
+  kind: "returnStatement",
+  match: (node, project) =>
+    Effect.gen(function*() {
+      if (!isReturnStatement(node)) return matchFailure
+      if (options?.expression !== undefined) {
+        if (node.expression === undefined) return matchFailure
+        const expRes = yield* options.expression.match(node.expression, project)
+        if (!expRes.matched) return matchFailure
+      }
+      return matchSuccess(node, { kind: SyntaxKind[node.kind] ?? node.kind })
+    }),
+})
+
 export const Pattern = {
   any,
   predicate,
@@ -389,4 +706,18 @@ export const Pattern = {
   numericLiteral,
   objectLiteral,
   typed,
+  functionDeclaration,
+  classDeclaration,
+  tryStatement,
+  loop,
+  forStatement,
+  forOfStatement,
+  forInStatement,
+  whileStatement,
+  doStatement,
+  awaitExpression,
+  variableStatement,
+  variableDeclaration,
+  ifStatement,
+  returnStatement,
 }
