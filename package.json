@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Effect-native TypeScript 7 project transformations for reliable, large-scale codemods.",
+  "bin": {
+    "teatime": "./bin/teatime.ts"
+  },
   "exports": {
     ".": "./src/api/index.ts"
   },

@@ -156,6 +156,52 @@ export const previewPlan = (
       afterText,
     })
   }
+
+  if (plan.fileOperations !== undefined) {
+    for (const op of plan.fileOperations) {
+      if (op.kind === "create") {
+        const content = op.content ?? ""
+        files.push({
+          projectId: op.projectId,
+          fileName: op.path,
+          beforeHash: textHash(""),
+          afterHash: textHash(content),
+          beforeText: "",
+          afterText: content,
+        })
+      } else if (op.kind === "delete") {
+        const beforeText = sourceTexts.get(`${op.projectId}\0${op.path}`) ?? ""
+        files.push({
+          projectId: op.projectId,
+          fileName: op.path,
+          beforeHash: textHash(beforeText),
+          afterHash: textHash(""),
+          beforeText,
+          afterText: "",
+        })
+      } else if (op.kind === "move" && op.toPath !== undefined) {
+        const beforeText = sourceTexts.get(`${op.projectId}\0${op.path}`) ?? ""
+        const content = op.content ?? beforeText
+        files.push({
+          projectId: op.projectId,
+          fileName: op.path,
+          beforeHash: textHash(beforeText),
+          afterHash: textHash(""),
+          beforeText,
+          afterText: "",
+        })
+        files.push({
+          projectId: op.projectId,
+          fileName: op.toPath,
+          beforeHash: textHash(""),
+          afterHash: textHash(content),
+          beforeText: "",
+          afterText: content,
+        })
+      }
+    }
+  }
+
   files.sort((left, right) =>
     left.projectId.localeCompare(right.projectId) || left.fileName.localeCompare(right.fileName))
   return { planId: plan.planId, snapshotHash: plan.snapshotHash, files }
@@ -228,7 +274,7 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
   PlanApplication.of({
     apply: Effect.fn("PlanApplication.apply")(function*(verified: VerifiedPlan) {
       const { plan, preview } = verified
-      const staged: Array<{ readonly target: string; readonly temporary: string }> = []
+      const staged: Array<{ readonly target: string; readonly temporary: string; readonly isDelete?: boolean }> = []
       const applied: Array<FilePreview> = []
 
       // Application revalidates the entire semantic input snapshot, not only
@@ -254,33 +300,57 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
 
       for (const file of preview.files) {
         const target = absoluteFileName(plan, workspaceRoot, file.projectId, file.fileName)
-        const current = yield* Effect.tryPromise({
-          try: () => Fs.readFile(target, "utf8"),
-          catch: () => new StalePlanError({
-            planId: plan.planId,
-            projectId: file.projectId,
-            fileName: file.fileName,
-          }),
-        })
-        if (textHash(current) !== file.beforeHash) {
-          return yield* new StalePlanError({
-            planId: plan.planId,
-            projectId: file.projectId,
-            fileName: file.fileName,
+        if (file.beforeText === "") {
+          // New file creation
+          yield* Effect.tryPromise({
+            try: async () => {
+              await Fs.mkdir(Path.dirname(target), { recursive: true })
+            },
+            catch: (cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: false }),
           })
+          const temporary = `${target}.teatime-${randomUUID()}.tmp`
+          yield* Effect.tryPromise({
+            try: () => Fs.writeFile(temporary, file.afterText),
+            catch: (cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true }),
+          })
+          staged.push({ target, temporary, isDelete: false })
+        } else if (file.afterText === "") {
+          // File deletion
+          staged.push({ target, temporary: "", isDelete: true })
+        } else {
+          const current = yield* Effect.tryPromise({
+            try: () => Fs.readFile(target, "utf8"),
+            catch: () => new StalePlanError({
+              planId: plan.planId,
+              projectId: file.projectId,
+              fileName: file.fileName,
+            }),
+          })
+          if (textHash(current) !== file.beforeHash) {
+            return yield* new StalePlanError({
+              planId: plan.planId,
+              projectId: file.projectId,
+              fileName: file.fileName,
+            })
+          }
+          const temporary = `${target}.teatime-${randomUUID()}.tmp`
+          yield* Effect.tryPromise({
+            try: () => Fs.writeFile(temporary, file.afterText),
+            catch: (cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true }),
+          })
+          staged.push({ target, temporary, isDelete: false })
         }
-        const temporary = `${target}.teatime-${randomUUID()}.tmp`
-        yield* Effect.tryPromise({
-          try: () => Fs.writeFile(temporary, file.afterText),
-          catch: (cause) => new ApplicationFailure({ planId: plan.planId, cause, rolledBack: true }),
-        })
-        staged.push({ target, temporary })
       }
 
       const applyExit = yield* Effect.tryPromise({
         try: async () => {
           for (let index = 0; index < staged.length; index++) {
-            await Fs.rename(staged[index]!.temporary, staged[index]!.target)
+            const item = staged[index]!
+            if (item.isDelete) {
+              await Fs.rm(item.target, { force: true })
+            } else {
+              await Fs.rename(item.temporary, item.target)
+            }
             applied.push(preview.files[index]!)
           }
         },

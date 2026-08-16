@@ -11,6 +11,15 @@
  * Effect-returning function.
  */
 export {
+  computeUnifiedDiff,
+  renderDiagnosticDiff,
+  renderFilePreview,
+  renderPlanPreview,
+} from "../cli/diff.ts"
+export type { DiffOptions } from "../cli/diff.ts"
+export { recipeToAgentTool } from "../cli/tool.ts"
+export type { AgentTool } from "../cli/tool.ts"
+export {
   Application,
   layerNode as planApplicationLayerNode,
   PlanApplication,

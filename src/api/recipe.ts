@@ -259,6 +259,7 @@ const run = <Input, E, R>(
         })),
         sources,
         edits: draft.edits,
+        ...(draft.fileOperations !== undefined ? { fileOperations: draft.fileOperations } : {}),
         evidence: draft.evidence,
         policies: recipe.policies,
         measurements: { matches: draft.matches },

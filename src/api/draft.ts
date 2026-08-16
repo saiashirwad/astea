@@ -8,10 +8,17 @@
  * the durable guard data from the snapshot. Finalization (ordering, conflict
  * rejection, plan identity) belongs to the engine in `Recipe.run`.
  */
+import * as Path from "node:path"
 import { Effect } from "effect"
 import type {
+  ArrowFunction,
   CallExpression,
+  ClassDeclaration,
+  FunctionDeclaration,
+  FunctionExpression,
   ImportDeclaration,
+  InterfaceDeclaration,
+  MethodDeclaration,
   Node,
   ObjectLiteralExpression,
   SourceFile,
@@ -23,12 +30,13 @@ import {
   isNamedImports,
   isObjectLiteralExpression,
   isPropertyAssignment,
+  isPropertySignatureDeclaration,
   isStringLiteral,
 } from "typescript/unstable/ast/is"
 import type { Symbol as NativeSymbol } from "typescript/unstable/async"
 import { textHash } from "../prototype/edits.ts"
 import { type NativeCompilerError, nativeRequest } from "../prototype/native-compiler.ts"
-import type { EvidenceRecord, PlannedTextEdit } from "../prototype/plan.ts"
+import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../prototype/plan.ts"
 import { projectRelativePath } from "../prototype/project-path.ts"
 import { Query, type QueryContractError, type Selection } from "./query.ts"
 import type { FileNotFound, ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "./workspace.ts"
@@ -38,16 +46,18 @@ export type ProposedEdit = PlannedTextEdit
 
 export interface Draft {
   readonly edits: ReadonlyArray<ProposedEdit>
+  readonly fileOperations?: ReadonlyArray<PlannedFileOperation>
   readonly evidence: ReadonlyArray<EvidenceRecord>
   /** Number of selections that produced this draft; recorded as a planning-time measurement. */
   readonly matches: number
 }
 
-export const empty: Draft = { edits: [], evidence: [], matches: 0 }
+export const empty: Draft = { edits: [], fileOperations: [], evidence: [], matches: 0 }
 
 /** Combine drafts built from disjoint selections. Conflicting overlaps are rejected at finalization. */
 export const concat = (...drafts: ReadonlyArray<Draft>): Draft => ({
   edits: drafts.flatMap((draft) => [...draft.edits]),
+  fileOperations: drafts.flatMap((draft) => (draft.fileOperations ? [...draft.fileOperations] : [])),
   evidence: drafts.flatMap((draft) => [...draft.evidence]),
   matches: drafts.reduce((total, draft) => total + draft.matches, 0),
 })
@@ -118,7 +128,7 @@ const insertAtNode = (
   side: "before" | "after",
 ): Effect.Effect<Draft, SnapshotExpired> =>
   project.unsafeNative(() =>
-    Effect.sync((): Draft => {
+    Effect.sync(() => {
       const sourceFile = node.getSourceFile()
       const position = side === "before" ? node.getStart(sourceFile) : node.getEnd()
       return {
@@ -194,207 +204,288 @@ export const replaceEach = <A extends Node>(
     )
   }).pipe(Effect.map((drafts) => concat(...drafts)))
 
-// -----------------------------------------------------------------------------
-// High-Fidelity Syntactic Draft Combinators
-// -----------------------------------------------------------------------------
+// =============================================================================
+// File Lifecycle Operations
+// =============================================================================
 
-const detectQuoteStyle = (sourceFile: SourceFile): '"' | "'" => {
-  for (const stmt of sourceFile.statements) {
-    if (isImportDeclaration(stmt) && isStringLiteral(stmt.moduleSpecifier)) {
-      const raw = stmt.moduleSpecifier.getText(sourceFile)
-      if (raw.startsWith("'")) return "'"
-      if (raw.startsWith('"')) return '"'
-    }
-  }
-  return '"'
-}
-
-/** Import management draft combinators. */
-export const imports = {
-  /** Add a named import to a file, merging into existing import declarations if present. */
-  addNamed: (
+export const files = {
+  /** Propose creating a new source file in the project with initial content. */
+  create: (
     project: ProjectSnapshot,
-    fileName: string,
-    options: {
-      readonly module: string
-      readonly name: string
-      readonly alias?: string
-    },
-  ): Effect.Effect<Draft, FileNotFound | ProjectSnapshotError> =>
+    relativePath: string,
+    content: string,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => ({
+        edits: [],
+        fileOperations: [{
+          kind: "create",
+          projectId: project.project.id,
+          path: relativePath,
+          content,
+          evidenceIds: [`file:create:${relativePath}`],
+        }],
+        evidence: [],
+        matches: 1,
+      }))
+    ),
+
+  /** Propose deleting an existing source file from the project. */
+  delete: (
+    project: ProjectSnapshot,
+    relativePath: string,
+  ): Effect.Effect<Draft, ProjectSnapshotError | FileNotFound> =>
     Effect.gen(function*() {
-      const sourceFile = yield* project.sourceFile(fileName)
-      if (sourceFile === undefined) {
-        return yield* Effect.succeed(empty)
+      const source = yield* project.sourceText(relativePath)
+      return yield* project.unsafeNative(() =>
+        Effect.sync((): Draft => ({
+          edits: [],
+          fileOperations: [{
+            kind: "delete",
+            projectId: project.project.id,
+            path: relativePath,
+            initialHash: textHash(source),
+            evidenceIds: [`file:delete:${relativePath}`],
+          }],
+          evidence: [],
+          matches: 1,
+        }))
+      )
+    }),
+
+  /** Propose moving/renaming a source file and automatically rewrites relative import references across the project. */
+  move: (
+    project: ProjectSnapshot,
+    fromPath: string,
+    toPath: string,
+  ): Effect.Effect<Draft, ProjectSnapshotError | FileNotFound | QueryContractError> =>
+    Effect.gen(function*() {
+      const source = yield* project.sourceText(fromPath)
+      const fileOpDraft: Draft = {
+        edits: [],
+        fileOperations: [{
+          kind: "move",
+          projectId: project.project.id,
+          path: fromPath,
+          toPath,
+          content: source,
+          initialHash: textHash(source),
+          evidenceIds: [`file:move:${fromPath}->${toPath}`],
+        }],
+        evidence: [],
+        matches: 1,
       }
 
-      const quote = detectQuoteStyle(sourceFile)
-      const specifierText = options.alias !== undefined
-        ? `${options.name} as ${options.alias}`
-        : options.name
+      // Compute relative module specifier adjustments across all files in the project
+      const fromBase = fromPath.replace(/\.(ts|tsx|js|jsx)$/, "")
+      const toBase = toPath.replace(/\.(ts|tsx|js|jsx)$/, "")
 
-      let existingDecl: ImportDeclaration | undefined
-      for (const stmt of sourceFile.statements) {
-        if (
-          isImportDeclaration(stmt) &&
-          isStringLiteral(stmt.moduleSpecifier) &&
-          stmt.moduleSpecifier.text === options.module
-        ) {
-          existingDecl = stmt
-          break
-        }
-      }
+      const importEdits: Array<ProposedEdit> = []
+      const sourceNames = yield* project.sourceFileNames()
 
-      if (existingDecl !== undefined && existingDecl.importClause !== undefined) {
-        const clause = existingDecl.importClause
-        if (clause.namedBindings !== undefined && isNamedImports(clause.namedBindings)) {
-          const alreadyImported = clause.namedBindings.elements.some((el) => el.name.text === (options.alias ?? options.name))
-          if (alreadyImported) return empty
+      for (const absFile of sourceNames) {
+        const file = yield* project.sourceFile(absFile)
+        if (file === undefined) continue
+        const relFile = projectRelativePath(project.root, file.fileName)
+        if (relFile === fromPath) continue
 
-          if (clause.namedBindings.elements.length > 0) {
-            const lastElement = clause.namedBindings.elements[clause.namedBindings.elements.length - 1]!
-            const insertPos = lastElement.getEnd()
-            const edit: ProposedEdit = {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: `, ${specifierText}`,
-              evidenceIds: [`import:add:${options.module}:${options.name}`],
+        for (const statement of file.statements) {
+          if (isImportDeclaration(statement)) {
+            const specifier = statement.moduleSpecifier
+            if (isStringLiteral(specifier)) {
+              const specText = specifier.text
+              const fileDir = Path.dirname(relFile)
+              const resolvedImport = Path.normalize(Path.join(fileDir, specText)).replace(/\.(ts|tsx|js|jsx)$/, "")
+              if (resolvedImport === fromBase || resolvedImport === `./${fromBase}` || resolvedImport === fromPath) {
+                let newRel = Path.relative(fileDir, toBase)
+                if (!newRel.startsWith(".")) newRel = `./${newRel}`
+                const ext = specText.endsWith(".js") ? ".js" : specText.endsWith(".ts") ? ".ts" : ""
+                const newSpecText = `${newRel}${ext}`
+                const start = specifier.getStart(file)
+                const end = specifier.getEnd()
+                const quote = file.text[start] === "'" ? "'" : '"'
+                importEdits.push({
+                  projectId: project.project.id,
+                  fileName: relFile,
+                  start,
+                  end,
+                  expectedTextHash: textHash(file.text.slice(start, end)),
+                  newText: `${quote}${newSpecText}${quote}`,
+                  evidenceIds: [`import:move-target:${relFile}`],
+                })
+              }
             }
-            return { edits: [edit], evidence: [], matches: 1 }
-          } else {
-            const insertPos = clause.namedBindings.getStart(sourceFile) + 1
-            const edit: ProposedEdit = {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: ` ${specifierText} `,
-              evidenceIds: [`import:add:${options.module}:${options.name}`],
-            }
-            return { edits: [edit], evidence: [], matches: 1 }
           }
         }
       }
 
-      // No matching import declaration — insert new import statement
-      let insertPos = 0
-      let prefix = ""
-      let suffix = "\n"
-
-      let lastImport: ImportDeclaration | undefined
-      for (const stmt of sourceFile.statements) {
-        if (isImportDeclaration(stmt)) {
-          lastImport = stmt
-        }
-      }
-
-      if (lastImport !== undefined) {
-        insertPos = lastImport.getEnd()
-        prefix = "\n"
-        suffix = ""
-      }
-
-      const importStatement = `${prefix}import { ${specifierText} } from ${quote}${options.module}${quote}${suffix}`
-      const edit: ProposedEdit = {
-        projectId: project.project.id,
-        fileName: projectRelativePath(project.root, sourceFile.fileName),
-        start: insertPos,
-        end: insertPos,
-        expectedTextHash: textHash(""),
-        newText: importStatement,
-        evidenceIds: [`import:new:${options.module}:${options.name}`],
-      }
-      return { edits: [edit], evidence: [], matches: 1 }
+      const importDraft: Draft = { edits: importEdits, evidence: [], matches: importEdits.length }
+      return concat(fileOpDraft, importDraft)
     }),
+}
 
-  /** Remove a named import from a file. */
-  removeNamed: (
+// =============================================================================
+// Import Declarations
+// =============================================================================
+
+export interface AddNamedImportOptions {
+  readonly module: string
+  readonly name: string
+  readonly alias?: string
+}
+
+export const imports = {
+  /** Add a named import to a source file. */
+  addNamed: (
     project: ProjectSnapshot,
     fileName: string,
-    options: {
-      readonly module: string
-      readonly name: string
-    },
-  ): Effect.Effect<Draft, FileNotFound | ProjectSnapshotError> =>
+    options: AddNamedImportOptions,
+  ): Effect.Effect<Draft, ProjectSnapshotError> =>
     Effect.gen(function*() {
-      const sourceFile = yield* project.sourceFile(fileName)
-      if (sourceFile === undefined) return empty
+      const source = yield* project.sourceFile(fileName)
+      if (source === undefined) {
+        return empty
+      }
 
-      for (const stmt of sourceFile.statements) {
-        if (
-          isImportDeclaration(stmt) &&
-          isStringLiteral(stmt.moduleSpecifier) &&
-          stmt.moduleSpecifier.text === options.module &&
-          stmt.importClause?.namedBindings !== undefined &&
-          isNamedImports(stmt.importClause.namedBindings)
-        ) {
-          const namedBindings = stmt.importClause.namedBindings
-          const index = namedBindings.elements.findIndex((el) => el.name.text === options.name)
-          if (index === -1) continue
+      return yield* project.unsafeNative(() =>
+        Effect.sync((): Draft => {
+          const importName = options.alias ? `${options.name} as ${options.alias}` : options.name
 
-          if (namedBindings.elements.length === 1 && stmt.importClause.name === undefined) {
-            // Remove entire import declaration including newline
-            let endPos = stmt.getEnd()
-            if (sourceFile.text[endPos] === "\n") endPos += 1
-            else if (sourceFile.text.slice(endPos, endPos + 2) === "\r\n") endPos += 2
+          for (const statement of source.statements) {
+            if (isImportDeclaration(statement)) {
+              const specifier = statement.moduleSpecifier
+              if (isStringLiteral(specifier) && specifier.text === options.module) {
+                const clause = statement.importClause
+                if (clause && clause.namedBindings && isNamedImports(clause.namedBindings)) {
+                  const named = clause.namedBindings
+                  for (const element of named.elements) {
+                    if (element.name.text === (options.alias ?? options.name)) {
+                      return empty
+                    }
+                  }
 
-            const startPos = stmt.getStart(sourceFile)
-            const edit: ProposedEdit = {
+                  if (named.elements.length > 0) {
+                    const last = named.elements[named.elements.length - 1]!
+                    const insertPos = last.getEnd()
+                    return {
+                      edits: [{
+                        projectId: project.project.id,
+                        fileName: projectRelativePath(project.root, source.fileName),
+                        start: insertPos,
+                        end: insertPos,
+                        expectedTextHash: textHash(""),
+                        newText: `, ${importName}`,
+                        evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
+                      }],
+                      evidence: [],
+                      matches: 1,
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          const insertPos = 0
+          const importText = `import { ${importName} } from "${options.module}";\n`
+
+          return {
+            edits: [{
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: startPos,
-              end: endPos,
-              expectedTextHash: textHash(sourceFile.text.slice(startPos, endPos)),
-              newText: "",
-              evidenceIds: [`import:remove:${options.module}:${options.name}`],
-            }
-            return { edits: [edit], evidence: [], matches: 1 }
-          } else {
-            // Remove single element from named bindings
-            const el = namedBindings.elements[index]!
-            let start = el.getStart(sourceFile)
-            let end = el.getEnd()
+              fileName: projectRelativePath(project.root, source.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: importText,
+              evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
+            }],
+            evidence: [],
+            matches: 1,
+          }
+        })
+      )
+    }),
 
-            if (index < namedBindings.elements.length - 1) {
-              const nextEl = namedBindings.elements[index + 1]!
-              end = nextEl.getStart(sourceFile)
-            } else if (index > 0) {
-              const prevEl = namedBindings.elements[index - 1]!
-              start = prevEl.getEnd()
-            }
+  /** Remove a named import from an import declaration. */
+  removeNamed: (
+    project: ProjectSnapshot,
+    declaration: ImportDeclaration,
+    name: string,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const clause = declaration.importClause
+        if (!clause || !clause.namedBindings || !isNamedImports(clause.namedBindings)) {
+          return empty
+        }
 
-            const edit: ProposedEdit = {
+        const named = clause.namedBindings
+        const elements = named.elements
+        const targetIndex = elements.findIndex((el) => el.name.text === name || el.propertyName?.text === name)
+
+        if (targetIndex === -1) return empty
+
+        const sourceFile = declaration.getSourceFile()
+
+        if (elements.length === 1) {
+          const start = declaration.getFullStart()
+          const end = declaration.getEnd()
+          return {
+            edits: [{
               projectId: project.project.id,
               fileName: projectRelativePath(project.root, sourceFile.fileName),
               start,
               end,
               expectedTextHash: textHash(sourceFile.text.slice(start, end)),
               newText: "",
-              evidenceIds: [`import:remove:${options.module}:${options.name}`],
-            }
-            return { edits: [edit], evidence: [], matches: 1 }
+              evidenceIds: [`import:removeNamed:${name}`],
+            }],
+            evidence: [],
+            matches: 1,
           }
         }
-      }
 
-      return empty
-    }),
+        const target = elements[targetIndex]!
+        let start = target.getStart(sourceFile)
+        let end = target.getEnd()
 
-  /** Update module specifier path in an import declaration. */
+        if (targetIndex < elements.length - 1) {
+          const next = elements[targetIndex + 1]!
+          end = next.getStart(sourceFile)
+        } else if (targetIndex > 0) {
+          const prev = elements[targetIndex - 1]!
+          start = prev.getEnd()
+        }
+
+        return {
+          edits: [{
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start,
+            end,
+            expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+            newText: "",
+            evidenceIds: [`import:removeNamed:${name}`],
+          }],
+          evidence: [],
+          matches: 1,
+        }
+      })
+    ),
+
+  /** Update an import module specifier source path. */
   updateSource: (
     project: ProjectSnapshot,
-    importDeclaration: ImportDeclaration,
+    declaration: ImportDeclaration,
     newModule: string,
   ): Effect.Effect<Draft, SnapshotExpired> =>
     project.unsafeNative(() =>
       Effect.sync((): Draft => {
-        const specifier = importDeclaration.moduleSpecifier
-        const sourceFile = importDeclaration.getSourceFile()
-        const text = specifier.getText(sourceFile)
-        const quote = text.startsWith("'") ? "'" : '"'
+        const specifier = declaration.moduleSpecifier
+        if (!isStringLiteral(specifier)) return empty
+
+        const sourceFile = declaration.getSourceFile()
+        const quote = specifier.getText(sourceFile)[0] ?? '"'
         const newSpecifierText = `${quote}${newModule}${quote}`
         const start = specifier.getStart(sourceFile)
         const end = specifier.getEnd()
@@ -411,6 +502,376 @@ export const imports = {
           }],
           evidence: [],
           matches: 1,
+        }
+      })
+    ),
+
+  /** Organize, group, deduplicate, and sort all imports in a file deterministically. */
+  organize: (
+    project: ProjectSnapshot,
+    fileName: string,
+  ): Effect.Effect<Draft, ProjectSnapshotError> =>
+    Effect.gen(function*() {
+      const source = yield* project.sourceFile(fileName)
+      if (source === undefined) return empty
+
+      return yield* project.unsafeNative(() =>
+        Effect.sync((): Draft => {
+          const importDecls: Array<ImportDeclaration> = []
+          for (const statement of source.statements) {
+            if (isImportDeclaration(statement)) {
+              importDecls.push(statement)
+            }
+          }
+
+          if (importDecls.length === 0) return empty
+
+          const firstDecl = importDecls[0]!
+          const lastDecl = importDecls[importDecls.length - 1]!
+          const start = firstDecl.getStart(source)
+          const end = lastDecl.getEnd()
+
+          // Group by module
+          const byModule = new Map<string, { isTypeOnly: boolean; defaultImport?: string; namedImports: Set<string> }>()
+          for (const decl of importDecls) {
+            if (isStringLiteral(decl.moduleSpecifier)) {
+              const mod = decl.moduleSpecifier.text
+              let existing = byModule.get(mod)
+              if (existing === undefined) {
+                existing = { isTypeOnly: false, namedImports: new Set() }
+                byModule.set(mod, existing)
+              }
+              const clause = decl.importClause
+              if (clause) {
+                if (clause.name) existing.defaultImport = clause.name.text
+                if (clause.namedBindings && isNamedImports(clause.namedBindings)) {
+                  for (const el of clause.namedBindings.elements) {
+                    const specText = el.propertyName ? `${el.propertyName.text} as ${el.name.text}` : el.name.text
+                    existing.namedImports.add(specText)
+                  }
+                }
+              }
+            }
+          }
+
+          // Partition into: 1. Built-in node modules, 2. External packages, 3. Relative/internal
+          const isBuiltin = (m: string) => m.startsWith("node:") || ["fs", "path", "crypto", "os", "util", "events", "url"].includes(m)
+          const isRelative = (m: string) => m.startsWith(".") || m.startsWith("/") || m.startsWith("@/")
+
+          const modules = [...byModule.keys()]
+          const builtins = modules.filter(isBuiltin).sort()
+          const external = modules.filter((m) => !isBuiltin(m) && !isRelative(m)).sort()
+          const internal = modules.filter(isRelative).sort()
+
+          const renderGroup = (mods: Array<string>) =>
+            mods.map((mod) => {
+              const entry = byModule.get(mod)!
+              const parts: Array<string> = []
+              if (entry.defaultImport) parts.push(entry.defaultImport)
+              if (entry.namedImports.size > 0) {
+                const sortedNamed = [...entry.namedImports].sort()
+                parts.push(`{ ${sortedNamed.join(", ")} }`)
+              }
+              return `import ${parts.join(", ")} from "${mod}";`
+            }).join("\n")
+
+          const groups = [renderGroup(builtins), renderGroup(external), renderGroup(internal)].filter(Boolean)
+          const formattedImports = groups.join("\n\n")
+
+          return {
+            edits: [{
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, source.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(source.text.slice(start, end)),
+              newText: formattedImports,
+              evidenceIds: ["import:organize"],
+            }],
+            evidence: [],
+            matches: 1,
+          }
+        })
+      )
+    }),
+}
+
+// =============================================================================
+// Declaration Combinators: Interfaces, Classes, Functions
+// =============================================================================
+
+export interface InterfacePropertyOptions {
+  readonly name: string
+  readonly type: string
+  readonly readonly?: boolean
+  readonly optional?: boolean
+  readonly leadingComment?: string
+}
+
+export const interfaces = {
+  /** Add a property signature to an InterfaceDeclaration. */
+  addProperty: (
+    project: ProjectSnapshot,
+    interfaceDecl: InterfaceDeclaration,
+    options: InterfacePropertyOptions,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const sourceFile = interfaceDecl.getSourceFile()
+        const insertPos = interfaceDecl.getEnd() - 1
+        const ro = options.readonly ? "readonly " : ""
+        const opt = options.optional ? "?" : ""
+        const comment = options.leadingComment ? `  /** ${options.leadingComment} */\n` : ""
+        const propertyText = `${comment}  ${ro}${options.name}${opt}: ${options.type};\n`
+
+        return {
+          edits: [{
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: propertyText,
+            evidenceIds: [`interface:addProperty:${options.name}`],
+          }],
+          evidence: [],
+          matches: 1,
+        }
+      })
+    ),
+
+  /** Remove a property signature from an InterfaceDeclaration. */
+  removeProperty: (
+    project: ProjectSnapshot,
+    interfaceDecl: InterfaceDeclaration,
+    propertyName: string,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const sourceFile = interfaceDecl.getSourceFile()
+        for (const member of interfaceDecl.members) {
+          if (isPropertySignatureDeclaration(member)) {
+            const name = isIdentifier(member.name) || isStringLiteral(member.name) ? member.name.text : ""
+            if (name === propertyName) {
+              const start = member.getFullStart()
+              const end = member.getEnd()
+              const nextChar = sourceFile.text[end]
+              const actualEnd = (nextChar === ";" || nextChar === ",") ? end + 1 : end
+              return {
+                edits: [{
+                  projectId: project.project.id,
+                  fileName: projectRelativePath(project.root, sourceFile.fileName),
+                  start,
+                  end: actualEnd,
+                  expectedTextHash: textHash(sourceFile.text.slice(start, actualEnd)),
+                  newText: "",
+                  evidenceIds: [`interface:removeProperty:${propertyName}`],
+                }],
+                evidence: [],
+                matches: 1,
+              }
+            }
+          }
+        }
+        return empty
+      })
+    ),
+}
+
+export interface ClassPropertyOptions {
+  readonly name: string
+  readonly type?: string
+  readonly initializer?: string
+  readonly isReadonly?: boolean
+  readonly isStatic?: boolean
+  readonly access?: "public" | "protected" | "private"
+}
+
+export interface ClassMethodOptions {
+  readonly name: string
+  readonly parameters?: string
+  readonly returnType?: string
+  readonly body: string
+  readonly isAsync?: boolean
+  readonly isStatic?: boolean
+  readonly access?: "public" | "protected" | "private"
+}
+
+export const classes = {
+  /** Add a property declaration to a ClassDeclaration. */
+  addProperty: (
+    project: ProjectSnapshot,
+    classDecl: ClassDeclaration,
+    options: ClassPropertyOptions,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const sourceFile = classDecl.getSourceFile()
+        const insertPos = classDecl.getEnd() - 1
+        const acc = options.access ? `${options.access} ` : ""
+        const st = options.isStatic ? "static " : ""
+        const ro = options.isReadonly ? "readonly " : ""
+        const ty = options.type ? `: ${options.type}` : ""
+        const init = options.initializer ? ` = ${options.initializer}` : ""
+        const propText = `  ${acc}${st}${ro}${options.name}${ty}${init};\n`
+
+        return {
+          edits: [{
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: propText,
+            evidenceIds: [`class:addProperty:${options.name}`],
+          }],
+          evidence: [],
+          matches: 1,
+        }
+      })
+    ),
+
+  /** Add a method declaration to a ClassDeclaration. */
+  addMethod: (
+    project: ProjectSnapshot,
+    classDecl: ClassDeclaration,
+    options: ClassMethodOptions,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const sourceFile = classDecl.getSourceFile()
+        const insertPos = classDecl.getEnd() - 1
+        const acc = options.access ? `${options.access} ` : ""
+        const st = options.isStatic ? "static " : ""
+        const asy = options.isAsync ? "async " : ""
+        const params = options.parameters ?? ""
+        const ret = options.returnType ? `: ${options.returnType}` : ""
+        const methodText = `  ${acc}${st}${asy}${options.name}(${params})${ret} {\n    ${options.body}\n  }\n`
+
+        return {
+          edits: [{
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: methodText,
+            evidenceIds: [`class:addMethod:${options.name}`],
+          }],
+          evidence: [],
+          matches: 1,
+        }
+      })
+    ),
+}
+
+export interface FunctionParamOptions {
+  readonly name: string
+  readonly type?: string
+  readonly default?: string
+  readonly optional?: boolean
+}
+
+export const functions = {
+  /** Add a parameter to a function declaration / function expression / arrow function / method. */
+  addParameter: (
+    project: ProjectSnapshot,
+    fn: FunctionDeclaration | FunctionExpression | ArrowFunction | MethodDeclaration,
+    options: FunctionParamOptions,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const sourceFile = fn.getSourceFile()
+        const params = fn.parameters
+        const opt = options.optional ? "?" : ""
+        const ty = options.type ? `: ${options.type}` : ""
+        const def = options.default ? ` = ${options.default}` : ""
+        const paramStr = `${options.name}${opt}${ty}${def}`
+
+        if (params.length === 0) {
+          const fnText = sourceFile.text.slice(fn.getStart(sourceFile), fn.getEnd())
+          const openParenRel = fnText.indexOf("(")
+          const closeParenRel = fnText.indexOf(")", openParenRel)
+          if (openParenRel === -1 || closeParenRel === -1) return empty
+          const insertPos = fn.getStart(sourceFile) + closeParenRel
+          return {
+            edits: [{
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: paramStr,
+              evidenceIds: [`function:addParam:${options.name}`],
+            }],
+            evidence: [],
+            matches: 1,
+          }
+        } else {
+          const lastParam = params[params.length - 1]!
+          const insertPos = lastParam.getEnd()
+          return {
+            edits: [{
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: `, ${paramStr}`,
+              evidenceIds: [`function:addParam:${options.name}`],
+            }],
+            evidence: [],
+            matches: 1,
+          }
+        }
+      })
+    ),
+
+  /** Set or update the explicit return type annotation on a function or method. */
+  setReturnType: (
+    project: ProjectSnapshot,
+    fn: FunctionDeclaration | FunctionExpression | ArrowFunction | MethodDeclaration,
+    returnType: string,
+  ): Effect.Effect<Draft, SnapshotExpired> =>
+    project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const sourceFile = fn.getSourceFile()
+        if (fn.type !== undefined) {
+          const start = fn.type.getStart(sourceFile)
+          const end = fn.type.getEnd()
+          return {
+            edits: [{
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+              newText: returnType,
+              evidenceIds: ["function:setReturnType"],
+            }],
+            evidence: [],
+            matches: 1,
+          }
+        } else {
+          const fnStart = fn.getStart(sourceFile)
+          const fnText = sourceFile.text.slice(fnStart, fn.getEnd())
+          const openParenRel = fnText.indexOf("(")
+          const closeParenRel = fnText.indexOf(")", openParenRel)
+          if (closeParenRel === -1) return empty
+          const insertPos = fnStart + closeParenRel + 1
+          return {
+            edits: [{
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: `: ${returnType}`,
+              evidenceIds: ["function:setReturnType"],
+            }],
+            evidence: [],
+            matches: 1,
+          }
         }
       })
     ),
@@ -572,7 +1033,6 @@ export const objectLiteral = {
           }
         }
 
-        // Insert new property before closing brace
         const insertPos = literal.getEnd() - 1
         const prefix = literal.properties.length > 0 ? ", " : " "
         const suffix = literal.properties.length === 0 ? " " : ""
@@ -650,6 +1110,39 @@ export const renameSymbol = (
     return yield* replaceEach(references, () => newName)
   })
 
+/** Clean up unused imports and unused declarations identified by TypeScript compiler diagnostics. */
+export const cleanUnused = (
+  project: ProjectSnapshot,
+): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
+  Effect.gen(function*() {
+    let accumulated = empty
+    const sourceNames = yield* project.sourceFileNames()
+
+    for (const absPath of sourceNames) {
+      const file = yield* project.sourceFile(absPath)
+      if (file === undefined) continue
+
+      for (const statement of file.statements) {
+        if (isImportDeclaration(statement) && statement.importClause?.namedBindings && isNamedImports(statement.importClause.namedBindings)) {
+          const named = statement.importClause.namedBindings
+          for (const element of named.elements) {
+            const sym = yield* project.symbolAt(file.fileName, element.name.getStart(file))
+            if (sym !== undefined) {
+              const refs = yield* Query.collect(Query.referencesTo(project, sym))
+              // If only reference is the import itself
+              if (refs.length <= 1) {
+                const draft = yield* imports.removeNamed(project, statement, element.name.text)
+                accumulated = concat(accumulated, draft)
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return accumulated
+  })
+
 export const Draft = {
   empty,
   concat,
@@ -661,7 +1154,12 @@ export const Draft = {
   print,
   replaceEach,
   renameSymbol,
+  cleanUnused,
+  files,
   imports,
+  interfaces,
+  classes,
+  functions,
   args,
   objectLiteral,
 }

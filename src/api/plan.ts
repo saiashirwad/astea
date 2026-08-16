@@ -18,6 +18,7 @@ export type {
   Json,
   PlanMeasurements,
   PlanPolicies,
+  PlannedFileOperation,
   PlannedTextEdit,
   ProjectEvidence,
   SourceFingerprint,

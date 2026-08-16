@@ -7,6 +7,7 @@ import type { CallExpression } from "typescript/unstable/ast"
 import {
   Application,
   computeDiagnosticDiff,
+  computeUnifiedDiff,
   ConfiguredProject,
   Criterion,
   type DiagnosticRecord,
@@ -19,11 +20,19 @@ import {
   Query,
   Recipe,
   RecipeInputError,
+  recipeToAgentTool,
+  renderDiagnosticDiff,
+  renderPlanPreview,
   Verification,
   VerificationFailure,
   Workspace,
   WorkspaceSnapshot,
 } from "./index.ts"
+import {
+  isClassDeclaration,
+  isFunctionDeclaration,
+  isInterfaceDeclaration,
+} from "typescript/unstable/ast/is"
 
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
 
@@ -467,6 +476,221 @@ describe("declarative transformations API (@effect/vitest)", () => {
             Effect.flip,
           )
           expect(failure).toBeInstanceOf(VerificationFailure)
+        })
+      ),
+      60_000,
+    )
+  })
+
+  // ---------------------------------------------------------------------------
+  // 6. File Lifecycle Operations (Create, Delete, Move + Import Rewriting)
+  // ---------------------------------------------------------------------------
+  describe("file lifecycle operations in plans", () => {
+    it("creates, deletes, and moves files while rewriting relative imports across referencing files", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          const mainLayer = planApplicationLayerNode.pipe(
+            Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
+          )
+
+          const fileLifecycleRecipe = Recipe.define("file-lifecycle", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+
+                // 1. Create a brand new file
+                const d1 = yield* Draft.files.create(
+                  project,
+                  "src/utils.ts",
+                  "export const magicNumber = 42;\n",
+                )
+
+                // 2. Move library.ts -> shared/core.ts (and rewrite imports in consumer.ts)
+                const d2 = yield* Draft.files.move(
+                  project,
+                  "src/library.ts",
+                  "src/shared/core.ts",
+                )
+
+                return Draft.concat(d1, d2)
+              }),
+          })
+
+          const plan = yield* Recipe.run(fileLifecycleRecipe, undefined)
+          expect(plan.fileOperations?.length).toBe(2)
+
+          const preview = yield* Preview.of(plan)
+          expect(preview.files.length).toBeGreaterThanOrEqual(2)
+
+          const verified = yield* Verification.verify(plan, fileLifecycleRecipe, undefined)
+          yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
+
+          // Check created file on disk
+          const createdContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/utils.ts"), "utf8")
+          )
+          expect(createdContent).toContain("export const magicNumber = 42;")
+
+          // Check moved file on disk
+          const movedContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/shared/core.ts"), "utf8")
+          )
+          expect(movedContent).toContain("function other(value: number)")
+
+          // Check rewritten relative import in consumer.ts
+          const consumerContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+          )
+          expect(consumerContent).toContain("./shared/core.js")
+        })
+      ),
+      60_000,
+    )
+  })
+
+  // ---------------------------------------------------------------------------
+  // 7. Declaration Combinators (Interfaces, Classes, Functions)
+  // ---------------------------------------------------------------------------
+  describe("declaration combinators", () => {
+    it("modifies interfaces, classes, and function signatures with high-fidelity combinators", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          const mainLayer = planApplicationLayerNode.pipe(
+            Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
+          )
+
+          const declRecipe = Recipe.define("declaration-combinators-test", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                const lib = yield* project.sourceFile("src/library.ts")
+                if (lib === undefined) return Draft.empty
+
+                let accumulated = Draft.empty
+
+                for (const statement of lib.statements) {
+                  // 1. Interface combinators
+                  if (isInterfaceDeclaration(statement) && statement.name.text === "TargetInput") {
+                    const d1 = yield* Draft.interfaces.addProperty(project, statement, {
+                      name: "optionalFlag",
+                      type: "boolean",
+                      optional: true,
+                    })
+                    accumulated = Draft.concat(accumulated, d1)
+                  }
+
+                  // 2. Function combinators
+                  if (isFunctionDeclaration(statement) && statement.name?.text === "other") {
+                    const d2 = yield* Draft.functions.addParameter(project, statement, {
+                      name: "tag",
+                      type: "string",
+                      optional: true,
+                    })
+                    const d3 = yield* Draft.functions.setReturnType(project, statement, "number")
+                    accumulated = Draft.concat(accumulated, d2, d3)
+                  }
+                }
+
+                return accumulated
+              }),
+          })
+
+          const plan = yield* Recipe.run(declRecipe, undefined)
+          expect(plan.edits.length).toBeGreaterThanOrEqual(2)
+
+          const verified = yield* Verification.verify(plan, declRecipe, undefined)
+          yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
+
+          const libContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/library.ts"), "utf8")
+          )
+          expect(libContent).toContain("optionalFlag?: boolean;")
+          expect(libContent).toContain("function other(value: number, tag?: string): number")
+        })
+      ),
+      60_000,
+    )
+  })
+
+  // ---------------------------------------------------------------------------
+  // 8. Automated Code Cleanup & Import Organizing
+  // ---------------------------------------------------------------------------
+  describe("automated cleanup and import organizing", () => {
+    it("organizes, deduplicates, and sorts imports deterministically", () =>
+      withFixture((root, app) =>
+        Effect.gen(function*() {
+          const mainLayer = planApplicationLayerNode.pipe(
+            Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
+          )
+
+          const organizeRecipe = Recipe.define("organize-imports-recipe", {
+            version: "1.0.0",
+            run: () =>
+              Effect.gen(function*() {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                return yield* Draft.imports.organize(project, "src/consumer.ts")
+              }),
+          })
+
+          const plan = yield* Recipe.run(organizeRecipe, undefined)
+          expect(plan.edits.length).toBe(1)
+
+          const verified = yield* Verification.verify(plan, organizeRecipe, undefined)
+          yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
+
+          const consumerContent = yield* Effect.tryPromise(() =>
+            Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8")
+          )
+          expect(consumerContent).toContain("import { other, target as renamed } from \"./library.js\";")
+        })
+      ),
+      60_000,
+    )
+  })
+
+  // ---------------------------------------------------------------------------
+  // 9. Interactive CLI, Terminal Diff Rendering & Agent Tool Protocol
+  // ---------------------------------------------------------------------------
+  describe("diff rendering and agent tool protocol", () => {
+    it("renders colored unified diffs and diagnostic reports", () => {
+      const before = "const a = 1;\nconst b = 2;\n"
+      const after = "const a = 1;\nconst b = 42;\nconst c = 3;\n"
+
+      const diff = computeUnifiedDiff("test.ts", before, after, { color: false })
+      expect(diff).toContain("- const b = 2;")
+      expect(diff).toContain("+ const b = 42;")
+      expect(diff).toContain("+ const c = 3;")
+
+      const diagDiff = computeDiagnosticDiff([], [
+        { code: 2322, message: "Type mismatch", category: "error", fileName: "test.ts", start: 0, length: 1 },
+      ])
+      const renderedDiag = renderDiagnosticDiff(diagDiff, { color: false })
+      expect(renderedDiag).toContain("Introduced 1 new diagnostic")
+      expect(renderedDiag).toContain("TS2322: Type mismatch")
+    })
+
+    it("bridges recipes into structured agent tools for AI protocols", () =>
+      withFixture((_, app) =>
+        Effect.gen(function*() {
+          const sampleRecipe = Recipe.define("agent-tool-sample", {
+            version: "1.0.0",
+            schema: Schema.Struct({ multiplier: Schema.Number }),
+            run: () => Effect.succeed(Draft.empty),
+          })
+
+          const tool = recipeToAgentTool(sampleRecipe, "Sample codemod tool")
+          expect(tool.name).toBe("teatime_agent_tool_sample")
+          expect(tool.description).toBe("Sample codemod tool")
+          expect(tool.schema).toBeDefined()
+
+          const result = yield* tool.execute({ multiplier: 10 })
+          expect(result.status).toBe("preview")
+          expect(result.planId).toBeDefined()
         })
       ),
       60_000,

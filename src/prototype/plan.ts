@@ -25,6 +25,16 @@ export interface PlannedTextEdit {
   readonly evidenceIds: ReadonlyArray<string>
 }
 
+export interface PlannedFileOperation {
+  readonly kind: "create" | "delete" | "move"
+  readonly projectId: string
+  readonly path: string
+  readonly toPath?: string
+  readonly content?: string
+  readonly initialHash?: string
+  readonly evidenceIds?: ReadonlyArray<string>
+}
+
 export interface EvidenceRecord {
   readonly id: string
   readonly kind: string
@@ -60,6 +70,7 @@ export interface TransformationPlan {
   readonly sources: ReadonlyArray<SourceFingerprint>
   readonly snapshotHash: string
   readonly edits: ReadonlyArray<PlannedTextEdit>
+  readonly fileOperations?: ReadonlyArray<PlannedFileOperation>
   readonly evidence: ReadonlyArray<EvidenceRecord>
   readonly policies: PlanPolicies
   readonly measurements?: PlanMeasurements
@@ -144,6 +155,13 @@ export const finalizePlan = (
   }
 
   const snapshotHash = digest(canonicalJson(asJson({ projects, sources })))
+  const fileOperations = input.fileOperations === undefined
+    ? undefined
+    : [...input.fileOperations].sort((left, right) =>
+        left.projectId.localeCompare(right.projectId) ||
+        left.path.localeCompare(right.path) ||
+        left.kind.localeCompare(right.kind)
+      )
   const provisional: TransformationPlan = {
     schemaVersion: 1,
     planId: "",
@@ -152,6 +170,7 @@ export const finalizePlan = (
     sources,
     snapshotHash,
     edits,
+    ...(fileOperations !== undefined ? { fileOperations } : {}),
     evidence,
   }
   return { ...provisional, planId: digest(canonicalJson(withoutId(provisional))) }

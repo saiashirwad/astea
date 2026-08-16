@@ -25,7 +25,7 @@ import {
   type NativeCompilerError,
   nativeRequest,
 } from "../prototype/native-compiler.ts"
-import type { PlannedTextEdit } from "../prototype/plan.ts"
+import type { PlannedFileOperation, PlannedTextEdit } from "../prototype/plan.ts"
 
 export type { NativeCompilerError }
 
@@ -461,12 +461,35 @@ export const layer = (
 export const computeOverlayMap = (
   snapshot: WorkspaceSnapshotService,
   edits: ReadonlyArray<PlannedTextEdit>,
+  fileOperations: ReadonlyArray<PlannedFileOperation> = [],
 ): Effect.Effect<
   Record<string, string>,
   ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict
 > =>
   Effect.gen(function*() {
     const overlay: Record<string, string> = {}
+
+    for (const op of fileOperations) {
+      const configured = snapshot.projects.find((p) => p.id === op.projectId)
+      if (configured === undefined) {
+        return yield* new ProjectNotInSnapshot({ projectId: op.projectId, generation: snapshot.generation })
+      }
+      const project = yield* snapshot.project(configured)
+      if (op.kind === "create") {
+        const absolutePath = Path.resolve(project.root, op.path)
+        overlay[absolutePath] = op.content ?? ""
+      } else if (op.kind === "delete") {
+        const absolutePath = Path.resolve(project.root, op.path)
+        overlay[absolutePath] = ""
+      } else if (op.kind === "move" && op.toPath !== undefined) {
+        const fromAbs = Path.resolve(project.root, op.path)
+        const toAbs = Path.resolve(project.root, op.toPath)
+        const content = op.content ?? (yield* project.sourceText(op.path))
+        overlay[fromAbs] = ""
+        overlay[toAbs] = content
+      }
+    }
+
     if (edits.length === 0) return overlay
 
     const byProjectFile = new Map<string, { projectId: string; fileName: string; edits: Array<PlannedTextEdit> }>()
@@ -505,7 +528,10 @@ export const computeOverlayMap = (
   })
 
 export const overlay = <A, E, R>(
-  planOrDraft: { readonly edits: ReadonlyArray<PlannedTextEdit> },
+  planOrDraft: {
+    readonly edits: ReadonlyArray<PlannedTextEdit>
+    readonly fileOperations?: ReadonlyArray<PlannedFileOperation>
+  },
   program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
 ): Effect.Effect<
   A,
@@ -515,7 +541,11 @@ export const overlay = <A, E, R>(
   Effect.gen(function*() {
     const workspace = yield* Workspace
     const snapshot = yield* WorkspaceSnapshot
-    const overlayMap = yield* computeOverlayMap(snapshot, planOrDraft.edits)
+    const overlayMap = yield* computeOverlayMap(
+      snapshot,
+      planOrDraft.edits,
+      planOrDraft.fileOperations ?? [],
+    )
     return yield* workspace.withIsolatedSnapshot(overlayMap, program)
   })
 
