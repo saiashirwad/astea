@@ -18,7 +18,7 @@ import type {
 } from "typescript/unstable/async"
 import { SymbolFlags } from "typescript/unstable/async"
 import type { FileChanges } from "typescript/unstable/proto"
-import { applyFileEdits, type EditConflict, type InvalidEdit, type TextEdit } from "../internal/edits.ts"
+import { applyFileEdits, type EditConflict, type InvalidEdit } from "../Edit/index.ts"
 import {
   layer as nativeCompilerLayer,
   NativeCompiler,
@@ -797,16 +797,7 @@ export const computeOverlayMap = (
       }
       const project = yield* snapshot.project(configured)
       const source = yield* project.sourceText(group.fileName)
-      const textEdits: Array<TextEdit> = group.edits.map((edit) => ({
-        projectConfigFileName: edit.projectId,
-        fileName: edit.fileName,
-        start: edit.start,
-        end: edit.end,
-        newText: edit.newText,
-        expectedTextHash: edit.expectedTextHash,
-        evidence: edit.evidenceIds,
-      }))
-      const applied = yield* applyFileEdits(source, textEdits)
+      const applied = yield* applyFileEdits(source, group.edits)
       const absolutePath = Path.resolve(project.root, group.fileName)
       overlay[absolutePath] = applied
     }

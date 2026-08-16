@@ -1,8 +1,8 @@
 /** Read-only preview/verification and separately authorized application. */
 import { randomUUID } from "node:crypto"
 import { Context, Data, Effect, FileSystem, Layer, Path } from "effect"
-import { applyFileEdits, type TextEdit, textHash } from "./edits.ts"
-import type { PlannedTextEdit, TransformationPlan } from "./plan.ts"
+import { applyFileEdits, textHash } from "../Edit/index.ts"
+import type { TransformationPlan } from "./plan.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{
   readonly planId: string
@@ -101,16 +101,6 @@ const absoluteFileName = (
   return path.resolve(workspaceRoot, path.dirname(project.configFileName), fileName)
 })
 
-const editForApply = (plan: TransformationPlan, edit: PlannedTextEdit): TextEdit => ({
-  projectConfigFileName: edit.projectId,
-  fileName: edit.fileName,
-  start: edit.start,
-  end: edit.end,
-  newText: edit.newText,
-  expectedTextHash: edit.expectedTextHash,
-  evidence: edit.evidenceIds,
-})
-
 export const previewPlan = (
   plan: TransformationPlan,
   workspaceRoot: string,
@@ -152,7 +142,7 @@ export const previewPlan = (
         detail: `Missing source for ${key}`,
       })
     }
-    const afterText = yield* applyFileEdits(beforeText, edits.map((edit) => editForApply(plan, edit))).pipe(
+    const afterText = yield* applyFileEdits(beforeText, edits).pipe(
       Effect.mapError((error) => new VerificationFailure({
         planId: plan.planId,
         policy: "edits",

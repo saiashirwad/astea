@@ -1,0 +1,5 @@
+export { applyFileEdits } from "./Apply.ts"
+export { makeTextEdit, textHash } from "./Hash.ts"
+export { EditConflict, InvalidEdit } from "./Model.ts"
+export type { TextEdit } from "./Model.ts"
+export { compareEdits, editsConflict, normalizeEdits } from "./Validate.ts"

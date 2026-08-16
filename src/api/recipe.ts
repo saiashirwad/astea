@@ -11,7 +11,7 @@
 import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { createHash } from "node:crypto"
 import { Data, Effect, Schema } from "effect"
-import { EditConflict, InvalidEdit, applyFileEdits, textHash, type TextEdit } from "../internal/edits.ts"
+import { EditConflict, InvalidEdit, applyFileEdits, textHash } from "../Edit/index.ts"
 import { NativeCompilerError } from "../internal/native-compiler.ts"
 import {
   finalizePlan,
@@ -23,7 +23,7 @@ import {
 } from "../internal/plan.ts"
 import { isWithinProject, projectRelativePath } from "../internal/project-path.ts"
 import { Draft } from "./draft.ts"
-import { type CustomPolicyRule, Policy } from "./policy.ts"
+import { type VerificationRule, Policy } from "./policy.ts"
 import type { PlanPolicies } from "./plan.ts"
 import {
   overlay,
@@ -62,7 +62,8 @@ export interface Recipe<Input = undefined, E = never, R = never> {
   readonly name: string
   readonly version: string
   readonly implementationHash: string
-  readonly policies: PlanPolicies & { readonly rules?: ReadonlyArray<CustomPolicyRule> }
+  readonly policies: PlanPolicies
+  readonly rules: ReadonlyArray<VerificationRule>
   readonly schema?: Schema.Schema<Input>
   readonly run: (input: Input) => Effect.Effect<Draft, E, R | WorkspaceSnapshot | Workspace>
 }
@@ -104,16 +105,19 @@ export interface ScanningRecipeDefinition<Acc, Input = undefined, E1 = never, R1
 const define = <Input = undefined, E = never, R = never>(
   name: string,
   definition: RecipeDefinition<Input, E, R>,
-): Recipe<Input, E, R> =>
-  Object.freeze({
+): Recipe<Input, E, R> => {
+  const compiled = Policy.all(definition.policies ?? [])
+  return Object.freeze({
     name,
     version: definition.version,
     schema: definition.schema,
     implementationHash: definition.implementationHash ??
       createHash("sha256").update(`${name}@${definition.version}`).digest("hex"),
-    policies: Policy.all(definition.policies ?? []),
+    policies: compiled.policy,
+    rules: compiled.rules,
     run: definition.run,
   })
+}
 
 /**
  * Define a two-phase scanning transformation recipe with a global accumulator.
@@ -126,13 +130,15 @@ const scanning = <Acc, Input = undefined, E1 = never, R1 = never, E2 = never, R2
 ): ScanningRecipe<Acc, Input, E1 | E2, R1 | R2> => {
   const scan = definition.scan
   const runWithAcc = definition.run
+  const compiled = Policy.all(definition.policies ?? [])
   return Object.freeze({
     name,
     version: definition.version,
     schema: definition.schema,
     implementationHash: definition.implementationHash ??
       createHash("sha256").update(`${name}@${definition.version}`).digest("hex"),
-    policies: Policy.all(definition.policies ?? []),
+    policies: compiled.policy,
+    rules: compiled.rules,
     scan,
     run: (input: Input) =>
       Effect.gen(function*() {
@@ -174,27 +180,9 @@ const composeDrafts = (
         const project = yield* snapshot.project(projectDef)
         const t0 = yield* project.sourceText(fileName)
 
-        const textEdits1: Array<TextEdit> = accEdits.map((edit) => ({
-          projectConfigFileName: edit.projectId,
-          fileName: edit.fileName,
-          start: edit.start,
-          end: edit.end,
-          newText: edit.newText,
-          expectedTextHash: edit.expectedTextHash,
-          evidence: edit.evidenceIds,
-        }))
-        const t1 = yield* applyFileEdits(t0, textEdits1)
+        const t1 = yield* applyFileEdits(t0, accEdits)
 
-        const textEdits2: Array<TextEdit> = nxtEdits.map((edit) => ({
-          projectConfigFileName: edit.projectId,
-          fileName: edit.fileName,
-          start: edit.start,
-          end: edit.end,
-          newText: edit.newText,
-          expectedTextHash: edit.expectedTextHash,
-          evidence: edit.evidenceIds,
-        }))
-        const t2 = yield* applyFileEdits(t1, textEdits2)
+        const t2 = yield* applyFileEdits(t1, nxtEdits)
 
         if (t0 === t2) {
           continue

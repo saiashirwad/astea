@@ -213,8 +213,8 @@ const verify = <Input, E, R>(
       replayEdits: proposedRun.replayEdits,
     }
 
-    if (recipe.policies.rules !== undefined) {
-      for (const rule of recipe.policies.rules) {
+    if (recipe.rules.length > 0) {
+      for (const rule of recipe.rules) {
         const result = rule.evaluate(context)
         if (result === true) {
           policyResults.push({ name: rule.name, passed: true })

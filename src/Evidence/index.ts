@@ -1,1 +1,1 @@
-export type { EvidenceFact, EvidenceRecord, QueryEvidence } from "./Model.ts"
+export type { EvidenceFact, EvidenceRecord, Json, QueryEvidence } from "./Model.ts"

@@ -1,9 +1,10 @@
 /** Canonical, serializable Transformation Plan envelope. */
 import { createHash } from "node:crypto"
 import { Data, Effect, Predicate, Schema } from "effect"
-import type { EvidenceRecord } from "../Evidence/Model.ts"
+import type { EvidenceRecord, Json } from "../Evidence/Model.ts"
+import { compareEdits, editsConflict, type TextEdit } from "../Edit/index.ts"
 
-export type Json = null | boolean | number | string | ReadonlyArray<Json> | { readonly [key: string]: Json }
+export type { Json } from "../Evidence/Model.ts"
 
 export interface ProjectEvidence {
   readonly id: string
@@ -16,15 +17,8 @@ export interface SourceFingerprint {
   readonly hash: string
 }
 
-export interface PlannedTextEdit {
-  readonly projectId: string
-  readonly fileName: string
-  readonly start: number
-  readonly end: number
-  readonly expectedTextHash: string
-  readonly newText: string
-  readonly evidenceIds: ReadonlyArray<string>
-}
+/** @deprecated Use the canonical Edit.TextEdit type. */
+export type PlannedTextEdit = TextEdit
 
 export interface PlannedFileOperation {
   readonly kind: "create" | "delete" | "move"
@@ -101,23 +95,6 @@ export const canonicalJson = (value: Json): string => JSON.stringify(canonicaliz
 // SAFETY: value is guaranteed to be JSON serializable
 const asJson = (value: Json | TransformationPlan | { readonly projects: ReadonlyArray<ProjectEvidence>; readonly sources: ReadonlyArray<SourceFingerprint> }): Json => value as Json
 
-const editCompare = (left: PlannedTextEdit, right: PlannedTextEdit): number =>
-  left.projectId.localeCompare(right.projectId) ||
-  left.fileName.localeCompare(right.fileName) ||
-  left.start - right.start ||
-  left.end - right.end ||
-  left.newText.localeCompare(right.newText)
-
-const editConflict = (left: PlannedTextEdit, right: PlannedTextEdit): boolean => {
-  if (left.projectId !== right.projectId || left.fileName !== right.fileName) return false
-  const leftInsert = left.start === left.end
-  const rightInsert = right.start === right.end
-  if (leftInsert && rightInsert) return left.start === right.start
-  if (leftInsert) return left.start >= right.start && left.start <= right.end
-  if (rightInsert) return right.start >= left.start && right.start <= left.end
-  return left.start < right.end && right.start < left.end
-}
-
 const withoutId = (plan: TransformationPlan): Json => {
   const { planId: _, ...payload } = plan
   return asJson(payload)
@@ -132,7 +109,7 @@ export const finalizePlan = (
   const edits = [...input.edits].map((edit) => ({
     ...edit,
     evidenceIds: [...edit.evidenceIds].sort(),
-  })).sort(editCompare)
+  })).sort(compareEdits)
   const evidence = [...input.evidence].sort((left, right) => left.id.localeCompare(right.id))
 
   if (new Set(evidence.map((item) => item.id)).size !== evidence.length) {
@@ -147,7 +124,7 @@ export const finalizePlan = (
       return yield* new PlanBuildError({ reason: "missing-source", detail: edit.fileName })
     }
     const previous = edits[index - 1]
-    if (previous !== undefined && editConflict(previous, edit)) {
+    if (previous !== undefined && editsConflict(previous, edit)) {
       return yield* new PlanBuildError({ reason: "edit-conflict", detail: edit.fileName })
     }
   }
@@ -176,23 +153,77 @@ export const finalizePlan = (
 
 export const serializePlan = (plan: TransformationPlan): string => canonicalJson(asJson(plan))
 
-const PlanEnvelope = Schema.Struct({
+const TextEditSchema = Schema.Struct({
+  projectId: Schema.String,
+  fileName: Schema.String,
+  start: Schema.Number,
+  end: Schema.Number,
+  expectedTextHash: Schema.String,
+  newText: Schema.String,
+  evidenceIds: Schema.Array(Schema.String),
+})
+
+const FileOperationSchema = Schema.Struct({
+  kind: Schema.Union([Schema.Literal("create"), Schema.Literal("delete"), Schema.Literal("move")]),
+  projectId: Schema.String,
+  path: Schema.String,
+  toPath: Schema.optional(Schema.String),
+  content: Schema.optional(Schema.String),
+  initialHash: Schema.optional(Schema.String),
+  evidenceIds: Schema.optional(Schema.Array(Schema.String)),
+})
+
+/** Complete durable-plan decoder. No unchecked payload crosses this boundary. */
+export const TransformationPlanSchema = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   planId: Schema.String,
+  recipe: Schema.Struct({
+    name: Schema.String,
+    version: Schema.String,
+    implementationHash: Schema.String,
+    options: Schema.Json,
+  }),
+  toolchain: Schema.Struct({
+    systemVersion: Schema.String,
+    typescriptVersion: Schema.String,
+    effectVersion: Schema.String,
+  }),
+  projects: Schema.Array(Schema.Struct({ id: Schema.String, configFileName: Schema.String })),
+  sources: Schema.Array(Schema.Struct({
+    projectId: Schema.String,
+    fileName: Schema.String,
+    hash: Schema.String,
+  })),
+  snapshotHash: Schema.String,
+  edits: Schema.Array(TextEditSchema),
+  fileOperations: Schema.optional(Schema.Array(FileOperationSchema)),
+  evidence: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    kind: Schema.String,
+    facts: Schema.Record(Schema.String, Schema.Json),
+  })),
+  policies: Schema.Struct({
+    matchCount: Schema.Struct({
+      min: Schema.optional(Schema.Number),
+      max: Schema.optional(Schema.Number),
+    }),
+    maxAffectedFiles: Schema.optional(Schema.Number),
+    diagnostics: Schema.Union([Schema.Literal("no-new-errors"), Schema.Literal("exact-delta")]),
+    idempotence: Schema.Union([Schema.Literal("required"), Schema.Literal("not-promised")]),
+  }),
+  measurements: Schema.optional(Schema.Struct({ matches: Schema.optional(Schema.Number) })),
 })
 
 export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanDecodeError> =>
   Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
     Effect.mapError(() => new PlanDecodeError({ reason: "json" })),
     Effect.flatMap((decoded) =>
-      Schema.decodeUnknownEffect(PlanEnvelope)(decoded, { onExcessProperty: "preserve" }).pipe(
+      Schema.decodeUnknownEffect(TransformationPlanSchema)(decoded).pipe(
         Effect.mapError(() => new PlanDecodeError({ reason: "schema" })),
       )
     ),
     Effect.flatMap((decoded) => Effect.gen(function*() {
-      const planPayload: unknown = decoded
-      // SAFETY: the schema validates the plan envelope; preserved properties retain its full payload.
-      const plan = planPayload as TransformationPlan
+      const plan: TransformationPlan = decoded
       if (digest(canonicalJson(withoutId(plan))) !== plan.planId) {
         return yield* new PlanDecodeError({ reason: "hash" })
       }

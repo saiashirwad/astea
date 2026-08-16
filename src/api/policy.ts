@@ -30,17 +30,27 @@ export interface PolicyEvaluationContext {
   readonly replayEdits?: number
 }
 
-export interface CustomPolicyRule {
+export interface VerificationRule {
   readonly name: string
   readonly evaluate: (context: PolicyEvaluationContext) => boolean | string
 }
+
+/** @deprecated Use VerificationRule. */
+export type CustomPolicyRule = VerificationRule
 
 export interface Policy {
   readonly matchCount?: { readonly min?: number; readonly max?: number }
   readonly maxAffectedFiles?: number
   readonly diagnostics?: PlanPolicies["diagnostics"]
   readonly idempotence?: PlanPolicies["idempotence"]
-  readonly rules?: ReadonlyArray<CustomPolicyRule>
+  readonly rules?: ReadonlyArray<VerificationRule>
+}
+
+export type PlanPolicy = Omit<Policy, "rules">
+
+export interface CompiledPolicy {
+  readonly policy: PlanPolicies
+  readonly rules: ReadonlyArray<VerificationRule>
 }
 
 export const computeDiagnosticDiff = (
@@ -148,12 +158,12 @@ interface MatchCountBounds {
 }
 
 /** Merge policies into the complete durable policy set, filling system defaults. */
-export const all = (policies: ReadonlyArray<Policy>): PlanPolicies & { readonly rules: ReadonlyArray<CustomPolicyRule> } => {
+export const all = (policies: ReadonlyArray<Policy>): CompiledPolicy => {
   const matchCount: MatchCountBounds = {}
   let maxAffectedFiles: number | undefined
   let diagnostics: PlanPolicies["diagnostics"] = "no-new-errors"
   let idempotence: PlanPolicies["idempotence"] = "not-promised"
-  const rules: Array<CustomPolicyRule> = []
+  const rules: Array<VerificationRule> = []
 
   for (const policy of policies) {
     if (policy.matchCount?.min !== undefined) matchCount.min = policy.matchCount.min
@@ -164,16 +174,15 @@ export const all = (policies: ReadonlyArray<Policy>): PlanPolicies & { readonly 
     if (policy.rules !== undefined) rules.push(...policy.rules)
   }
 
-  const result: PlanPolicies & { readonly rules: ReadonlyArray<CustomPolicyRule> } = {
+  const policy: PlanPolicies = {
     matchCount,
     diagnostics,
     idempotence,
-    rules,
   }
   if (maxAffectedFiles !== undefined) {
-    return { ...result, maxAffectedFiles }
+    return { policy: { ...policy, maxAffectedFiles }, rules }
   }
-  return result
+  return { policy, rules }
 }
 
 export const Policy = {

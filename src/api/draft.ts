@@ -31,7 +31,7 @@ import {
   isStringLiteral,
 } from "typescript/unstable/ast/is"
 import type { Symbol as NativeSymbol } from "typescript/unstable/async"
-import { textHash } from "../internal/edits.ts"
+import { textHash } from "../Edit/Hash.ts"
 import { type NativeCompilerError, nativeRequest } from "../internal/native-compiler.ts"
 import type { EvidenceRecord, PlannedFileOperation, PlannedTextEdit } from "../internal/plan.ts"
 import { projectRelativePath } from "../internal/project-path.ts"
