@@ -157,3 +157,11 @@ To execute the complete interactive tour:
 pnpm check
 node examples/declarative-api-tour.ts
 ```
+
+## Runnable Recipes
+
+The TypeScript examples are standalone recipe modules suitable for the CLI or an agent host:
+
+- `semantic-api-migration.ts` combines schema input, semantic symbol resolution, dual query operators, argument rewriting, and idempotence verification.
+- `overlay-aware-migration.ts` stages an import in a virtual snapshot before querying the updated project state.
+- `agent-tool.ts` exposes a schema-validated recipe through the structured Agent Tool protocol.

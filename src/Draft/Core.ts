@@ -13,6 +13,7 @@ export {
   replaceWith,
 } from "./Model.ts"
 export type { Draft, EditRangeOptions, ProposedEdit, Replacement } from "./Model.ts"
+export { forProject } from "./Scoped.ts"
 export * from "./Files.ts"
 export * from "./Imports.ts"
 export * from "./Arguments.ts"
