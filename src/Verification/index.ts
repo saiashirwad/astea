@@ -12,6 +12,7 @@ export type {
   FilePreview,
   FileState,
   PlanPreview,
+  PolicyResult,
   VerificationReceipt,
   VerifiedPlan,
 } from "./Core.ts"

@@ -511,6 +511,54 @@ describe("declarative transformations API (@effect/vitest)", () => {
         ),
       60_000,
     )
+
+    effect(
+      "supports data-first and data-last invocation for generic query operators",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const workspace = yield* Workspace
+            yield* workspace.withSnapshot(
+              {},
+              Effect.gen(function* () {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                const calls = Query.calls(project)
+
+                const dataFirstWhere = yield* Query.collect(
+                  Query.where(calls, Query.textMatches("renamed")),
+                )
+                const dataLastWhere = yield* calls.pipe(
+                  Query.where(Query.textMatches("renamed")),
+                  Query.collect,
+                )
+                expect(dataFirstWhere.length).toBe(dataLastWhere.length)
+
+                const dataFirstFilter = yield* Query.collect(
+                  Query.filter(calls, (selection) => selection.fileName.endsWith("consumer.ts")),
+                )
+                const dataLastFilter = yield* calls.pipe(
+                  Query.filter((selection) => selection.fileName.endsWith("consumer.ts")),
+                  Query.collect,
+                )
+                expect(dataFirstFilter.length).toBe(dataLastFilter.length)
+
+                const dataFirstWithin = yield* Query.collect(Query.within(calls, "src/consumer.ts"))
+                const dataLastWithin = yield* calls.pipe(
+                  Query.within("src/consumer.ts"),
+                  Query.collect,
+                )
+                expect(dataFirstWithin.length).toBe(dataLastWithin.length)
+
+                const dataFirstArgCount = yield* Query.collect(Query.withArgCount(calls, 1))
+                const dataLastArgCount = yield* calls.pipe(Query.withArgCount(1), Query.collect)
+                expect(dataFirstArgCount.length).toBe(dataLastArgCount.length)
+              }),
+            )
+          }),
+        ),
+      60_000,
+    )
   })
 
   // ---------------------------------------------------------------------------

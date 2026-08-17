@@ -79,6 +79,7 @@ export type {
   FilePreview,
   FileState,
   PlanPreview,
+  PolicyResult,
   VerificationReceipt,
   VerifiedPlan,
 } from "./Engine.ts"
@@ -364,6 +365,7 @@ export const verify = <Input, E, R>(
             planId: plan.planId,
             policy: "diagnostics",
             detail,
+            diagnostics: diagnosticDiff.introduced,
           })
         }
       }

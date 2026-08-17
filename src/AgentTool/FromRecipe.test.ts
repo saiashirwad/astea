@@ -1,8 +1,9 @@
 import { describe, effect, expect, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
-import { recipeToAgentTool } from "../AgentTool/index.ts"
+import { recipeToAgentTool, ToolExecutionError } from "../AgentTool/index.ts"
 import { computeUnifiedDiff, renderDiagnosticDiff } from "../Cli/index.ts"
 import * as Draft from "../Draft/index.ts"
+import * as Policy from "../Policy/index.ts"
 import { computeDiagnosticDiff } from "../Policy/index.ts"
 import * as Recipe from "../Recipe/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
@@ -55,6 +56,66 @@ describe("declarative transformations API (@effect/vitest)", () => {
             const result = yield* tool.execute({ multiplier: 10 })
             expect(result.status).toBe("preview")
             expect(result.planId).toBeDefined()
+            expect(result.diagnostics.introduced).toEqual([])
+            expect(result.policyResults.length).toBeGreaterThan(0)
+          }),
+        ),
+      60_000,
+    )
+
+    effect(
+      "returns structured schema and verification failures",
+      () =>
+        withFixture((_, _app) =>
+          Effect.gen(function* () {
+            const schemaRecipe = Recipe.define("agent-tool-schema-error", {
+              version: "1.0.0",
+              schema: Schema.Struct({ multiplier: Schema.Finite }),
+              run: () => Effect.succeed(Draft.empty),
+            })
+            const schemaResult = yield* Effect.match(
+              recipeToAgentTool(schemaRecipe).execute({ multiplier: "not-a-number" }),
+              {
+                onFailure: (error) => ({ _tag: "failure" as const, error }),
+                onSuccess: (value) => ({ _tag: "success" as const, value }),
+              },
+            )
+            expect(schemaResult._tag).toBe("failure")
+            if (schemaResult._tag === "failure") {
+              expect(schemaResult.error).toBeInstanceOf(ToolExecutionError)
+              expect(schemaResult.error.details).toEqual({
+                _tag: "SchemaError",
+                issues: [
+                  {
+                    path: ["multiplier"],
+                    code: "InvalidType",
+                    message: "Expected number",
+                  },
+                ],
+              })
+            }
+
+            const verificationRecipe = Recipe.define("agent-tool-verification-error", {
+              version: "1.0.0",
+              policies: [Policy.exactly(1)],
+              run: () => Effect.succeed(Draft.empty),
+            })
+            const verificationResult = yield* Effect.match(
+              recipeToAgentTool(verificationRecipe).execute(null),
+              {
+                onFailure: (error) => ({ _tag: "failure" as const, error }),
+                onSuccess: (value) => ({ _tag: "success" as const, value }),
+              },
+            )
+            expect(verificationResult._tag).toBe("failure")
+            if (verificationResult._tag === "failure") {
+              expect(verificationResult.error.details).toEqual({
+                _tag: "VerificationFailure",
+                policy: "matches",
+                detail: "Observed 0",
+                diagnostics: [],
+              })
+            }
           }),
         ),
       60_000,

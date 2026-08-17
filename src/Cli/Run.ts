@@ -2,12 +2,24 @@
  * Safemods CLI — interactive runner and inspection tool.
  */
 import { path as Path } from "../platform/node.ts"
-import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from "effect"
+import { Config, Console, Data, Effect, Layer, Match, Option, Predicate, Schema } from "effect"
 import { apply } from "../Application/index.ts"
+import { EditConflict, InvalidEdit } from "../Edit/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
-import { type Recipe, run as runRecipe } from "../Recipe/index.ts"
-import { of as previewOf, verify } from "../Verification/index.ts"
-import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
+import { RecipeInputError, type Recipe, run as runRecipe } from "../Recipe/index.ts"
+import {
+  of as previewOf,
+  StalePlanError,
+  VerificationFailure,
+  verify,
+} from "../Verification/index.ts"
+import {
+  ConfiguredProject,
+  FileNotFound,
+  SymbolNotFound,
+  Workspace,
+  WorkspaceSnapshot,
+} from "../Workspace/index.ts"
 import {
   buildAuditReport,
   CliMatchFoundError,
@@ -47,62 +59,47 @@ export class CliError extends Data.TaggedError("CliError")<{
   readonly message: string
 }> {}
 
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
+type CliTaggedError =
+  | VerificationFailure
+  | RecipeInputError
+  | SymbolNotFound
+  | FileNotFound
+  | StalePlanError
+  | EditConflict
+  | InvalidEdit
+  | CliError
+
+const formatTaggedCliError = Match.typeTags<CliTaggedError, string>()({
+  VerificationFailure: (error) =>
+    `Verification Failed: Policy '${error.policy}' failed (${error.detail})`,
+  RecipeInputError: (error) => `Invalid Recipe Input for '${error.recipe}': ${String(error.cause)}`,
+  SymbolNotFound: (error) =>
+    `Symbol Not Found: '${error.name}' was not found in '${error.fileName}'`,
+  FileNotFound: (error) => `File Not Found: '${error.fileName}' in project '${error.projectId}'`,
+  StalePlanError: (error) =>
+    `Stale Plan: '${error.fileName}' in project '${error.projectId}' was modified after snapshot`,
+  EditConflict: (error) => `Edit Conflict: Overlapping edits detected in '${error.left.fileName}'`,
+  InvalidEdit: (error) => `Invalid Edit (${error.reason}) in '${error.edit.fileName}'`,
+  CliError: (error) => error.message,
+})
+
+const isCliTaggedError = (cause: unknown): cause is CliTaggedError =>
+  cause instanceof VerificationFailure ||
+  cause instanceof RecipeInputError ||
+  cause instanceof SymbolNotFound ||
+  cause instanceof FileNotFound ||
+  cause instanceof StalePlanError ||
+  cause instanceof EditConflict ||
+  cause instanceof InvalidEdit ||
+  cause instanceof CliError
+
 const formatCliError = (cause: unknown): string => {
-  if (cause && typeof cause === "object") {
-    const raw = cause as Record<string, unknown>
-    if ("_tag" in raw && typeof raw._tag === "string") {
-      switch (raw._tag) {
-        case "VerificationFailure": {
-          const v = raw as { readonly policy: string; readonly detail: string }
-          return `Verification Failed: Policy '${v.policy}' failed (${v.detail})`
-        }
-        case "RecipeInputError": {
-          const r = raw as { readonly recipe: string; readonly cause: unknown }
-          return `Invalid Recipe Input for '${r.recipe}': ${String(r.cause)}`
-        }
-        case "SymbolNotFound": {
-          const s = raw as { readonly name: string; readonly fileName: string }
-          return `Symbol Not Found: '${s.name}' was not found in '${s.fileName}'`
-        }
-        case "FileNotFound": {
-          const f = raw as { readonly projectId: string; readonly fileName: string }
-          return `File Not Found: '${f.fileName}' in project '${f.projectId}'`
-        }
-        case "StalePlanError": {
-          const sp = raw as { readonly projectId: string; readonly fileName: string }
-          return `Stale Plan: '${sp.fileName}' in project '${sp.projectId}' was modified after snapshot`
-        }
-        case "EditConflict": {
-          const ec = raw as {
-            readonly left: {
-              readonly fileName: string
-              readonly start: number
-              readonly end: number
-            }
-          }
-          return `Edit Conflict: Overlapping edits detected in '${ec.left.fileName}'`
-        }
-        case "InvalidEdit": {
-          const ie = raw as {
-            readonly edit: { readonly fileName: string }
-            readonly reason: string
-          }
-          return `Invalid Edit (${ie.reason}) in '${ie.edit.fileName}'`
-        }
-        case "CliError": {
-          const ce = raw as { readonly message: string }
-          return ce.message
-        }
-      }
-    }
-    if ("message" in raw && Predicate.isString(raw.message)) {
-      return raw.message
-    }
+  if (isCliTaggedError(cause)) return formatTaggedCliError(cause)
+  if (Predicate.isObject(cause) && "message" in cause && Predicate.isString(cause.message)) {
+    return cause.message
   }
   return String(cause)
 }
-/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This type guard is the dynamic module-import boundary.
 const isRecipe = (value: unknown): value is Recipe<unknown> => {

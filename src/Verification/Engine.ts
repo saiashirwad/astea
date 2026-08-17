@@ -1,7 +1,7 @@
 /** Verification and application service engine. */
 import { Data, Effect, FileSystem, Path } from "effect"
 import { textHash } from "../Edit/index.ts"
-import type { DiagnosticDiff } from "../Policy/index.ts"
+import type { DiagnosticDiff, DiagnosticRecord } from "../Policy/index.ts"
 import type { TransformationPlan } from "../Plan/index.ts"
 import {
   materialize as materializeVirtualFs,
@@ -20,6 +20,8 @@ export class VerificationFailure extends Data.TaggedError("VerificationFailure")
   readonly planId: string
   readonly policy: "edits" | "matches" | "affected-files" | "diagnostics" | "idempotence"
   readonly detail: string
+  /** Diagnostics relevant to the failed policy, including source locations. */
+  readonly diagnostics?: ReadonlyArray<DiagnosticRecord> | undefined
 }> {}
 
 export type FileState =
@@ -267,6 +269,7 @@ export const verifyPreview = (
         planId: plan.planId,
         policy: "diagnostics",
         detail: `${observation.baselineErrorCount} -> ${observation.proposedErrorCount}; introduced error diagnostics are not permitted`,
+        diagnostics: observation.diagnosticDiff.introduced,
       })
     }
     if (plan.policies.idempotence === "required" && observation.secondPlanChangeCount !== 0) {
@@ -293,6 +296,7 @@ export const verifyPreview = (
                 ? "affected-files"
                 : "diagnostics",
         detail: failedBuiltIn.detail ?? `Policy '${failedBuiltIn.name}' failed`,
+        diagnostics: observation.diagnosticDiff.introduced,
       })
     }
 
