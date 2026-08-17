@@ -247,7 +247,6 @@ The same pipeline can run inside an Effect application:
 import { Effect, Layer } from "effect"
 import * as Application from "safemods/Application"
 import { applicationLayerNode } from "safemods/Node"
-import * as Preview from "safemods/Preview"
 import * as Recipe from "safemods/Recipe"
 import * as Verification from "safemods/Verification"
 import { ConfiguredProject, Workspace } from "safemods/Workspace"
@@ -259,7 +258,7 @@ const runtimeLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer
 
 const program = Effect.gen(function* () {
   const plan = yield* Recipe.run(recipe, undefined)
-  const preview = yield* Preview.of(plan)
+  const preview = yield* Verification.of(plan)
   const verified = yield* Verification.verify(plan, recipe, undefined)
   const receipt = yield* Application.apply(verified)
 

@@ -6,8 +6,7 @@ import { Config, Console, Data, Effect, Layer, Option, Predicate, Schema } from 
 import { apply } from "../Application/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
 import { type Recipe, run as runRecipe } from "../Recipe/index.ts"
-import { of as previewOf } from "../Preview/index.ts"
-import { verify } from "../Verification/index.ts"
+import { of as previewOf, verify } from "../Verification/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import {
   buildAuditReport,

@@ -26,7 +26,7 @@ import {
 } from "typescript/unstable/ast/is"
 import { SymbolFlags, type Symbol as NativeSymbol } from "typescript/unstable/async"
 import { nativeRequest } from "../Compiler/Service.ts"
-import type { EvidenceFact } from "../Evidence/Model.ts"
+import type { EvidenceFact } from "../Evidence/Core.ts"
 import { tuple, predicate, type AnyPattern, type Pattern } from "./Core.ts"
 import { matchFailure, matchSuccess, matchesName } from "./Internal.ts"
 
@@ -34,7 +34,9 @@ export const identifier = (options?: {
   readonly name?: string | RegExp
   readonly resolvesTo?: NativeSymbol
 }): Pattern<Identifier, Identifier> => ({
+  mode: "node",
   kind: "identifier",
+  syntaxKind: SyntaxKind.Identifier,
   match: (node, project) =>
     Effect.gen(function* () {
       if (
@@ -68,12 +70,14 @@ export interface CallExpressionMatch<EOut, AOut> {
 }
 const isPattern = <Out>(
   value: Pattern<Node, Out> | ReadonlyArray<AnyPattern>,
-): value is Pattern<Node, Out> => "match" in value
+): value is Pattern<Node, Out> => !Array.isArray(value)
 export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?: {
   readonly expression?: Pattern<Node, EOut>
   readonly arguments?: Pattern<Node, AOut> | ReadonlyArray<AnyPattern>
 }): Pattern<CallExpression, CallExpressionMatch<EOut, AOut>> => ({
+  mode: "node",
   kind: "callExpression",
+  syntaxKind: SyntaxKind.CallExpression,
   match: (node, project) =>
     Effect.gen(function* () {
       if (!isCallExpression(node)) return matchFailure
@@ -106,7 +110,9 @@ export const propertyAccess = (options?: {
   readonly expression?: Pattern<Node, unknown>
   readonly name?: string | RegExp
 }): Pattern<PropertyAccessExpression, PropertyAccessExpression> => ({
+  mode: "node",
   kind: "propertyAccess",
+  syntaxKind: SyntaxKind.PropertyAccessExpression,
   match: (node, project) =>
     Effect.gen(function* () {
       if (
@@ -126,7 +132,9 @@ export const propertyAccess = (options?: {
 export const stringLiteral = (options?: {
   readonly text?: string | RegExp
 }): Pattern<StringLiteral, StringLiteral> => ({
+  mode: "node",
   kind: "stringLiteral",
+  syntaxKind: SyntaxKind.StringLiteral,
   match: (node) =>
     Effect.sync(() =>
       !isStringLiteral(node) ||
@@ -138,7 +146,9 @@ export const stringLiteral = (options?: {
 export const numericLiteral = (options?: {
   readonly value?: number
 }): Pattern<NumericLiteral, NumericLiteral> => ({
+  mode: "node",
   kind: "numericLiteral",
+  syntaxKind: SyntaxKind.NumericLiteral,
   match: (node) =>
     Effect.sync(() =>
       !isNumericLiteral(node) ||
@@ -150,7 +160,9 @@ export const numericLiteral = (options?: {
 export const objectLiteral = (options?: {
   readonly hasProperties?: ReadonlyArray<string>
 }): Pattern<ObjectLiteralExpression, ObjectLiteralExpression> => ({
+  mode: "node",
   kind: "objectLiteral",
+  syntaxKind: SyntaxKind.ObjectLiteralExpression,
   match: (node) =>
     Effect.sync(() => {
       if (!isObjectLiteralExpression(node)) return matchFailure
@@ -169,14 +181,20 @@ export type StringLike = StringLiteral | NoSubstitutionTemplateLiteral | Templat
 export const isStringLike = (node: Node): node is StringLike =>
   isStringLiteral(node) || isNoSubstitutionTemplateLiteral(node) || isTemplateExpression(node)
 export const stringLike = (): Pattern<Node, StringLike> =>
-  predicate<Node, StringLike>("string-like", isStringLike)
+  predicate<Node, StringLike>("string-like", isStringLike, [
+    SyntaxKind.StringLiteral,
+    SyntaxKind.NoSubstitutionTemplateLiteral,
+    SyntaxKind.TemplateExpression,
+  ])
 export interface AwaitExpressionPatternOptions<EOut = Node> {
   readonly expression?: Pattern<Node, EOut>
 }
 export const awaitExpression = <EOut = Node>(
   options?: AwaitExpressionPatternOptions<EOut>,
 ): Pattern<AwaitExpression, AwaitExpression> => ({
+  mode: "node",
   kind: "awaitExpression",
+  syntaxKind: SyntaxKind.AwaitExpression,
   match: (node, project) =>
     Effect.gen(function* () {
       if (!isAwaitExpression(node)) return matchFailure

@@ -44,7 +44,7 @@ for (const file of await files(sourceRoot)) {
     }
     if (
       owner === "Workspace" &&
-      ["Draft", "Plan", "Overlay", "Preview", "Verification", "Application"].includes(targetOwner)
+      ["Draft", "Plan", "Overlay", "Verification", "Application"].includes(targetOwner)
     ) {
       failures.push(`${relative(root, file)}: Workspace imports higher layer ${targetOwner}`)
     }

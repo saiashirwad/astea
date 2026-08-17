@@ -24,7 +24,9 @@ export interface FunctionDeclarationPatternOptions {
 export const functionDeclaration = (
   options?: FunctionDeclarationPatternOptions,
 ): Pattern<FunctionDeclaration, FunctionDeclaration> => ({
+  mode: "node",
   kind: "functionDeclaration",
+  syntaxKind: SyntaxKind.FunctionDeclaration,
   match: (node) =>
     Effect.sync(() => {
       if (!isFunctionDeclaration(node)) return matchFailure
@@ -60,7 +62,9 @@ export interface ClassDeclarationPatternOptions {
 export const classDeclaration = (
   options?: ClassDeclarationPatternOptions,
 ): Pattern<ClassDeclaration, ClassDeclaration> => ({
+  mode: "node",
   kind: "classDeclaration",
+  syntaxKind: SyntaxKind.ClassDeclaration,
   match: (node) =>
     Effect.sync(() => {
       if (!isClassDeclaration(node)) return matchFailure
@@ -91,7 +95,9 @@ export interface VariableStatementPatternOptions {
 export const variableStatement = (
   options?: VariableStatementPatternOptions,
 ): Pattern<VariableStatement, VariableStatement> => ({
+  mode: "node",
   kind: "variableStatement",
+  syntaxKind: SyntaxKind.VariableStatement,
   match: (node) =>
     Effect.sync(() => {
       if (!isVariableStatement(node)) return matchFailure
@@ -118,7 +124,9 @@ export interface VariableDeclarationPatternOptions {
 export const variableDeclaration = (
   options?: VariableDeclarationPatternOptions,
 ): Pattern<VariableDeclaration, VariableDeclaration> => ({
+  mode: "node",
   kind: "variableDeclaration",
+  syntaxKind: SyntaxKind.VariableDeclaration,
   match: (node) =>
     Effect.sync(() => {
       if (

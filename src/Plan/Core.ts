@@ -1,11 +1,11 @@
 /** Plan domain — canonical, serializable transformation plans. */
 import { createHash } from "node:crypto"
 import { Data, Effect, Predicate, Schema } from "effect"
-import type { EvidenceRecord, Json } from "../Evidence/Model.ts"
+import type { EvidenceRecord, Json } from "../Evidence/Core.ts"
 import { compareEdits, editsConflict, type TextEdit } from "../Edit/index.ts"
 import { parseProjectRelativePath, type ProjectRelativePath } from "../Workspace/ProjectPath.ts"
 
-export type { Json } from "../Evidence/Model.ts"
+export type { Json } from "../Evidence/Core.ts"
 export type { TextEdit } from "../Edit/index.ts"
 
 export interface ProjectEvidence {
@@ -45,7 +45,7 @@ export interface MoveFileOperation extends FileOperationBase {
 
 export type PlannedFileOperation = CreateFileOperation | DeleteFileOperation | MoveFileOperation
 
-export type { EvidenceRecord } from "../Evidence/Model.ts"
+export type { EvidenceRecord } from "../Evidence/Core.ts"
 
 export interface PlanPolicies {
   readonly matchCount: { readonly min?: number | undefined; readonly max?: number | undefined }

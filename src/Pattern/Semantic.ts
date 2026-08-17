@@ -19,6 +19,7 @@ export const typed = (options?: {
   readonly assignableTo?: NativeType | IntrinsicTypeName
   readonly typeString?: string | RegExp
 }): Pattern<Node, Node> => ({
+  mode: "node",
   kind: "typed",
   match: (node, project) =>
     Effect.gen(function* () {

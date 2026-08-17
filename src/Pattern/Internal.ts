@@ -1,4 +1,4 @@
-import type { EvidenceFact } from "../Evidence/Model.ts"
+import type { EvidenceFact } from "../Evidence/Core.ts"
 import type { PatternMismatch, PatternResult } from "./Core.ts"
 
 export const matchSuccess = <Out>(

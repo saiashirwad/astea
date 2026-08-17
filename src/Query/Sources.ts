@@ -24,7 +24,7 @@ import {
   type ProjectSnapshot,
   type ProjectSnapshotError,
 } from "../Workspace/index.ts"
-import type { Pattern } from "../Pattern/index.ts"
+import type { Pattern, SyntaxKindFilter } from "../Pattern/index.ts"
 import type { ProjectScope, Query, Selection, TargetFileScope } from "./Model.ts"
 
 const isProjectFileArray = (value: ProjectScope): value is ReadonlyArray<ProjectFile> =>
@@ -73,6 +73,7 @@ const collectNodes = <A extends Node>(
   project: ProjectSnapshot,
   sourceFile: SourceFile,
   guard: (node: Node) => node is A,
+  syntaxKind?: SyntaxKindFilter,
 ): Array<Selection<A>> => {
   const selections: Array<Selection<A>> = []
   const fileName = isWithinProject(project.root, sourceFile.fileName)
@@ -80,7 +81,10 @@ const collectNodes = <A extends Node>(
     : sourceFile.fileName
 
   const visit = (node: Node): void => {
-    if (guard(node)) {
+    const kindMatches =
+      syntaxKind === undefined ||
+      (Array.isArray(syntaxKind) ? syntaxKind.includes(node.kind) : node.kind === syntaxKind)
+    if (kindMatches && guard(node)) {
       selections.push({
         value: node,
         project,
@@ -109,6 +113,7 @@ const collectNodes = <A extends Node>(
 export const nodes = <A extends Node>(
   target: ProjectScope,
   guard: (node: Node) => node is A,
+  syntaxKind?: SyntaxKindFilter,
 ): Query<A, ProjectSnapshotError> =>
   resolveScope(target).pipe(
     Stream.flatMap(({ project, fileName }) =>
@@ -120,25 +125,25 @@ export const nodes = <A extends Node>(
         Stream.flatMap((sourceFile) =>
           sourceFile === undefined
             ? Stream.empty
-            : Stream.fromIterable(collectNodes(project, sourceFile, guard)),
+            : Stream.fromIterable(collectNodes(project, sourceFile, guard, syntaxKind)),
         ),
       ),
     ),
   )
 
 export const calls = (target: ProjectScope): Query<CallExpression, ProjectSnapshotError> =>
-  nodes(target, isCallExpression)
+  nodes(target, isCallExpression, SyntaxKind.CallExpression)
 
 export const imports = (target: ProjectScope): Query<ImportDeclaration, ProjectSnapshotError> =>
-  nodes(target, isImportDeclaration)
+  nodes(target, isImportDeclaration, SyntaxKind.ImportDeclaration)
 
 export const identifiers = (target: ProjectScope): Query<Identifier, ProjectSnapshotError> =>
-  nodes(target, isIdentifier)
+  nodes(target, isIdentifier, SyntaxKind.Identifier)
 
 export const propertyAccesses = (
   target: ProjectScope,
 ): Query<PropertyAccessExpression, ProjectSnapshotError> =>
-  nodes(target, isPropertyAccessExpression)
+  nodes(target, isPropertyAccessExpression, SyntaxKind.PropertyAccessExpression)
 
 /** Structural pattern matching query. */
 export const match = <Out>(
@@ -156,7 +161,12 @@ export const match = <Out>(
           if (sourceFile === undefined) return Stream.empty
           const candidateNodes: Array<Node> = []
           const visit = (node: Node) => {
-            candidateNodes.push(node)
+            const kindMatches =
+              pattern.syntaxKind === undefined ||
+              (Array.isArray(pattern.syntaxKind)
+                ? pattern.syntaxKind.includes(node.kind)
+                : node.kind === pattern.syntaxKind)
+            if (kindMatches) candidateNodes.push(node)
             node.forEachChild((child) => {
               visit(child)
               return undefined

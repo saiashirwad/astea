@@ -6,7 +6,7 @@
  * diagnostic delta badges.
  */
 import type { DiagnosticDiff } from "../Policy/index.ts"
-import type { FilePreview, PlanPreview } from "../Preview/index.ts"
+import type { FilePreview, PlanPreview } from "../Verification/index.ts"
 import { ANSI, colorize } from "./Ansi.ts"
 
 export interface DiffOptions {

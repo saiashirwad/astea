@@ -1,9 +1,10 @@
 /** Core Query domain types and criterion combinators. */
 import { Data, Effect, type Stream } from "effect"
-import type { EvidenceFact, QueryEvidence } from "../Evidence/Model.ts"
+import type { SyntaxKind } from "typescript/unstable/ast"
+import type { EvidenceFact, QueryEvidence } from "../Evidence/Core.ts"
 import type { ProjectFile, ProjectSnapshot } from "../Workspace/index.ts"
 
-export type { EvidenceFact, QueryEvidence } from "../Evidence/Model.ts"
+export type { EvidenceFact, QueryEvidence } from "../Evidence/Core.ts"
 export type ProjectScope = ProjectSnapshot | ProjectFile | ReadonlyArray<ProjectFile>
 
 export interface TargetFileScope {
@@ -41,7 +42,9 @@ export class QueryContractError extends Data.TaggedError("QueryContractError")<{
  * QueryContractError.
  */
 export interface Criterion<A, E = never, R = never> {
+  readonly mode: "selection"
   readonly id: string
+  readonly syntaxKind?: SyntaxKind | ReadonlyArray<SyntaxKind>
   readonly batchSize?: number
   readonly select: (
     selections: ReadonlyArray<Selection<A>>,
@@ -51,10 +54,11 @@ export interface Criterion<A, E = never, R = never> {
 const criterionMake = <A, E = never, R = never>(options: {
   readonly id: string
   readonly batchSize?: number
+  readonly syntaxKind?: SyntaxKind | ReadonlyArray<SyntaxKind>
   readonly select: (
     selections: ReadonlyArray<Selection<A>>,
   ) => Effect.Effect<ReadonlyArray<Readonly<Record<string, EvidenceFact>> | undefined>, E, R>
-}): Criterion<A, E, R> => options
+}): Criterion<A, E, R> => ({ ...options, mode: "selection" })
 
 type PredicateOutcome = boolean | Readonly<Record<string, EvidenceFact>> | undefined
 
@@ -62,6 +66,7 @@ const criterionPredicate = <A>(
   id: string,
   predicateFn: (selection: Selection<A>) => PredicateOutcome,
 ): Criterion<A> => ({
+  mode: "selection",
   id,
   select: (selections) =>
     Effect.sync(() =>
@@ -78,6 +83,7 @@ const criterionPredicate = <A>(
 const criterionAll = <A, E, R>(
   ...criteria: ReadonlyArray<Criterion<A, E, R>>
 ): Criterion<A, E, R> => ({
+  mode: "selection",
   id: `all(${criteria.map((c) => c.id).join(", ")})`,
   select: (selections) =>
     Effect.gen(function* () {
@@ -99,6 +105,7 @@ const criterionAll = <A, E, R>(
 const criterionAny = <A, E, R>(
   ...criteria: ReadonlyArray<Criterion<A, E, R>>
 ): Criterion<A, E, R> => ({
+  mode: "selection",
   id: `any(${criteria.map((c) => c.id).join(", ")})`,
   select: (selections) =>
     Effect.gen(function* () {
@@ -119,6 +126,7 @@ const criterionAny = <A, E, R>(
 
 /** Inverts a criterion. */
 const criterionNot = <A, E, R>(criterion: Criterion<A, E, R>): Criterion<A, E, R> => ({
+  mode: "selection",
   id: `not(${criterion.id})`,
   select: (selections) =>
     Effect.map(criterion.select(selections), (batchResults) =>

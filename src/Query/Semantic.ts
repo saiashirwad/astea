@@ -16,7 +16,7 @@ import {
   type ProjectSnapshotError,
   type SnapshotExpired,
 } from "../Workspace/index.ts"
-import type { EvidenceFact } from "../Evidence/Model.ts"
+import type { EvidenceFact } from "../Evidence/Core.ts"
 import {
   CriterionBase,
   type Criterion,
@@ -35,6 +35,7 @@ export const resolvesTo = <A extends Node>(
   symbol: NativeSymbol,
   options?: { readonly location?: (candidate: A) => Node },
 ): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
+  mode: "selection",
   id: "resolves-to-symbol",
   select: (selections) =>
     Effect.gen(function* () {
@@ -158,6 +159,7 @@ export const typeAssignableTo = <A extends Node>(
 ): Criterion<A, NativeCompilerError | SnapshotExpired> => {
   const targetLabel = isIntrinsicTypeName(target) ? target : "custom-type"
   return {
+    mode: "selection",
     id: `type-assignable-to:${targetLabel}`,
     select: (selections) =>
       Effect.gen(function* () {
@@ -195,6 +197,7 @@ export const typeSatisfies = <A extends Node>(
   id: string,
   predicate: (type: NativeType, typeString: string) => boolean,
 ): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
+  mode: "selection",
   id: `type-satisfies:${id}`,
   select: (selections) =>
     Effect.gen(function* () {

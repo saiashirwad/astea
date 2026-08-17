@@ -31,7 +31,9 @@ export interface TryStatementPatternOptions {
 export const tryStatement = (
   options?: TryStatementPatternOptions,
 ): Pattern<TryStatement, TryStatement> => ({
+  mode: "node",
   kind: "tryStatement",
+  syntaxKind: SyntaxKind.TryStatement,
   match: (node) =>
     Effect.sync(() => {
       if (
@@ -67,7 +69,15 @@ const loopGuards = {
   "do-while": isDoStatement,
 } as const
 export const loop = (options?: LoopPatternOptions): Pattern<LoopStatement, LoopStatement> => ({
+  mode: "node",
   kind: "loop",
+  syntaxKind: [
+    SyntaxKind.ForStatement,
+    SyntaxKind.ForOfStatement,
+    SyntaxKind.ForInStatement,
+    SyntaxKind.WhileStatement,
+    SyntaxKind.DoStatement,
+  ],
   match: (node) =>
     Effect.sync(() => {
       if (options?.kind !== undefined && !loopGuards[options.kind](node)) return matchFailure
@@ -83,15 +93,15 @@ export const loop = (options?: LoopPatternOptions): Pattern<LoopStatement, LoopS
     }),
 })
 export const forStatement = (): Pattern<ForStatement, ForStatement> =>
-  predicate("forStatement", isForStatement)
+  predicate("forStatement", isForStatement, SyntaxKind.ForStatement)
 export const forOfStatement = (): Pattern<ForOfStatement, ForOfStatement> =>
-  predicate("forOfStatement", isForOfStatement)
+  predicate("forOfStatement", isForOfStatement, SyntaxKind.ForOfStatement)
 export const forInStatement = (): Pattern<ForInStatement, ForInStatement> =>
-  predicate("forInStatement", isForInStatement)
+  predicate("forInStatement", isForInStatement, SyntaxKind.ForInStatement)
 export const whileStatement = (): Pattern<WhileStatement, WhileStatement> =>
-  predicate("whileStatement", isWhileStatement)
+  predicate("whileStatement", isWhileStatement, SyntaxKind.WhileStatement)
 export const doStatement = (): Pattern<DoStatement, DoStatement> =>
-  predicate("doStatement", isDoStatement)
+  predicate("doStatement", isDoStatement, SyntaxKind.DoStatement)
 
 export interface IfStatementPatternOptions {
   readonly hasElse?: boolean
@@ -99,7 +109,9 @@ export interface IfStatementPatternOptions {
 export const ifStatement = (
   options?: IfStatementPatternOptions,
 ): Pattern<IfStatement, IfStatement> => ({
+  mode: "node",
   kind: "ifStatement",
+  syntaxKind: SyntaxKind.IfStatement,
   match: (node) =>
     Effect.sync(() =>
       !isIfStatement(node) ||
@@ -117,7 +129,9 @@ export interface ReturnStatementPatternOptions<EOut = Node> {
 export const returnStatement = <EOut = Node>(
   options?: ReturnStatementPatternOptions<EOut>,
 ): Pattern<ReturnStatement, ReturnStatement> => ({
+  mode: "node",
   kind: "returnStatement",
+  syntaxKind: SyntaxKind.ReturnStatement,
   match: (node, project) =>
     Effect.gen(function* () {
       if (!isReturnStatement(node)) return matchFailure

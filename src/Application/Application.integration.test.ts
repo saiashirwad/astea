@@ -4,7 +4,6 @@ import { Effect, Layer } from "effect"
 import * as Application from "../Application/index.ts"
 import * as Draft from "../Draft/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
-import * as Preview from "../Preview/index.ts"
 import * as Recipe from "../Recipe/index.ts"
 import * as Verification from "../Verification/index.ts"
 import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
@@ -50,7 +49,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
             const plan = yield* Recipe.run(fileLifecycleRecipe, undefined)
             expect(plan.fileOperations?.length).toBe(2)
 
-            const preview = yield* Preview.of(plan)
+            const preview = yield* Verification.of(plan)
             expect(preview.files.length).toBeGreaterThanOrEqual(2)
 
             const verified = yield* Verification.verify(plan, fileLifecycleRecipe, undefined)

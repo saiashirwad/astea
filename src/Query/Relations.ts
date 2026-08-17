@@ -1,5 +1,5 @@
 /** AST ancestry, containment, and sibling relations. */
-import { Effect, Predicate } from "effect"
+import { Effect } from "effect"
 import { SyntaxKind, type Node } from "typescript/unstable/ast"
 import {
   isArrowFunction,
@@ -19,8 +19,8 @@ import {
   isSourceFile,
   isTypeAliasDeclaration,
 } from "typescript/unstable/ast/is"
-import type { EvidenceFact } from "../Evidence/Model.ts"
-import type { Pattern } from "../Pattern/index.ts"
+import type { EvidenceFact } from "../Evidence/Core.ts"
+import type { NodeCriterion } from "../Pattern/index.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
 import type { Criterion, Query, QueryContractError, Selection } from "./Model.ts"
 import { where } from "./Operators.ts"
@@ -38,35 +38,18 @@ export interface SiblingOptions {
 }
 
 export type RelationalMatcher<Out = unknown, E = never, R = never> =
-  | Pattern<Node, Out>
+  | NodeCriterion<Node, Out>
   | Criterion<Node, E, R>
   | ((node: Node) => boolean)
 
-const isMatcherPattern = (
-  matcher: RelationalMatcher<any, any, any>,
-): matcher is Pattern<Node, unknown> =>
-  Predicate.isObject(matcher) &&
-  Predicate.hasProperty(matcher, "match") &&
-  Predicate.isFunction(matcher.match)
-
-const isMatcherCriterion = (
-  matcher: RelationalMatcher<any, any, any>,
-): matcher is Criterion<Node, any, any> =>
-  Predicate.isObject(matcher) &&
-  Predicate.hasProperty(matcher, "select") &&
-  Predicate.isFunction(matcher.select)
-
 const matcherId = (matcher: RelationalMatcher<any, any, any>): string => {
-  if (isMatcherPattern(matcher)) {
-    return matcher.kind ?? "pattern"
-  }
-  if (isMatcherCriterion(matcher)) {
-    return matcher.id
-  }
-  if (Predicate.isFunction(matcher)) {
+  if (typeof matcher === "function") {
     return matcher.name || "predicate"
   }
-  return "custom"
+  if (matcher.mode === "node") {
+    return matcher.kind ?? "pattern"
+  }
+  return matcher.id
 }
 
 const evaluateMatcher = <Out, E, R>(
@@ -82,27 +65,7 @@ const evaluateMatcher = <Out, E, R>(
   E | ProjectSnapshotError,
   R
 > => {
-  if (isMatcherPattern(matcher)) {
-    return Effect.map(matcher.match(node, project), (result) =>
-      result.matched ? { matched: true, facts: result.facts } : { matched: false },
-    )
-  }
-  if (isMatcherCriterion(matcher)) {
-    const sourceFile = node.getSourceFile()
-    const candidateSelection: Selection<Node> = {
-      value: node,
-      project,
-      fileName,
-      start: node.getStart(sourceFile),
-      end: node.getEnd(),
-      evidence: [],
-    }
-    return Effect.map(matcher.select([candidateSelection]), (factsList) => {
-      const facts = factsList[0]
-      return facts !== undefined ? { matched: true, facts } : { matched: false }
-    })
-  }
-  if (Predicate.isFunction(matcher)) {
+  if (typeof matcher === "function") {
     const matched = matcher(node)
     return Effect.succeed(
       matched
@@ -113,7 +76,24 @@ const evaluateMatcher = <Out, E, R>(
         : { matched: false },
     )
   }
-  return Effect.succeed({ matched: false })
+  if (matcher.mode === "node") {
+    return Effect.map(matcher.match(node, project), (result) =>
+      result.matched ? { matched: true, facts: result.facts } : { matched: false },
+    )
+  }
+  const sourceFile = node.getSourceFile()
+  const candidateSelection: Selection<Node> = {
+    value: node,
+    project,
+    fileName,
+    start: node.getStart(sourceFile),
+    end: node.getEnd(),
+    evidence: [],
+  }
+  return Effect.map(matcher.select([candidateSelection]), (factsList) => {
+    const facts = factsList[0]
+    return facts !== undefined ? { matched: true, facts } : { matched: false }
+  })
 }
 
 const isBoundaryNode = (node: Node): boolean =>
@@ -205,6 +185,7 @@ const criterionInside = <A extends Node, Out = unknown, E = never, R = never>(
   matcher: RelationalMatcher<Out, E, R>,
   options?: InsideOptions,
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
+  mode: "selection",
   id: `inside(${matcherId(matcher)})`,
   select: (selections) =>
     Effect.gen(function* () {
@@ -244,6 +225,7 @@ const criterionHas = <A extends Node, Out = unknown, E = never, R = never>(
   matcher: RelationalMatcher<Out, E, R>,
   options?: HasOptions,
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
+  mode: "selection",
   id: `has(${matcherId(matcher)})`,
   select: (selections) =>
     Effect.gen(function* () {
@@ -296,6 +278,7 @@ const criterionPrecedes = <A extends Node, Out = unknown, E = never, R = never>(
   matcher: RelationalMatcher<Out, E, R>,
   options?: SiblingOptions,
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
+  mode: "selection",
   id: `precedes(${matcherId(matcher)})`,
   select: (selections) =>
     Effect.gen(function* () {
@@ -357,6 +340,7 @@ const criterionFollows = <A extends Node, Out = unknown, E = never, R = never>(
   matcher: RelationalMatcher<Out, E, R>,
   options?: SiblingOptions,
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
+  mode: "selection",
   id: `follows(${matcherId(matcher)})`,
   select: (selections) =>
     Effect.gen(function* () {
