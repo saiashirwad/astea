@@ -12,11 +12,11 @@ import { Effect, Predicate } from "effect"
 import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
 import type { TextEdit } from "../Edit/Model.ts"
-import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
+import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
 import type { EvidenceRecord, PlannedFileOperation } from "../Plan/index.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { Selection } from "../Query/index.ts"
-import { type ProjectSnapshot, type SnapshotExpired } from "../Workspace/index.ts"
+import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
 
 /** An edit in pre-finalization form; identical in shape to its durable counterpart. */
 export type ProposedEdit = TextEdit

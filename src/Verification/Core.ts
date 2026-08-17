@@ -8,16 +8,15 @@
  * declared, and returns the process-local Verified Plan: the only input
  * Application accepts. Neither stage writes project files.
  */
-import { path as Path } from "../platform/node.ts"
+import { path as Path, layer as nodeLayer } from "../platform/node.ts"
 import { Data, Effect, Predicate, Schema } from "effect"
-import { layer as nodeLayer } from "../platform/node.ts"
 import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
 import { canonicalJson, type Json, type TransformationPlan } from "../Plan/index.ts"
 import {
   type PlanPreview,
   type PolicyResult,
   previewPlan,
-  StalePlanError,
+  type StalePlanError,
   type VerificationObservation,
   VerificationFailure,
   type VerifiedPlan,
@@ -133,33 +132,32 @@ export const of = (
 ): Effect.Effect<PlanPreview, StalePlanError | VerificationFailure, Workspace> =>
   Workspace.use((workspace) => previewPlan(plan, workspace.root).pipe(Effect.provide(nodeLayer)))
 
+const asJsonValue = (value: unknown): Json => value as Json
+
 const canonicalInput = <Input, E, R>(
   recipe: Recipe<Input, E, R>,
   input: Input,
   planId: string,
+  expected: Json,
 ): Effect.Effect<{ readonly value: Input; readonly json: Json }, RecipeInputMismatch> =>
   Effect.gen(function* () {
     let validated = input
     if (recipe.schema !== undefined) {
       const decode = Schema.decodeUnknownEffect(recipe.schema) as (
         value: unknown,
-      ) => Effect.Effect<Input, Schema.SchemaError, never>
-      validated = yield* decode(input).pipe(
-        Effect.mapError(() => new RecipeInputMismatch({ planId, expected: null, actual: null })),
-      )
+      ) => Effect.Effect<Input, Schema.SchemaError>
+      validated = yield* decode(input)
       // Encode after decoding. This mirrors Recipe.run's validation and gives
       // schemas with transforms/defaults the same canonical representation used
       // in plan.recipe.options.
       const encode = Schema.encodeUnknownEffect(recipe.schema) as (
         value: Input,
-      ) => Effect.Effect<unknown, Schema.SchemaError, never>
-      const encoded = yield* encode(validated).pipe(
-        Effect.mapError(() => new RecipeInputMismatch({ planId, expected: null, actual: null })),
-      )
-      return { value: validated, json: (encoded === undefined ? null : encoded) as Json }
+      ) => Effect.Effect<unknown, Schema.SchemaError>
+      const encoded = yield* encode(validated)
+      return { value: validated, json: asJsonValue(encoded ?? null) }
     }
-    return { value: validated, json: (validated === undefined ? null : validated) as Json }
-  })
+    return { value: validated, json: asJsonValue(validated ?? null) }
+  }).pipe(Effect.mapError(() => new RecipeInputMismatch({ planId, expected, actual: null })))
 
 const validateRecipeForPlan = <Input, E, R>(
   plan: TransformationPlan,
@@ -192,7 +190,7 @@ const validateRecipeForPlan = <Input, E, R>(
       })
     }
 
-    const encoded = yield* canonicalInput(recipe, input, plan.planId)
+    const encoded = yield* canonicalInput(recipe, input, plan.planId, plan.recipe.options)
     if (canonicalJson(encoded.json) !== canonicalJson(plan.recipe.options)) {
       return yield* new RecipeInputMismatch({
         planId: plan.planId,
@@ -201,10 +199,7 @@ const validateRecipeForPlan = <Input, E, R>(
       })
     }
 
-    if (
-      canonicalJson(recipe.policies as unknown as Json) !==
-      canonicalJson(plan.policies as unknown as Json)
-    ) {
+    if (canonicalJson(asJsonValue(recipe.policies)) !== canonicalJson(asJsonValue(plan.policies))) {
       return yield* new PolicyMismatch({
         planId: plan.planId,
         expected: plan.policies,
@@ -212,10 +207,7 @@ const validateRecipeForPlan = <Input, E, R>(
       })
     }
 
-    if (
-      canonicalJson(TOOLCHAIN as unknown as Json) !==
-      canonicalJson(plan.toolchain as unknown as Json)
-    ) {
+    if (canonicalJson(asJsonValue(TOOLCHAIN)) !== canonicalJson(asJsonValue(plan.toolchain))) {
       return yield* new ToolchainMismatch({
         planId: plan.planId,
         expected: plan.toolchain,
@@ -314,16 +306,14 @@ export const verify = <Input, E, R>(
         const diagnostics = yield* collectDiagnostics
         if (plan.policies.idempotence !== "required") {
           // SAFETY: no replay is requested, so this optional count is absent by construction.
-          return { diagnostics, replayChanges: undefined as number | undefined }
+          return { diagnostics, replayChanges: undefined }
         }
         const replay = yield* recipe.run(validatedInput)
         // SAFETY: both collections are normalized recipe output. File
         // operations are changes just like text edits for idempotence.
         return {
           diagnostics,
-          replayChanges: (replay.edits.length + (replay.fileOperations?.length ?? 0)) as
-            | number
-            | undefined,
+          replayChanges: replay.edits.length + (replay.fileOperations?.length ?? 0),
         }
       }),
     )

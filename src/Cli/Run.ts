@@ -9,7 +9,6 @@ import { type Recipe, run as runRecipe } from "../Recipe/index.ts"
 import { of as previewOf } from "../Preview/index.ts"
 import { verify } from "../Verification/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
-import type { AuditCriterionRecord, AuditFinding, AuditReport } from "./Audit.ts"
 import {
   buildAuditReport,
   CliMatchFoundError,
@@ -17,6 +16,9 @@ import {
   renderAuditCsv,
   renderAuditJson,
   renderAuditText,
+  type AuditCriterionRecord,
+  type AuditFinding,
+  type AuditReport,
 } from "./Audit.ts"
 import { renderDiagnosticDiff, renderPlanPreview } from "./Diff.ts"
 import { recipeToAgentTool } from "../AgentTool/FromRecipe.ts"
@@ -217,7 +219,7 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
           cause._tag === "CliMatchFoundError"
         ) {
           // SAFETY: Tag check confirms CliMatchFoundError shape.
-          return cause as CliMatchFoundError
+          return cause
         }
         return new CliError({ message: formatCliError(cause) })
       }),

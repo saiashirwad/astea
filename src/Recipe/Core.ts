@@ -13,10 +13,10 @@ import { createHash } from "node:crypto"
 import { Data, Effect, Schema } from "effect"
 import { SYSTEM_VERSION } from "../generated/version.ts"
 import {
-  EditConflict,
-  InvalidEdit,
   applyFileEdits,
   textHash,
+  type EditConflict,
+  type InvalidEdit,
   type TextEdit,
 } from "../Edit/index.ts"
 import { NativeCompilerError } from "../Compiler/Service.ts"
@@ -26,6 +26,7 @@ import {
   type PlanBuildError,
   type PlannedFileOperation,
   type SourceFingerprint,
+  type PlanPolicies,
   type TransformationPlan,
 } from "../Plan/index.ts"
 import { isWithinProject, projectRelativePath } from "../Workspace/ProjectPath.ts"
@@ -33,7 +34,6 @@ import * as Draft from "../Draft/index.ts"
 import type { Draft as DraftModel } from "../Draft/index.ts"
 import type { Policy as PolicyModel, VerificationRule } from "../Policy/index.ts"
 import * as Policy from "../Policy/index.ts"
-import type { PlanPolicies } from "../Plan/index.ts"
 import { run as runOverlay } from "../Overlay/index.ts"
 import {
   Workspace,
@@ -42,8 +42,8 @@ import {
   type ProjectSnapshotError,
   type SnapshotExpired,
   type SnapshotTransition,
+  type FileNotFound,
   type WorkspaceSnapshotService,
-  FileNotFound,
 } from "../Workspace/index.ts"
 
 /**
@@ -700,20 +700,20 @@ export const run = <Input, E, R>(
 > =>
   Effect.gen(function* () {
     let validatedInput = input
-    let encodedOptions: Json = (input === undefined ? null : input) as Json
+    let encodedOptions: Json = input ?? null
     if (recipe.schema !== undefined) {
       const schema = recipe.schema
       // SAFETY: recipe schemas are pure and fail only with SchemaError.
       const decode = Schema.decodeUnknownEffect(schema) as (
         value: Input,
-      ) => Effect.Effect<Input, Schema.SchemaError, never>
+      ) => Effect.Effect<Input, Schema.SchemaError>
       const decoded = yield* decode(input).pipe(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )
       validatedInput = decoded
       const encode = Schema.encodeUnknownEffect(schema) as (
         value: Input,
-      ) => Effect.Effect<unknown, Schema.SchemaError, never>
+      ) => Effect.Effect<unknown, Schema.SchemaError>
       const encoded = yield* encode(decoded).pipe(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )

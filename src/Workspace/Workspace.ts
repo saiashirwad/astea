@@ -10,13 +10,13 @@
 import { nodeFs as Fs, path as Path } from "../platform/node.ts"
 import { Context, Data, Effect, Layer, Option, Predicate, Semaphore } from "effect"
 import type { SourceFile } from "typescript/unstable/ast"
-import type {
-  APIOptions,
-  Project as NativeProject,
-  Symbol as NativeSymbol,
-  Type as NativeType,
+import {
+  SymbolFlags,
+  type APIOptions,
+  type Project as NativeProject,
+  type Symbol as NativeSymbol,
+  type Type as NativeType,
 } from "typescript/unstable/async"
-import { SymbolFlags } from "typescript/unstable/async"
 import type { FileChanges } from "typescript/unstable/proto"
 import {
   layer as nativeCompilerLayer,
@@ -235,7 +235,10 @@ export interface WorkspaceSnapshotService {
 export class WorkspaceSnapshot extends Context.Service<
   WorkspaceSnapshot,
   WorkspaceSnapshotService
->()("@safemods/WorkspaceSnapshot") {}
+>()(
+  // oxlint-disable-next-line effecttsgo/deterministic-keys -- Stable public service identifier.
+  "@safemods/WorkspaceSnapshot",
+) {}
 
 export interface WorkspaceService {
   readonly definition: WorkspaceDefinition
@@ -266,6 +269,7 @@ export interface WorkspaceService {
 }
 
 export class Workspace extends Context.Service<Workspace, WorkspaceService>()(
+  // oxlint-disable-next-line effecttsgo/deterministic-keys -- Stable public service identifier.
   "@safemods/Workspace",
 ) {
   static readonly layerWithoutDependencies = (

@@ -1,5 +1,5 @@
 /** Scoped compiler service around TypeScript 7's native async client. */
-import { Context, Data, Effect, Layer, Scope } from "effect"
+import { Context, Data, Effect, Layer, type Scope } from "effect"
 import { API, type APIOptions, type Snapshot, type TimingInfo } from "typescript/unstable/async"
 import type { UpdateSnapshotParams } from "typescript/unstable/proto"
 
@@ -26,6 +26,7 @@ export interface NativeCompilerService {
 }
 
 export class NativeCompiler extends Context.Service<NativeCompiler, NativeCompilerService>()(
+  // oxlint-disable-next-line effecttsgo/deterministic-keys -- Stable internal service identifier.
   "@safemods/internal/NativeCompiler",
 ) {}
 

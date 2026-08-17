@@ -1,9 +1,9 @@
 import { path as Path, nodeFsPromises as Fs } from "./platform/node.ts"
 import { fileURLToPath } from "node:url"
 import { describe, effect, expect } from "@effect/vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, type Stream } from "effect"
 import type { CallExpression } from "typescript/unstable/ast"
-import { Application, Plan, Preview, Query, Recipe, Verification, Workspace } from "./index.ts"
+import { Application, Plan, Preview, Recipe, Verification, Workspace, type Query } from "./index.ts"
 import { applicationLayerNode } from "./Node/index.ts"
 import { wrapTargetInput, type WrapTargetInput } from "./test/wrap-target-input.ts"
 import { migrateImportSource, type MigrateImportSourceInput } from "./test/migrate-import-source.ts"
@@ -23,11 +23,7 @@ export type _RecipeInputInference = Assert<
 declare const _anyProject: Parameters<typeof Query.calls>[0]
 export type _CallInference = Assert<
   Equal<
-    ReturnType<typeof Query.calls> extends import("effect").Stream.Stream<
-      infer S,
-      infer _E,
-      infer _R
-    >
+    ReturnType<typeof Query.calls> extends Stream.Stream<infer S, infer _E, infer _R>
       ? S extends Query.Selection<infer Node>
         ? Node
         : never

@@ -4,6 +4,11 @@ import { Effect } from "effect"
 
 const args = process.argv.slice(2)
 
+const isErrorRecord = (
+  value: unknown,
+): value is { readonly _tag?: unknown; readonly message?: unknown } =>
+  value !== null && typeof value === "object"
+
 const printHelp = () => {
   console.log(`
 safemods — Effect-native TypeScript 7 Project Transformation Engine
@@ -43,7 +48,8 @@ const optionsMap: Record<string, string> = {}
 
 let i = 0
 while (i < args.length) {
-  const arg = args[i]!
+  const arg = args[i]
+  if (arg === undefined) break
   if (optionsWithValues.has(arg)) {
     if (i + 1 < args.length) {
       optionsMap[arg] = args[i + 1]!
@@ -119,14 +125,12 @@ Effect.runPromise(
     toolSchema: isTool,
     noColor,
   }),
-).catch((err) => {
-  if (err && typeof err === "object" && "_tag" in err && err._tag === "CliMatchFoundError") {
+).catch((cause: unknown) => {
+  const error = isErrorRecord(cause) ? cause : undefined
+  if (error?._tag === "CliMatchFoundError") {
     process.exit(1)
   }
-  const msg =
-    err && typeof err === "object" && "message" in err && typeof err.message === "string"
-      ? err.message
-      : String(err)
+  const msg = typeof error?.message === "string" ? error.message : String(cause)
   console.error(`\n✖ ${msg}`)
   process.exit(1)
 })

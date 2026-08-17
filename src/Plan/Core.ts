@@ -82,7 +82,18 @@ export interface TransformationPlan {
   readonly measurements?: PlanMeasurements | undefined
 }
 
-export type PlanInput = Omit<TransformationPlan, "schemaVersion" | "planId" | "snapshotHash">
+/** Input boundary before the content-addressed fields are assigned. */
+export interface PlanInput {
+  readonly recipe: TransformationPlan["recipe"]
+  readonly toolchain: TransformationPlan["toolchain"]
+  readonly projects: ReadonlyArray<ProjectEvidence>
+  readonly sources: ReadonlyArray<SourceFingerprint>
+  readonly edits: ReadonlyArray<TextEdit>
+  readonly fileOperations?: ReadonlyArray<PlannedFileOperation> | undefined
+  readonly evidence: ReadonlyArray<EvidenceRecord>
+  readonly policies: PlanPolicies
+  readonly measurements?: PlanMeasurements | undefined
+}
 
 export class PlanBuildError extends Data.TaggedError("PlanBuildError")<{
   readonly reason:
@@ -143,6 +154,88 @@ const fail = (
 
 const isFiniteNonnegativeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0
+
+const isReadonlyArray = <A>(value: unknown): value is ReadonlyArray<A> => Array.isArray(value)
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  Predicate.isObject(value)
+
+const isStringArray = (value: unknown): value is ReadonlyArray<string> =>
+  isReadonlyArray<string>(value) && value.every((item) => typeof item === "string")
+
+const isProjectEvidence = (value: unknown): value is ProjectEvidence =>
+  isRecord(value) && typeof value.id === "string" && typeof value.configFileName === "string"
+
+const isSourceFingerprint = (value: unknown): value is SourceFingerprint =>
+  isRecord(value) &&
+  typeof value.projectId === "string" &&
+  typeof value.fileName === "string" &&
+  typeof value.hash === "string"
+
+const isTextEdit = (value: unknown): value is TextEdit =>
+  isRecord(value) &&
+  typeof value.projectId === "string" &&
+  typeof value.fileName === "string" &&
+  typeof value.start === "number" &&
+  typeof value.end === "number" &&
+  typeof value.expectedTextHash === "string" &&
+  typeof value.newText === "string" &&
+  isStringArray(value.evidenceIds)
+
+const isEvidenceRecord = (value: unknown): value is EvidenceRecord =>
+  isRecord(value) &&
+  typeof value.id === "string" &&
+  typeof value.kind === "string" &&
+  isRecord(value.facts)
+
+const isPlannedFileOperation = (value: unknown): value is PlannedFileOperation => {
+  if (!hasExactOperationFields(value) || !isRecord(value)) return false
+  if (
+    typeof value.projectId !== "string" ||
+    typeof value.path !== "string" ||
+    !isStringArray(value.evidenceIds ?? [])
+  )
+    return false
+  if (value.kind === "create") return typeof value.content === "string"
+  if (value.kind === "delete") return typeof value.initialHash === "string"
+  return (
+    typeof value.toPath === "string" &&
+    typeof value.initialHash === "string" &&
+    (value.content === undefined || typeof value.content === "string")
+  )
+}
+
+const isPlanInput = (value: unknown): value is PlanInput => {
+  if (!isRecord(value) || !isRecord(value.recipe) || !isRecord(value.toolchain)) return false
+  if (
+    typeof value.recipe.name !== "string" ||
+    typeof value.recipe.version !== "string" ||
+    typeof value.recipe.implementationHash !== "string" ||
+    typeof value.toolchain.systemVersion !== "string" ||
+    typeof value.toolchain.typescriptVersion !== "string" ||
+    typeof value.toolchain.effectVersion !== "string" ||
+    !isReadonlyArray<ProjectEvidence>(value.projects) ||
+    !value.projects.every(isProjectEvidence) ||
+    !isReadonlyArray<SourceFingerprint>(value.sources) ||
+    !value.sources.every(isSourceFingerprint) ||
+    !isReadonlyArray<TextEdit>(value.edits) ||
+    !value.edits.every(isTextEdit) ||
+    !isReadonlyArray<EvidenceRecord>(value.evidence) ||
+    !value.evidence.every(isEvidenceRecord) ||
+    (value.fileOperations !== undefined &&
+      (!isReadonlyArray<PlannedFileOperation>(value.fileOperations) ||
+        !value.fileOperations.every(isPlannedFileOperation))) ||
+    !isRecord(value.policies) ||
+    !isRecord(value.policies.matchCount)
+  )
+    return false
+  return (
+    (value.measurements === undefined || isRecord(value.measurements)) &&
+    (value.policies.diagnostics === "no-new-errors" ||
+      value.policies.diagnostics === "exact-delta") &&
+    (value.policies.idempotence === "required" || value.policies.idempotence === "not-promised")
+  )
+}
 
 const normalizedPath = (value: string): ProjectRelativePath | undefined =>
   parseProjectRelativePath(value)
@@ -209,14 +302,8 @@ const validateOperation = (
 
 const validateInput = (input: PlanInput): Effect.Effect<void, PlanBuildError> =>
   Effect.gen(function* () {
-    if (
-      !Array.isArray(input.projects) ||
-      !Array.isArray(input.sources) ||
-      !Array.isArray(input.edits) ||
-      !Array.isArray(input.evidence) ||
-      (input.fileOperations !== undefined && !Array.isArray(input.fileOperations))
-    ) {
-      return yield* fail("invalid-plan", "Plan collections must be arrays")
+    if (!isPlanInput(input)) {
+      return yield* fail("invalid-plan", "Plan shape is invalid")
     }
     const projectIds = new Set<string>()
     for (const project of input.projects) {
@@ -389,8 +476,8 @@ export const serializePlan = (plan: TransformationPlan): string => canonicalJson
 const TextEditSchema = Schema.Struct({
   projectId: Schema.String,
   fileName: Schema.String,
-  start: Schema.Number,
-  end: Schema.Number,
+  start: Schema.Finite,
+  end: Schema.Finite,
   expectedTextHash: Schema.String,
   newText: Schema.String,
   evidenceIds: Schema.Array(Schema.String),
@@ -541,14 +628,14 @@ export const TransformationPlanSchema = Schema.Struct({
   ),
   policies: Schema.Struct({
     matchCount: Schema.Struct({
-      min: Schema.optional(Schema.Number),
-      max: Schema.optional(Schema.Number),
+      min: Schema.optional(Schema.Finite),
+      max: Schema.optional(Schema.Finite),
     }),
-    maxAffectedFiles: Schema.optional(Schema.Number),
+    maxAffectedFiles: Schema.optional(Schema.Finite),
     diagnostics: Schema.Union([Schema.Literal("no-new-errors"), Schema.Literal("exact-delta")]),
     idempotence: Schema.Union([Schema.Literal("required"), Schema.Literal("not-promised")]),
   }),
-  measurements: Schema.optional(Schema.Struct({ matches: Schema.optional(Schema.Number) })),
+  measurements: Schema.optional(Schema.Struct({ matches: Schema.optional(Schema.Finite) })),
 })
 
 const decodePlan = (decoded: unknown): Effect.Effect<TransformationPlan, PlanDecodeError> =>
@@ -567,13 +654,12 @@ export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanD
       Effect.gen(function* () {
         // SAFETY: decodePlan validates all structural fields and validateDecodedPlan
         // checks/canonicalizes the branded project-relative operation paths.
-        const plan = decoded as TransformationPlan
+        const plan = decoded
         if (text !== canonicalJson(asJson(plan)))
           return yield* new PlanDecodeError({ reason: "schema" })
-        const semantic = yield* validateDecodedPlan(plan).pipe(
+        yield* validateDecodedPlan(plan).pipe(
           Effect.mapError(() => new PlanDecodeError({ reason: "schema" })),
         )
-        void semantic
         if (digest(canonicalJson(withoutId(plan))) !== plan.planId) {
           return yield* new PlanDecodeError({ reason: "hash" })
         }

@@ -1,4 +1,9 @@
-import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
+import {
+  nodeFsPromises as Fs,
+  path as Path,
+  layer as nodeLayer,
+  pathLayer,
+} from "../platform/node.ts"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, FileSystem, Layer, PlatformError } from "effect"
 import * as Application from "../Application/index.ts"
@@ -9,7 +14,6 @@ import * as Verification from "../Verification/index.ts"
 import { WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 import { wrapTargetInput, type WrapTargetInput } from "../test/wrap-target-input.ts"
-import { layer as nodeLayer, pathLayer } from "../platform/node.ts"
 import { applicationLayer, makeApplicationLayerNode } from "./Application.ts"
 
 const exists = (fileName: string): Effect.Effect<boolean> =>

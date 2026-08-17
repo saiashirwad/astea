@@ -8,8 +8,8 @@ import {
 } from "../Edit/index.ts"
 import type { PlannedFileOperation } from "../Plan/index.ts"
 import {
-  FileNotFound,
   ProjectNotInSnapshot,
+  type FileNotFound,
   type ProjectSnapshot,
   type ProjectSnapshotError,
   type WorkspaceSnapshotService,

@@ -124,7 +124,7 @@ const decodeToolInput = <Input, E, R>(
   // SAFETY: recipe schemas are pure and fail only with SchemaError.
   const decode = Schema.decodeUnknownEffect(recipe.schema) as (
     value: JsonValue,
-  ) => Effect.Effect<Input, Schema.SchemaError, never>
+  ) => Effect.Effect<Input, Schema.SchemaError>
   return decode(rawInput).pipe(
     Effect.mapError((cause) => new ToolExecutionError({ recipe: recipe.name, cause })),
   )

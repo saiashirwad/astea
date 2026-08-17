@@ -241,12 +241,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
             const directAcc = yield* Workspace.use((_ws) =>
               Effect.gen(function* () {
                 const workspace = yield* Workspace
-                return yield* workspace.withSnapshot(
-                  {},
-                  Effect.gen(function* () {
-                    return yield* scanningRecipe.scan(undefined)
-                  }),
-                )
+                return yield* workspace.withSnapshot({}, scanningRecipe.scan(undefined))
               }),
             )
             expect(directAcc.has("target")).toBe(true)

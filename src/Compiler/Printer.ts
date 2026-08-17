@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import type { Effect } from "effect"
 import type { Node } from "typescript/unstable/ast"
 import type { SnapshotExpired, ProjectSnapshot } from "../Workspace/index.ts"
 import { nativeRequest, type NativeCompilerError } from "./Service.ts"

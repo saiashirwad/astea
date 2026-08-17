@@ -36,6 +36,13 @@ describe("Plan schema", () => {
     }),
   )
 
+  effect("rejects malformed finalize input without throwing", () =>
+    Effect.gen(function* () {
+      const malformed = { ...input, projects: [null] } as unknown as typeof input
+      expect(Exit.isFailure(yield* Effect.exit(finalizePlan(malformed)))).toBe(true)
+    }),
+  )
+
   effect("rejects unsafe project-relative paths", () =>
     Effect.sync(() => {
       for (const path of [

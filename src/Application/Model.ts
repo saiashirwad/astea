@@ -1,6 +1,6 @@
 /** Application domain values and write-authority service contract. */
-import { Context, Data, Effect, FileSystem, Path } from "effect"
-import type { VerifiedPlan } from "../Verification/Engine.ts"
+import { Context, Data, type Effect, type FileSystem, type Path } from "effect"
+import type { StalePlanError, VerifiedPlan } from "../Verification/Engine.ts"
 
 export class ApplicationFailure extends Data.TaggedError("ApplicationFailure")<{
   readonly planId: string
@@ -29,13 +29,12 @@ export interface PlanApplicationService {
     verified: VerifiedPlan,
   ) => Effect.Effect<
     ApplicationReceipt,
-    | import("../Verification/Engine.ts").StalePlanError
-    | ApplicationFailure
-    | ApplicationIndeterminate,
+    StalePlanError | ApplicationFailure | ApplicationIndeterminate,
     FileSystem.FileSystem | Path.Path
   >
 }
 
 export class PlanApplication extends Context.Service<PlanApplication, PlanApplicationService>()(
+  // oxlint-disable-next-line effecttsgo/deterministic-keys -- Stable public service identifier.
   "@safemods/internal/PlanApplication",
 ) {}

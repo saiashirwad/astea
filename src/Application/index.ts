@@ -6,14 +6,14 @@
  * only a Verified Plan — successful Verification against an exact snapshot —
  * is accepted. Application is the sole stage that writes project files.
  */
-import { Effect, FileSystem, Path } from "effect"
+import type { Effect, FileSystem, Path } from "effect"
 import {
   PlanApplication,
   type ApplicationFailure,
   type ApplicationIndeterminate,
   type ApplicationReceipt,
 } from "./Model.ts"
-import { type StalePlanError, type VerifiedPlan } from "../Verification/Engine.ts"
+import type { StalePlanError, VerifiedPlan } from "../Verification/Engine.ts"
 
 export { PlanApplication }
 export type { ApplicationReceipt, VerifiedPlan }
