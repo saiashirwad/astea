@@ -9,6 +9,7 @@ import {
   WorkspaceSnapshot,
 } from "../Workspace/index.ts"
 import { materialize } from "./Materialize.ts"
+import type { VirtualFsError } from "../VirtualFs/index.ts"
 
 export const run = <A, E, R>(
   planOrDraft: {
@@ -18,7 +19,13 @@ export const run = <A, E, R>(
   program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
 ): Effect.Effect<
   A,
-  E | ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict,
+  | E
+  | ProjectSnapshotError
+  | ProjectNotInSnapshot
+  | FileNotFound
+  | InvalidEdit
+  | EditConflict
+  | VirtualFsError,
   Workspace | WorkspaceSnapshot | Exclude<R, WorkspaceSnapshot>
 > =>
   Effect.gen(function* () {

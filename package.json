@@ -75,6 +75,10 @@
       "types": "./dist/src/Verification/index.d.ts",
       "default": "./dist/src/Verification/index.js"
     },
+    "./VirtualFs": {
+      "types": "./dist/src/VirtualFs/index.d.ts",
+      "default": "./dist/src/VirtualFs/index.js"
+    },
     "./Workspace": {
       "types": "./dist/src/Workspace/index.d.ts",
       "default": "./dist/src/Workspace/index.js"

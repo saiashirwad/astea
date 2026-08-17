@@ -1,8 +1,14 @@
 /** Verification and application service engine. */
 import { Data, Effect, FileSystem, Path } from "effect"
-import { applyFileEdits, textHash } from "../Edit/index.ts"
+import { textHash } from "../Edit/index.ts"
 import type { DiagnosticDiff } from "../Policy/index.ts"
 import type { TransformationPlan } from "../Plan/index.ts"
+import {
+  materialize as materializeVirtualFs,
+  virtualFileKey,
+  type VirtualFsInitialFile,
+  VirtualFsError,
+} from "../VirtualFs/index.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{
   readonly planId: string
@@ -97,9 +103,9 @@ export const previewPlan = (
   FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
-    type VirtualFile = { readonly exists: boolean; readonly text: string }
-    const keyOf = (projectId: string, fileName: string): string => `${projectId}\0${fileName}`
-    const sourceTexts = new Map<string, VirtualFile>()
+    const path = yield* Path.Path
+    const initialFiles: Array<VirtualFsInitialFile> = []
+    const initial = new Map<string, string>()
     for (const source of plan.sources) {
       const absolute = yield* absoluteFileName(
         plan,
@@ -124,60 +130,65 @@ export const previewPlan = (
           fileName: source.fileName,
         })
       }
-      sourceTexts.set(keyOf(source.projectId, source.fileName), { exists: true, text: content })
+      initialFiles.push({
+        projectId: source.projectId,
+        fileName: source.fileName,
+        content,
+      })
+      initial.set(virtualFileKey(source.projectId, source.fileName), content)
     }
 
-    const initial = new Map(sourceTexts)
+    const resolvePath = (projectId: string, fileName: string): string => {
+      const project = plan.projects.find((candidate) => candidate.id === projectId)
+      if (project === undefined) throw new Error(`Unknown project ID: ${projectId}`)
+      return path.resolve(workspaceRoot, path.dirname(project.configFileName), fileName)
+    }
+
+    const materialized = yield* materializeVirtualFs<never>({
+      initialFiles,
+      // Every source used by a valid plan is fingerprinted above. This loader
+      // is only a defensive boundary for malformed plans.
+      load: (projectId, fileName) =>
+        Effect.die(new Error(`Missing fingerprint for ${projectId}:${fileName}`)),
+      resolvePath,
+      edits: plan.edits,
+      ...(plan.fileOperations === undefined ? {} : { fileOperations: plan.fileOperations }),
+    }).pipe(
+      Effect.mapError((error) => {
+        if (error instanceof VirtualFsError) {
+          if (error.reason === "source-mismatch") {
+            return new StalePlanError({
+              planId: plan.planId,
+              projectId: error.projectId,
+              fileName: error.fileName,
+            })
+          }
+          return new VerificationFailure({
+            planId: plan.planId,
+            policy: "edits",
+            detail: `Missing source for ${error.projectId}\\0${error.fileName}`,
+          })
+        }
+        return new VerificationFailure({
+          planId: plan.planId,
+          policy: "edits",
+          detail: error._tag,
+        })
+      }),
+    )
+
     const touched = new Set<string>()
     const moveCounterpart = new Map<string, string>()
     const operationKinds = new Map<string, "create" | "delete" | "move">()
-    const stateOf = (file: VirtualFile): FileState =>
-      file.exists ? { exists: true, text: file.text, hash: textHash(file.text) } : { exists: false }
     for (const op of plan.fileOperations ?? []) {
-      const sourceKey = keyOf(op.projectId, op.path)
+      const sourceKey = virtualFileKey(op.projectId, op.path)
+      touched.add(sourceKey)
       if (op.kind === "create") {
-        sourceTexts.set(sourceKey, { exists: true, text: op.content })
-        touched.add(sourceKey)
         operationKinds.set(sourceKey, "create")
       } else if (op.kind === "delete") {
-        const before = sourceTexts.get(sourceKey)
-        if (before?.exists !== true) {
-          return yield* new VerificationFailure({
-            planId: plan.planId,
-            policy: "edits",
-            detail: `Missing source for ${sourceKey}`,
-          })
-        }
-        if (textHash(before.text) !== op.initialHash) {
-          return yield* new StalePlanError({
-            planId: plan.planId,
-            projectId: op.projectId,
-            fileName: op.path,
-          })
-        }
-        sourceTexts.set(sourceKey, { exists: false, text: "" })
-        touched.add(sourceKey)
         operationKinds.set(sourceKey, "delete")
       } else {
-        const before = sourceTexts.get(sourceKey)
-        if (before?.exists !== true) {
-          return yield* new VerificationFailure({
-            planId: plan.planId,
-            policy: "edits",
-            detail: `Missing source for ${sourceKey}`,
-          })
-        }
-        if (textHash(before.text) !== op.initialHash) {
-          return yield* new StalePlanError({
-            planId: plan.planId,
-            projectId: op.projectId,
-            fileName: op.path,
-          })
-        }
-        const targetKey = keyOf(op.projectId, op.toPath)
-        sourceTexts.set(sourceKey, { exists: false, text: "" })
-        sourceTexts.set(targetKey, { exists: true, text: op.content ?? before.text })
-        touched.add(sourceKey)
+        const targetKey = virtualFileKey(op.projectId, op.toPath)
         touched.add(targetKey)
         operationKinds.set(sourceKey, "move")
         operationKinds.set(targetKey, "move")
@@ -186,37 +197,22 @@ export const previewPlan = (
       }
     }
 
-    const groups = Map.groupBy(plan.edits, (edit) => `${edit.projectId}\0${edit.fileName}`)
-    const filesByKey = new Map<string, FilePreview>()
-    for (const [key, edits] of groups) {
-      const before = sourceTexts.get(key)
-      if (before?.exists !== true) {
-        return yield* new VerificationFailure({
-          planId: plan.planId,
-          policy: "edits",
-          detail: `Missing source for ${key}`,
-        })
-      }
-      const afterText = yield* applyFileEdits(before.text, edits).pipe(
-        Effect.mapError(
-          (error) =>
-            new VerificationFailure({
-              planId: plan.planId,
-              policy: "edits",
-              detail: error._tag,
-            }),
-        ),
-      )
-      sourceTexts.set(key, { exists: true, text: afterText })
-      touched.add(key)
+    for (const edit of plan.edits) {
+      touched.add(virtualFileKey(edit.projectId, edit.fileName))
     }
 
+    const filesByKey = new Map<string, FilePreview>()
+    const stateOf = (text: string | undefined): FileState =>
+      text === undefined ? { exists: false } : { exists: true, text, hash: textHash(text) }
     for (const key of touched) {
       const [projectId, fileName] = key.split("\0") as [string, string]
-      const before = initial.get(key) ?? { exists: false, text: "" }
-      const after = sourceTexts.get(key) ?? { exists: false, text: "" }
+      const absolute = resolvePath(projectId, fileName)
+      const before = initial.get(key)
+      const after = materialized.deleted.has(absolute)
+        ? undefined
+        : materialized.files.get(absolute)
       const operation = operationKinds.get(key)
-      const action = operation ?? (before.exists ? "modify" : "create")
+      const action = operation ?? (before === undefined ? "create" : "modify")
       filesByKey.set(key, {
         projectId,
         fileName,

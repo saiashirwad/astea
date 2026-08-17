@@ -1,11 +1,13 @@
 import { Effect } from "effect"
-import type {
-  ArrowFunction,
-  ClassDeclaration,
-  FunctionDeclaration,
-  FunctionExpression,
-  InterfaceDeclaration,
-  MethodDeclaration,
+import {
+  createScanner,
+  SyntaxKind,
+  type ArrowFunction,
+  type ClassDeclaration,
+  type FunctionDeclaration,
+  type FunctionExpression,
+  type InterfaceDeclaration,
+  type MethodDeclaration,
 } from "typescript/unstable/ast"
 import {
   isIdentifier,
@@ -200,6 +202,31 @@ export interface FunctionParamOptions {
   readonly optional?: boolean
 }
 
+const emptyParameterListCloseEnd = (
+  fn: FunctionDeclaration | FunctionExpression | ArrowFunction | MethodDeclaration,
+  sourceFile: ReturnType<typeof fn.getSourceFile>,
+): number | undefined => {
+  const limit = fn.body?.getStart(sourceFile) ?? fn.getEnd()
+  const scanner = createScanner(
+    true,
+    sourceFile.languageVariant,
+    sourceFile.text,
+    fn.parameters.pos,
+    limit - fn.parameters.pos,
+  )
+  let depth = 0
+  while (true) {
+    const token = scanner.scan()
+    if (token === SyntaxKind.EndOfFile) return undefined
+    if (token === SyntaxKind.CloseParenToken && depth === 0) return scanner.getTokenEnd()
+    if (token === SyntaxKind.OpenParenToken) depth += 1
+    if (token === SyntaxKind.CloseParenToken) {
+      depth -= 1
+      if (depth === 0) return scanner.getTokenEnd()
+    }
+  }
+}
+
 export const functions = {
   /** Add a parameter to a function declaration / function expression / arrow function / method. */
   addParameter: (
@@ -217,11 +244,9 @@ export const functions = {
         const paramStr = `${options.name}${opt}${ty}${def}`
 
         if (params.length === 0) {
-          const fnText = sourceFile.text.slice(fn.getStart(sourceFile), fn.getEnd())
-          const openParenRel = fnText.indexOf("(")
-          const closeParenRel = fnText.indexOf(")", openParenRel)
-          if (openParenRel === -1 || closeParenRel === -1) return empty
-          const insertPos = fn.getStart(sourceFile) + closeParenRel
+          const closeEnd = emptyParameterListCloseEnd(fn, sourceFile)
+          if (closeEnd === undefined) return empty
+          const insertPos = closeEnd - 1
           return {
             edits: [
               {
@@ -287,12 +312,8 @@ export const functions = {
             matches: 1,
           }
         } else {
-          const fnStart = fn.getStart(sourceFile)
-          const fnText = sourceFile.text.slice(fnStart, fn.getEnd())
-          const openParenRel = fnText.indexOf("(")
-          const closeParenRel = fnText.indexOf(")", openParenRel)
-          if (closeParenRel === -1) return empty
-          const insertPos = fnStart + closeParenRel + 1
+          const insertPos = emptyParameterListCloseEnd(fn, sourceFile)
+          if (insertPos === undefined) return empty
           return {
             edits: [
               {

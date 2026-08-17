@@ -35,6 +35,7 @@ import type { Draft as DraftModel } from "../Draft/index.ts"
 import type { Policy as PolicyModel, VerificationRule } from "../Policy/index.ts"
 import * as Policy from "../Policy/index.ts"
 import { run as runOverlay } from "../Overlay/index.ts"
+import type { VirtualFsError } from "../VirtualFs/index.ts"
 import {
   Workspace,
   WorkspaceSnapshot,
@@ -433,6 +434,7 @@ export function pipe<Input, E1, R1, E2, R2>(
   | FileNotFound
   | NativeCompilerError
   | ProjectNotInSnapshot
+  | VirtualFsError
   | SnapshotExpired,
   R1 | R2
 >
@@ -450,6 +452,7 @@ export function pipe<Input, E1, R1, E2, R2, E3, R3>(
   | FileNotFound
   | NativeCompilerError
   | ProjectNotInSnapshot
+  | VirtualFsError
   | SnapshotExpired,
   R1 | R2 | R3
 >
@@ -469,6 +472,7 @@ export function pipe<Input, E1, R1, E2, R2, E3, R3, E4, R4>(
   | FileNotFound
   | NativeCompilerError
   | ProjectNotInSnapshot
+  | VirtualFsError
   | SnapshotExpired,
   R1 | R2 | R3 | R4
 >
@@ -482,6 +486,7 @@ export function pipe<Input, E, R>(
   | FileNotFound
   | NativeCompilerError
   | ProjectNotInSnapshot
+  | VirtualFsError
   | SnapshotExpired,
   R
 > {
@@ -530,6 +535,7 @@ export function all<Input, E1, R1, E2, R2>(
   | FileNotFound
   | NativeCompilerError
   | ProjectNotInSnapshot
+  | VirtualFsError
   | SnapshotExpired,
   R1 | R2
 >
@@ -545,6 +551,7 @@ export function all<Input, E1, R1, E2, R2, E3, R3>(
   | FileNotFound
   | NativeCompilerError
   | ProjectNotInSnapshot
+  | VirtualFsError
   | SnapshotExpired,
   R1 | R2 | R3
 >
@@ -558,6 +565,7 @@ export function all<Input, E, R>(
   | FileNotFound
   | NativeCompilerError
   | ProjectNotInSnapshot
+  | VirtualFsError
   | SnapshotExpired,
   R
 > {

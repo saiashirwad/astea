@@ -35,10 +35,7 @@ import {
   type ProjectNotInSnapshot,
   type SnapshotExpired,
 } from "../Workspace/index.ts"
-
-// SAFETY: these process-local symbols match the Workspace virtual-FS adapter.
-const VIRTUAL_CREATED: unique symbol = Symbol.for("@safemods/Overlay/virtual-created") as never
-const VIRTUAL_DELETED: unique symbol = Symbol.for("@safemods/Overlay/virtual-deleted") as never
+import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
 
 export { StalePlanError, VerificationFailure } from "./Engine.ts"
 
@@ -280,25 +277,24 @@ export const verify = <Input, E, R>(
     const validatedInput = yield* validateRecipeForPlan(plan, recipe, input)
     const proposed = yield* of(plan)
 
-    const overlay: Record<string, string> & {
-      readonly [VIRTUAL_CREATED]?: ReadonlySet<string>
-      readonly [VIRTUAL_DELETED]?: ReadonlySet<string>
-    } = {}
+    const files = new Map<string, string>()
     const created = new Set<string>()
     const deleted = new Set<string>()
     for (const file of proposed.files) {
       const target = absoluteTarget(workspace.root, plan, file.projectId, file.fileName)
       if (file.after.exists) {
-        overlay[target] = file.after.text
+        files.set(target, file.after.text)
         if (!file.before.exists) created.add(target)
       } else {
         deleted.add(target)
       }
     }
-    Object.defineProperty(overlay, VIRTUAL_CREATED, { value: created })
-    Object.defineProperty(overlay, VIRTUAL_DELETED, { value: deleted })
+    const overlay: VirtualFsSnapshot = { files, created, deleted }
 
-    const baselineDiagnostics = yield* workspace.withIsolatedSnapshot({}, collectDiagnostics)
+    const baselineDiagnostics = yield* workspace.withIsolatedSnapshot(
+      { files: new Map(), created: new Set(), deleted: new Set() },
+      collectDiagnostics,
+    )
 
     const proposedRun = yield* workspace.withIsolatedSnapshot(
       overlay,

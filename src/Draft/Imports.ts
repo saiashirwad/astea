@@ -1,6 +1,11 @@
 import { Effect } from "effect"
-import type { ImportDeclaration } from "typescript/unstable/ast"
-import { isImportDeclaration, isNamedImports, isStringLiteral } from "typescript/unstable/ast/is"
+import type { ImportDeclaration, SourceFile, Statement } from "typescript/unstable/ast"
+import {
+  isExpressionStatement,
+  isImportDeclaration,
+  isNamedImports,
+  isStringLiteral,
+} from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import {
@@ -27,6 +32,18 @@ export interface AddNamedImportFn {
     fileName: string,
     options: AddNamedImportOptions,
   ): Effect.Effect<Draft, ProjectSnapshotError>
+}
+
+const isTopLevelDirective = (statement: Statement): boolean =>
+  isExpressionStatement(statement) && isStringLiteral(statement.expression)
+
+const importInsertionPosition = (sourceFile: SourceFile): number => {
+  // getStart skips a shebang and leading trivia, preserving license headers
+  // and comments while anchoring insertion to an actual statement token.
+  const firstNonDirective = sourceFile.statements.find(
+    (statement) => !isTopLevelDirective(statement),
+  )
+  return firstNonDirective?.getStart(sourceFile) ?? sourceFile.endOfFileToken.getStart(sourceFile)
 }
 
 export const imports = {
@@ -91,7 +108,7 @@ export const imports = {
             }
           }
 
-          const insertPos = 0
+          const insertPos = importInsertionPosition(source)
           const importText = `import { ${importName} } from "${options.module}";\n`
 
           return {

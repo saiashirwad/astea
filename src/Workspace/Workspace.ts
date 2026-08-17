@@ -26,14 +26,9 @@ import {
 } from "../Compiler/Service.ts"
 import { makeDependencyGraphNavigation } from "./internal/DependencyGraph.ts"
 import { isWithinProject, projectRelativePath } from "./ProjectPath.ts"
+import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
 
 export type { NativeCompilerError }
-
-/** Internal marker for virtual paths that should be hidden from the compiler. */
-// SAFETY: process-local symbols let overlays communicate virtual existence
-// state without adding sentinel strings to the public source-map contract.
-const VIRTUAL_DELETED: unique symbol = Symbol.for("@safemods/Overlay/virtual-deleted") as never
-const VIRTUAL_CREATED: unique symbol = Symbol.for("@safemods/Overlay/virtual-created") as never
 
 const ConfiguredProjectTypeId: unique symbol = Symbol.for("@safemods/ConfiguredProject")
 
@@ -259,7 +254,7 @@ export interface WorkspaceService {
    * This is the isolated session Verification is built on.
    */
   readonly withIsolatedSnapshot: <A, E, R>(
-    overlay: Readonly<Record<string, string>>,
+    overlay: VirtualFsSnapshot,
     program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
   ) => Effect.Effect<
     A,
@@ -673,16 +668,8 @@ export const make = (
       )
 
     const withIsolatedSnapshot: WorkspaceService["withIsolatedSnapshot"] = (overlay, program) => {
-      const deleted = (
-        overlay as Readonly<Record<string, string>> & {
-          readonly [VIRTUAL_DELETED]?: ReadonlySet<string>
-        }
-      )[VIRTUAL_DELETED]
-      const created = (
-        overlay as Readonly<Record<string, string>> & {
-          readonly [VIRTUAL_CREATED]?: ReadonlySet<string>
-        }
-      )[VIRTUAL_CREATED]
+      const deleted = overlay.deleted
+      const created = overlay.created
       const matchesVirtualPath = (observed: string, planned: string): boolean => {
         if (observed === planned) return true
         const relative = Path.relative(root, planned)
@@ -716,20 +703,15 @@ export const make = (
                   return undefined
                 }
               })()
-            const deleted = (
-              overlay as Readonly<Record<string, string>> & {
-                readonly [VIRTUAL_DELETED]?: ReadonlySet<string>
-              }
-            )[VIRTUAL_DELETED]
             const isDeleted = (entry: string) => {
               const absolute = Path.resolve(directoryName, entry)
-              return [...(deleted ?? [])].some((path) => matchesVirtualPath(absolute, path))
+              return [...deleted].some((path) => matchesVirtualPath(absolute, path))
             }
             const files = new Set((existing?.files ?? []).filter((entry) => !isDeleted(entry)))
             const directories = new Set(
               (existing?.directories ?? []).filter((entry) => !isDeleted(entry)),
             )
-            for (const plannedFileName of Object.keys(overlay)) {
+            for (const plannedFileName of overlay.files.keys()) {
               const relative = Path.relative(directoryName, plannedFileName)
               if (relative === "" || relative.startsWith("..") || Path.isAbsolute(relative))
                 continue
@@ -742,35 +724,25 @@ export const make = (
               : { files: [...files], directories: [...directories] }
           },
           readFile: (fileName) => {
-            const deleted = (
-              overlay as Readonly<Record<string, string>> & {
-                readonly [VIRTUAL_DELETED]?: ReadonlySet<string>
-              }
-            )[VIRTUAL_DELETED]
-            for (const plannedFileName of deleted ?? []) {
+            for (const plannedFileName of deleted) {
               if (matchesVirtualPath(fileName, plannedFileName)) return null
             }
-            const exact = overlay[fileName]
+            const exact = overlay.files.get(fileName)
             if (exact !== undefined) return exact
             // The native process may observe realpath-resolved names (for
             // example /private/... on macOS); fall back to a workspace-relative
             // suffix match so overlay files always win their real counterparts.
-            for (const [plannedFileName, content] of Object.entries(overlay)) {
+            for (const [plannedFileName, content] of overlay.files) {
               if (matchesVirtualPath(fileName, plannedFileName)) return content
             }
             return undefined
           },
           fileExists: (fileName) => {
-            const deleted = (
-              overlay as Readonly<Record<string, string>> & {
-                readonly [VIRTUAL_DELETED]?: ReadonlySet<string>
-              }
-            )[VIRTUAL_DELETED]
-            for (const plannedFileName of deleted ?? []) {
+            for (const plannedFileName of deleted) {
               if (matchesVirtualPath(fileName, plannedFileName)) return false
             }
-            if (overlay[fileName] !== undefined) return true
-            for (const plannedFileName of Object.keys(overlay)) {
+            if (overlay.files.has(fileName)) return true
+            for (const plannedFileName of overlay.files.keys()) {
               if (matchesVirtualPath(fileName, plannedFileName)) return true
             }
             return undefined
@@ -779,13 +751,13 @@ export const make = (
       }
       return Effect.gen(function* () {
         const isolatedCompiler = yield* NativeCompiler
-        const changed = Object.keys(overlay).filter(
-          (path) => !created?.has(path) && !deleted?.has(path),
+        const changed = [...overlay.files.keys()].filter(
+          (path) => !created.has(path) && !deleted.has(path),
         )
         const fileChanges = {
           ...(changed.length > 0 ? { changed } : {}),
-          ...(created !== undefined && created.size > 0 ? { created: [...created] } : {}),
-          ...(deleted !== undefined && deleted.size > 0 ? { deleted: [...deleted] } : {}),
+          ...(created.size > 0 ? { created: [...created] } : {}),
+          ...(deleted.size > 0 ? { deleted: [...deleted] } : {}),
         }
         const transition = Object.keys(fileChanges).length > 0 ? { changes: fileChanges } : {}
         return yield* openRegion(
