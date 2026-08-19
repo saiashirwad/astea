@@ -11,11 +11,22 @@ import * as Draft from "../Draft/index.ts"
 import * as Policy from "../Policy/index.ts"
 import * as Recipe from "../Recipe/index.ts"
 import * as Verification from "../Verification/index.ts"
+import type { TransformationPlan } from "../Plan/index.ts"
 import type { VerifiedPlan } from "../Verification/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 import { wrapTargetInput, type WrapTargetInput } from "../test/wrap-target-input.ts"
 import { applicationLayer, makeApplicationLayerNode } from "./Application.ts"
+
+type ForgedPlanValue =
+  | symbol
+  | TransformationPlan
+  | Verification.PlanPreview
+  | Verification.VerificationReceipt
+
+interface ForgedPlanCapability extends Partial<VerifiedPlan> {
+  readonly [key: PropertyKey]: ForgedPlanValue
+}
 
 const didMutate = (write: () => void): boolean => {
   try {
@@ -276,7 +287,7 @@ describe("Node application transactions", () => {
         const plan = yield* Recipe.run(recipe, undefined)
         const verified = yield* Verification.verify(plan, recipe, undefined)
         const publicBrand = Symbol.for("@safemods/internal/VerifiedPlan")
-        const publicForgery = {
+        const publicForgery: ForgedPlanCapability = {
           [publicBrand]: publicBrand,
           plan: verified.plan,
           preview: verified.preview,
@@ -284,7 +295,7 @@ describe("Node application transactions", () => {
         }
         const stolen = Object.getOwnPropertySymbols(verified)[0]
         const clonedPreview = structuredClone(verified.preview)
-        const stolenForgery = {
+        const stolenForgery: ForgedPlanCapability = {
           plan: structuredClone(verified.plan),
           preview: {
             ...clonedPreview,
@@ -300,7 +311,7 @@ describe("Node application transactions", () => {
           receipt: structuredClone(verified.receipt),
         }
         if (stolen !== undefined) {
-          const brand = Object.getOwnPropertyDescriptor(verified, stolen)?.value
+          const brand: unknown = Object.getOwnPropertyDescriptor(verified, stolen)?.value
           if (brand !== undefined) Object.assign(stolenForgery, { [stolen]: brand })
         }
         const publicResult = yield* Application.apply(
@@ -341,7 +352,8 @@ describe("Node application transactions", () => {
         expect(
           didMutate(() => {
             // SAFETY: the test asserts nested issued preview state is frozen.
-            ;(file as { fileName: string }).fileName = "src/mutated.ts"
+            const target = file as { fileName: string }
+            target.fileName = "src/mutated.ts"
           }),
         ).toBe(false)
         expect(file.fileName).toBe(originalFileName)

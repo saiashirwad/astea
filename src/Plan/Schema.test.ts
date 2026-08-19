@@ -1,8 +1,19 @@
 import { describe, effect, expect } from "@effect/vitest"
-import { Effect, Exit, Predicate } from "effect"
-import { finalizePlan, parsePlan, serializePlan, type Json } from "./index.ts"
+import { Effect, Exit } from "effect"
+import {
+  asJson,
+  canonicalJson,
+  finalizePlan,
+  parsePlan,
+  serializePlan,
+  type PlanInput,
+} from "./index.ts"
 import { createHash } from "node:crypto"
 import { parseProjectRelativePath } from "../Workspace/ProjectPath.ts"
+
+interface MalformedPlanInput extends Omit<PlanInput, "projects"> {
+  readonly projects: ReadonlyArray<unknown>
+}
 
 const input = {
   recipe: { name: "test", version: "1", implementationHash: "impl", options: null },
@@ -38,9 +49,10 @@ describe("Plan schema", () => {
 
   effect("rejects malformed finalize input without throwing", () =>
     Effect.gen(function* () {
+      const malformed: MalformedPlanInput = { ...input, projects: [null] }
       // SAFETY: the test deliberately injects an invalid project at the input boundary.
-      const malformed = { ...input, projects: [null] } as typeof input
-      expect(Exit.isFailure(yield* Effect.exit(finalizePlan(malformed)))).toBe(true)
+      const failure = yield* Effect.exit(finalizePlan(malformed as PlanInput))
+      expect(Exit.isFailure(failure)).toBe(true)
     }),
   )
 
@@ -79,22 +91,11 @@ describe("Plan schema", () => {
         ],
       }
       const withoutId = ({ planId: _, ...rest }: typeof malformed) => rest
-      const canonicalize = (value: Json): Json => {
-        if (Array.isArray(value)) return value.map(canonicalize)
-        if (Predicate.isObject(value)) {
-          return Object.fromEntries(
-            Object.entries(value)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([key, child]) => [key, canonicalize(child)]),
-          )
-        }
-        return value
-      }
-      const encoded = JSON.stringify(
-        canonicalize({
+      const encoded = canonicalJson(
+        asJson({
           ...malformed,
           planId: createHash("sha256")
-            .update(JSON.stringify(canonicalize(withoutId(malformed))))
+            .update(canonicalJson(asJson(withoutId(malformed))))
             .digest("hex"),
         }),
       )

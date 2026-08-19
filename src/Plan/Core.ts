@@ -149,8 +149,7 @@ const canonicalize = (value: Json): Json => {
 
 export const canonicalJson = (value: Json): string => JSON.stringify(canonicalize(value))
 
-// SAFETY: value is guaranteed to be JSON serializable
-const asJson = (
+export const asJson = (
   value:
     | Json
     | TransformationPlan
@@ -158,7 +157,9 @@ const asJson = (
         readonly projects: ReadonlyArray<ProjectEvidence>
         readonly sources: ReadonlyArray<SourceFingerprint>
       },
-): Json => value as Json
+): Json =>
+  // SAFETY: value is guaranteed to be JSON serializable
+  value as Json
 
 const withoutId = (plan: TransformationPlan): Json => {
   const { planId: _, ...payload } = plan
@@ -273,17 +274,17 @@ const operationKeys = (operation: PlannedFileOperation): Array<string> => {
   return keys
 }
 
-const operationFields: Record<PlannedFileOperation["kind"], ReadonlySet<string>> = {
+const operationFields = {
   create: new Set(["kind", "projectId", "path", "content", "evidenceIds"]),
   delete: new Set(["kind", "projectId", "path", "initialHash", "evidenceIds"]),
   move: new Set(["kind", "projectId", "path", "toPath", "initialHash", "content", "evidenceIds"]),
-}
+} satisfies Record<PlannedFileOperation["kind"], ReadonlySet<string>>
 
-const requiredOperationFields: Record<PlannedFileOperation["kind"], ReadonlyArray<string>> = {
+const requiredOperationFields = {
   create: ["kind", "projectId", "path", "content"],
   delete: ["kind", "projectId", "path", "initialHash"],
   move: ["kind", "projectId", "path", "toPath", "initialHash"],
-}
+} satisfies Record<PlannedFileOperation["kind"], ReadonlyArray<string>>
 
 const hasExactOperationFields = (operation: Inspectable): operation is PlannedFileOperation => {
   if (
@@ -334,7 +335,11 @@ const validateInput = (input: PlanInput): Effect.Effect<void, PlanBuildError> =>
     }
     const projectIds = new Set<string>()
     for (const project of input.projects) {
-      if (!Predicate.isString(project.id) || project.id.length === 0 || projectIds.has(project.id)) {
+      if (
+        !Predicate.isString(project.id) ||
+        project.id.length === 0 ||
+        projectIds.has(project.id)
+      ) {
         return yield* fail(
           projectIds.has(project.id) ? "duplicate-project" : "invalid-plan",
           `Invalid project ${project.id}`,
@@ -688,10 +693,10 @@ const decodePlan = (decoded: Inspectable): Effect.Effect<TransformationPlan, Pla
   hasExactFileOperationFields(decoded)
     ? Schema.decodeUnknownEffect(TransformationPlanSchema)(decoded).pipe(
         Effect.mapError(() => new PlanDecodeError({ reason: "schema" })),
-        Effect.map((value) => {
+        Effect.map(
           // SAFETY: the schema validates every field; branded path types are runtime strings.
-          return value as TransformationPlan
-        }),
+          (value) => value as TransformationPlan,
+        ),
       )
     : Effect.fail(new PlanDecodeError({ reason: "schema" }))
 

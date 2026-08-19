@@ -304,6 +304,12 @@ interface NativeFileChangeLists {
   deleted?: Array<string>
 }
 
+interface WorkspaceFileChanges {
+  changed?: ReadonlyArray<string>
+  created?: ReadonlyArray<string>
+  deleted?: ReadonlyArray<string>
+}
+
 interface OpenSnapshotParams {
   openProjects?: Array<string>
   fileChanges?: FileChanges
@@ -806,11 +812,7 @@ export const make = (
         const changed = [...overlay.files.keys()].filter(
           (path) => !created.has(path) && !deleted.has(path),
         )
-        const fileChanges: {
-          changed?: ReadonlyArray<string>
-          created?: ReadonlyArray<string>
-          deleted?: ReadonlyArray<string>
-        } = {}
+        const fileChanges: WorkspaceFileChanges = {}
         if (changed.length > 0) fileChanges.changed = changed
         if (created.size > 0) fileChanges.created = [...created]
         if (deleted.size > 0) fileChanges.deleted = [...deleted]

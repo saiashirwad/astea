@@ -223,10 +223,9 @@ const toToolDiagnostic = (diagnostic: DiagnosticRecord): ToolDiagnostic => {
   }
   const withFileName =
     diagnostic.fileName === undefined ? base : { ...base, fileName: diagnostic.fileName }
-  const withStart = diagnostic.start === undefined ? withFileName : { ...withFileName, start: diagnostic.start }
-  return diagnostic.length === undefined
-    ? withStart
-    : { ...withStart, length: diagnostic.length }
+  const withStart =
+    diagnostic.start === undefined ? withFileName : { ...withFileName, start: diagnostic.start }
+  return diagnostic.length === undefined ? withStart : { ...withStart, length: diagnostic.length }
 }
 
 const toDiagnosticReport = (diff: DiagnosticDiff): ToolDiagnosticReport => ({

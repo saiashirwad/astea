@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { describe, effect, expect, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 import {
   buildAuditReport,
   CliMatchFoundError,
@@ -17,6 +17,11 @@ import * as Query from "../Query/index.ts"
 import * as Recipe from "../Recipe/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import { runCli } from "./Run.ts"
+
+interface ExecResult {
+  readonly code: unknown
+  readonly stderr: string
+}
 
 const execFileAsync = promisify(execFile)
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
@@ -299,12 +304,13 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
 
   effect("CLI executable rejects unknown flags, missing option values, and invalid formats", () =>
     Effect.gen(function* () {
-      const execError = (cause: unknown): { readonly code: unknown; readonly stderr: string } => {
-        if (cause !== null && typeof cause === "object") {
+      const execError = (cause: unknown): ExecResult => {
+        if (Predicate.isObject(cause)) {
+          // SAFETY: error object caught from child_process.execFile.
           const record = cause as { readonly code?: unknown; readonly stderr?: unknown }
           return {
             code: record.code,
-            stderr: typeof record.stderr === "string" ? record.stderr : "",
+            stderr: Predicate.isString(record.stderr) ? record.stderr : "",
           }
         }
         return { code: undefined, stderr: "" }

@@ -4,10 +4,12 @@ import { Effect, Predicate } from "effect"
 
 const args = process.argv.slice(2)
 
-const isErrorRecord = (
-  value: unknown,
-): value is { readonly _tag?: unknown; readonly message?: unknown } =>
-  Predicate.isObject(value)
+interface ErrorRecord {
+  readonly _tag?: unknown
+  readonly message?: unknown
+}
+
+const isErrorRecord = (cause: unknown): cause is ErrorRecord => Predicate.isObject(cause)
 
 const printHelp = () => {
   console.log(`
@@ -54,7 +56,7 @@ const knownFlags = new Set([
   "--scan",
 ])
 
-const failArg = (message: string): never => {
+function failArg(message: string): never {
   console.error(`Error: ${message}`)
   process.exit(1)
 }

@@ -21,6 +21,11 @@ const didMutate = (write: () => void): boolean => {
   }
 }
 
+interface TsConfigDocument {
+  readonly compilerOptions?: Readonly<Record<string, Json>>
+  readonly include?: Json
+}
+
 describe("declarative transformations API (@effect/vitest)", () => {
   describe("diagnostic diffs and verification policies", () => {
     it("computes diagnostic diffs accurately", () => {
@@ -72,6 +77,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
     })
 
     it("rejects replacing one error with another even when the total is unchanged", () => {
+      // SAFETY: test uses a partial TransformationPlan stub sufficient for verifyPreview.
       const plan = {
         planId: "diagnostic-diff",
         policies: {
@@ -464,15 +470,9 @@ describe("declarative transformations API (@effect/vitest)", () => {
               ),
             )
             const parsedUnknown: unknown = JSON.parse(originalConfig)
-            const parsed =
+            const parsed: TsConfigDocument =
               Predicate.isObject(parsedUnknown) && !Array.isArray(parsedUnknown)
-                ? (() => {
-                    // SAFETY: the test wrote this JSON document immediately above.
-                    return parsedUnknown as {
-                      readonly compilerOptions?: Readonly<Record<string, Json>>
-                      readonly include?: Json
-                    }
-                  })()
+                ? parsedUnknown
                 : {}
             yield* Effect.tryPromise(() =>
               Fs.writeFile(
@@ -554,13 +554,15 @@ describe("declarative transformations API (@effect/vitest)", () => {
             expect(
               didMutate(() => {
                 // SAFETY: the test asserts the issued capability rejects mutation.
-                (project as { configFileName: string }).configFileName = "mutated.json"
+                const target = project as { configFileName: string }
+                target.configFileName = "mutated.json"
               }),
             ).toBe(false)
             expect(
               didMutate(() => {
                 // SAFETY: the test asserts nested preview state is not caller-mutable.
-                (file as { fileName: string }).fileName = "src/mutated.ts"
+                const target = file as { fileName: string }
+                target.fileName = "src/mutated.ts"
               }),
             ).toBe(false)
             expect(project.configFileName).toBe(originalConfig)

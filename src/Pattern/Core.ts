@@ -43,17 +43,15 @@ type TupleMatch<P extends ReadonlyArray<AnyPattern>> = {
   [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never
 }
 
-const bindingOf = <K extends string, Out>(key: K, value: Out): Binding<K, Out> => {
+const bindingOf = <K extends string, Out>(key: K, value: Out): Binding<K, Out> =>
   // SAFETY: the computed key is the binding name supplied to this pattern.
-  return { [key]: value } as Binding<K, Out>
-}
+  Object.fromEntries([[key, value]]) as Binding<K, Out>
 
 const tupleMatchOf = <P extends ReadonlyArray<AnyPattern>>(
   values: ReadonlyArray<unknown>,
-): TupleMatch<P> => {
+): TupleMatch<P> =>
   // SAFETY: tuple patterns push one value for every matched pattern in order.
-  return values as TupleMatch<P>
-}
+  values as TupleMatch<P>
 
 /** Matches any node and yields it as-is. */
 export const any: Pattern<Node, Node> = {
@@ -85,13 +83,16 @@ export function predicate<N extends Node = Node, Out = N>(
   test: (node: Node) => boolean | PatternResult<Out>,
   syntaxKind?: SyntaxKindFilter,
 ): Pattern<N, Out> {
-  const result = {
+  const result: Pattern<N, Out> = {
     mode: "node",
     kind,
     match: (node) =>
       Effect.sync(() => {
         const result = test(node)
-        if (result === true) return matchSuccess(node as N & Out)
+        if (result === true) {
+          // SAFETY: the predicate returned true confirming the node matches the criterion.
+          return matchSuccess(node as N & Out)
+        }
         return result === false ? matchFailure : result
       }),
   }

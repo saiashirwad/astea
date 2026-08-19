@@ -99,14 +99,13 @@ const parseJournalBefore = (value: Json): JournalBeforeState | undefined => {
 const parseJournalEntry = (value: Json): JournalEntry | undefined => {
   const record = asRecord(value)
   if (record === undefined || !Predicate.isString(record.target)) return undefined
+  if (record.before === undefined) return undefined
   const before = parseJournalBefore(record.before)
   if (before === undefined) return undefined
   if (record.temporary !== undefined && !Predicate.isString(record.temporary)) return undefined
-  return {
-    target: record.target,
-    ...(Predicate.isString(record.temporary) ? { temporary: record.temporary } : {}),
-    before,
-  }
+  return record.temporary === undefined
+    ? { target: record.target, before }
+    : { target: record.target, temporary: record.temporary, before }
 }
 
 const parseJournal = (text: string): TransactionJournal | undefined => {
@@ -123,7 +122,8 @@ const parseJournal = (text: string): TransactionJournal | undefined => {
   }
   const files: Array<JournalEntry> = []
   for (const entry of record.files) {
-    const parsed = parseJournalEntry(entry)
+    // SAFETY: record.files is verified to be an array above from the parsed journal JSON.
+    const parsed = parseJournalEntry(entry as Json)
     if (parsed === undefined) return undefined
     files.push(parsed)
   }
@@ -561,13 +561,14 @@ const applyVerifiedPlan = (workspaceRoot: string, definition: WorkspaceDefinitio
           const journal: TransactionJournal = {
             planId: plan.planId,
             phase: "open",
-            files: staged.map((item) => ({
-              target: item.target,
-              ...(item.temporary === undefined ? {} : { temporary: item.temporary }),
-              before: item.file.before.exists
+            files: staged.map((item): JournalEntry => {
+              const before: JournalBeforeState = item.file.before.exists
                 ? { exists: true, text: item.file.before.text }
-                : { exists: false },
-            })),
+                : { exists: false }
+              return item.temporary === undefined
+                ? { target: item.target, before }
+                : { target: item.target, temporary: item.temporary, before }
+            }),
             createdDirectories: [...createdDirectories],
           }
           yield* persistJournal(journalPath, journal)

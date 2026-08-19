@@ -190,6 +190,11 @@ const tighterMin = (current: number | undefined, next: number | undefined): numb
 const tighterMax = (current: number | undefined, next: number | undefined): number | undefined =>
   current === undefined ? next : next === undefined ? current : Math.min(current, next)
 
+interface MatchCountBounds {
+  min?: number
+  max?: number
+}
+
 const compileChildren = (recipes: ReadonlyArray<Recipe<any, any, any>>) => ({
   // Intersection, not last-write-wins: a later looser child must not drop an
   // earlier bound, `no-new-errors`, or required idempotence.
@@ -210,7 +215,7 @@ const compileChildren = (recipes: ReadonlyArray<Recipe<any, any, any>>) => ({
       recipes.some((recipe) => recipe.policies.diagnostics === "no-new-errors")
         ? "no-new-errors"
         : "exact-delta"
-    const matchCount: { min?: number; max?: number } = {}
+    const matchCount: MatchCountBounds = {}
     if (min !== undefined) matchCount.min = min
     if (max !== undefined) matchCount.max = max
     return maxAffectedFiles === undefined
@@ -410,21 +415,15 @@ const composeDrafts = (
         }
       }
 
-      if (operation.kind === "delete" || operation.kind === "move") {
-        const configured = snapshot.projects.find((project) => project.id === operation.projectId)
+      if (normalized.kind === "delete" || normalized.kind === "move") {
+        const configured = snapshot.projects.find((project) => project.id === normalized.projectId)
         if (configured !== undefined) {
           const project = yield* snapshot.project(configured)
-          const original = yield* project.sourceText(operation.path)
-          normalized =
-            operation.kind === "delete"
-              ? { ...operation, initialHash: textHash(original) }
-              : {
-                  ...operation,
-                  initialHash: textHash(original),
-                }
-              if (normalized.kind === "move" && normalized.content !== undefined) {
-                normalized = { ...normalized, content: normalized.content }
-              }
+          const original = yield* project.sourceText(normalized.path)
+          normalized = {
+            ...normalized,
+            initialHash: textHash(original),
+          }
         }
       }
       // Edits to a deleted/moved source cannot survive the operation.  A move
