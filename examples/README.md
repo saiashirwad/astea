@@ -4,7 +4,7 @@ This directory provides concrete examples and guides explaining how `safemods` d
 
 ---
 
-## 1. In-Memory Snapshot Transitions (`snapshot.overlay`)
+## 1. In-Memory Snapshot Transitions (`Overlay.run`)
 
 ### What it solves
 
@@ -14,7 +14,7 @@ Multi-phase transformations (e.g. migrating an exported function signature in a 
 
 `safemods` uses TypeScript 7's in-memory file overrides to project proposed edits into a new generation `WorkspaceSnapshot` without touching the filesystem:
 
-$$\text{Snapshot}_0 \xrightarrow{\text{Recipe}_1} \text{Draft}_1 \xrightarrow{\text{overlay}} \text{Snapshot}_1 \xrightarrow{\text{Recipe}_2} \text{Draft}_2 \implies \text{Final Plan}$$
+Snapshot 0 --Recipe 1--> Draft 1 --overlay--> Snapshot 1 --Recipe 2--> Draft 2 => Final Plan
 
 ```ts
 import { Effect } from "effect"
@@ -32,14 +32,17 @@ const twoPhaseMigration = Effect.gen(function* () {
     name: "NewConfig",
   })
 
-  // Stage 2: Query the updated semantic state inside the overlay
+  // Stage 2: Build a downstream edit against the updated state
   return yield* Overlay.run(
     draft1,
     Effect.gen(function* () {
       const overlaySnapshot = yield* WorkspaceSnapshot
       const overlayProject = yield* overlaySnapshot.project(app)
-      // Downstream files now see `NewConfig` resolved by the compiler!
-      return yield* Draft.concat(draft1 /* stage 2 draft */)
+      const draft2 = yield* Draft.imports.addNamed(overlayProject, "src/consumer.ts", {
+        module: "./library.js",
+        name: "NewConfig",
+      })
+      return Draft.concat(draft1, draft2)
     }),
   )
 })
@@ -90,7 +93,12 @@ All syntactic operations operate on **minimal range slices guarded by cryptograp
 ```ts
 // 1. Manage named imports while preserving quote styles and multiline formatting
 yield * Draft.imports.addNamed(project, "src/index.ts", { module: "effect", name: "Option" })
-yield * Draft.imports.removeNamed(project, "src/index.ts", { module: "./legacy.js", name: "oldFn" })
+
+const [legacyImport] =
+  yield * Query.imports(project).pipe(Query.where(Query.textMatches("./legacy.js")), Query.collect)
+if (legacyImport !== undefined) {
+  yield * Draft.imports.removeNamed(project, legacyImport.value, "oldFn")
+}
 
 // 2. Wrap or reorder function call arguments without altering trivia
 yield * Draft.args.wrap(project, callNode, 0, (text) => `{ value: ${text} }`)
@@ -109,7 +117,7 @@ Recipes are first-class, composable algebraic values:
 - **`Recipe.pipe(...recipes)`**: Runs recipes in sequence, passing intermediate states via virtual in-memory overlays and merging drafts into a unified plan.
 - **`Recipe.all(recipes)`**: Evaluates independent recipes concurrently and merges drafts, failing deterministically if edit ranges conflict.
 - **`Recipe.branch(predicate, ifTrue, ifFalse)`**: Branches transformation logic based on compiler settings or file structure.
-- **`schema: Schema.Schema<Input>`**: Enforces input validation using `@effect/schema` before recipe execution.
+- **`schema: Schema.Schema<Input>`**: Enforces input validation using `Schema` from `effect` before recipe execution.
 
 ```ts
 export const fullMigration = Recipe.pipe(migrateLibrarySignature, updateConsumerCallSites)
@@ -125,7 +133,7 @@ A naive "no compiler errors allowed" rule prevents refactoring in legacy project
 
 ### How `safemods` does it
 
-`Verification` computes a complete **Diagnostic Diff** ($\text{Diagnostics}_{\text{proposed}} - \text{Diagnostics}_{\text{baseline}}$) and evaluates declarative policies:
+`Verification` computes a complete diagnostic diff (proposed minus baseline) and evaluates declarative policies:
 
 ```ts
 export const safeRecipe = Recipe.define("safe-migration", {
@@ -135,7 +143,7 @@ export const safeRecipe = Recipe.define("safe-migration", {
     Policy.noNewErrors(),
 
     // Assert that a specific error code was resolved by this transformation
-    Policy.fixesError("TS2345"),
+    Policy.fixesError(2345),
 
     // Replay idempotence check: f(f(x)) === f(x)
     Policy.idempotent(),
@@ -149,18 +157,19 @@ export const safeRecipe = Recipe.define("safe-migration", {
 
 ---
 
-## Running the Tour Example
+## Checking the Tour Example
 
-To execute the complete interactive tour:
+The tour is source documentation rather than a supported standalone Node
+command. Type-check it with the rest of the examples:
 
 ```sh
-pnpm check
-node examples/declarative-api-tour.ts
+pnpm typecheck
 ```
 
-## Runnable Recipes
+## Recipe Modules
 
-The TypeScript examples are standalone recipe modules suitable for the CLI or an agent host:
+These TypeScript examples define recipe modules suitable for loading from the
+CLI or an agent host:
 
 - `semantic-api-migration.ts` combines schema input, semantic symbol resolution, dual query operators, argument rewriting, and idempotence verification.
 - `overlay-aware-migration.ts` stages an import in a virtual snapshot before querying the updated project state.

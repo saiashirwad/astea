@@ -60,12 +60,17 @@ const textIncludes =
     return text.includes(pattern) ? { matchedText: text } : undefined
   }
 
+const testRegExp = (pattern: RegExp, value: string): boolean => {
+  const fresh = new RegExp(pattern.source, pattern.flags)
+  return fresh.test(value)
+}
+
 const textMatchesRegExp =
   (pattern: RegExp) =>
   <A extends Node>(selection: Selection<A>) => {
     const sourceFile = selection.value.getSourceFile()
     const text = selection.value.getText(sourceFile)
-    return pattern.test(text) ? { matchedText: text } : undefined
+    return testRegExp(pattern, text) ? { matchedText: text } : undefined
   }
 
 /** Admit nodes whose text matches a string or regular expression. */
@@ -149,7 +154,7 @@ export const within = Function.dual<
         pattern.includes("*")
           ? matchesPathGlob(fileName, pattern)
           : fileName.includes(pattern) || fileName.endsWith(pattern)
-    : (fileName: string) => pattern.test(fileName)
+    : (fileName: string) => testRegExp(pattern, fileName)
 
   return Stream.filter(query, (selection) => predicate(selection.fileName))
 })

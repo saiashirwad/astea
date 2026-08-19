@@ -208,15 +208,7 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
     }).pipe(
       Effect.provide(workspaceLayer),
       Effect.mapError((cause) => {
-        if (
-          cause !== null &&
-          Predicate.isObject(cause) &&
-          "_tag" in cause &&
-          cause._tag === "CliMatchFoundError"
-        ) {
-          // SAFETY: Tag check confirms CliMatchFoundError shape.
-          return cause
-        }
+        if (cause instanceof CliMatchFoundError) return cause
         return new CliError({ message: formatCliError(cause) })
       }),
     )

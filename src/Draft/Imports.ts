@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import type { ImportDeclaration, SourceFile, Statement } from "typescript/unstable/ast"
 import {
   isExpressionStatement,
+  isIdentifier,
   isImportDeclaration,
   isNamedImports,
   isStringLiteral,
@@ -15,7 +16,7 @@ import {
   type ProjectSnapshotError,
   type SnapshotExpired,
 } from "../Workspace/index.ts"
-import { empty, type Draft } from "./Model.ts"
+import { draftForEdit, empty, type Draft } from "./Model.ts"
 
 // // =============================================================================
 
@@ -78,6 +79,12 @@ export const imports = {
                 const clause = statement.importClause
                 if (clause && clause.namedBindings && isNamedImports(clause.namedBindings)) {
                   const named = clause.namedBindings
+                  if (
+                    clause.phaseModifier !== undefined ||
+                    named.elements.some((element) => element.isTypeOnly)
+                  ) {
+                    return empty
+                  }
                   for (const element of named.elements) {
                     if (element.name.text === (options.alias ?? options.name)) {
                       return empty
@@ -87,21 +94,18 @@ export const imports = {
                   if (named.elements.length > 0) {
                     const last = named.elements[named.elements.length - 1]!
                     const insertPos = last.getEnd()
-                    return {
-                      edits: [
-                        {
-                          projectId: project.project.id,
-                          fileName: projectRelativePath(project.root, source.fileName),
-                          start: insertPos,
-                          end: insertPos,
-                          expectedTextHash: textHash(""),
-                          newText: `, ${importName}`,
-                          evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
-                        },
-                      ],
-                      evidence: [],
-                      matches: 1,
-                    }
+                    return draftForEdit(
+                      {
+                        projectId: project.project.id,
+                        fileName: projectRelativePath(project.root, source.fileName),
+                        start: insertPos,
+                        end: insertPos,
+                        expectedTextHash: textHash(""),
+                        newText: `, ${importName}`,
+                      },
+                      `import:addNamed:${options.module}:${options.name}`,
+                      { module: options.module, name: options.name },
+                    )
                   }
                 }
               }
@@ -111,21 +115,18 @@ export const imports = {
           const insertPos = importInsertionPosition(source)
           const importText = `import { ${importName} } from "${options.module}";\n`
 
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, source.fileName),
-                start: insertPos,
-                end: insertPos,
-                expectedTextHash: textHash(""),
-                newText: importText,
-                evidenceIds: [`import:addNamed:${options.module}:${options.name}`],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, source.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: importText,
+            },
+            `import:addNamed:${options.module}:${options.name}`,
+            { module: options.module, name: options.name },
+          )
         }),
       )
     })
@@ -156,23 +157,20 @@ export const imports = {
         const sourceFile = declaration.getSourceFile()
 
         if (elements.length === 1) {
-          const start = declaration.getFullStart()
-          const end = declaration.getEnd()
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, sourceFile.fileName),
-                start,
-                end,
-                expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-                newText: "",
-                evidenceIds: [`import:removeNamed:${name}`],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          const start = clause.name?.getEnd() ?? declaration.getFullStart()
+          const end = clause.name === undefined ? declaration.getEnd() : named.getEnd()
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+              newText: "",
+            },
+            `import:removeNamed:${name}`,
+            { name },
+          )
         }
 
         const target = elements[targetIndex]!
@@ -187,21 +185,18 @@ export const imports = {
           start = prev.getEnd()
         }
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start,
-              end,
-              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-              newText: "",
-              evidenceIds: [`import:removeNamed:${name}`],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start,
+            end,
+            expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+            newText: "",
+          },
+          `import:removeNamed:${name}`,
+          { name },
+        )
       }),
     ),
 
@@ -215,6 +210,7 @@ export const imports = {
       Effect.sync((): Draft => {
         const specifier = declaration.moduleSpecifier
         if (!isStringLiteral(specifier)) return empty
+        if (specifier.text === newModule) return empty
 
         const sourceFile = declaration.getSourceFile()
         const quote = specifier.getText(sourceFile)[0] ?? '"'
@@ -222,25 +218,26 @@ export const imports = {
         const start = specifier.getStart(sourceFile)
         const end = specifier.getEnd()
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start,
-              end,
-              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-              newText: newSpecifierText,
-              evidenceIds: [`import:update-source:${newModule}`],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start,
+            end,
+            expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+            newText: newSpecifierText,
+          },
+          `import:update-source:${newModule}`,
+          { module: newModule },
+        )
       }),
     ),
 
-  /** Organize, group, deduplicate, and sort all imports in a file deterministically. */
+  /**
+   * Organize simple default/named value imports. Unsupported forms or import
+   * trivia are a no-op so type-only, namespace, and side-effect imports are
+   * never reprinted with changed semantics or style.
+   */
   organize: (
     project: ProjectSnapshot,
     fileName: string,
@@ -264,31 +261,94 @@ export const imports = {
           const lastDecl = importDecls[importDecls.length - 1]!
           const start = firstDecl.getStart(source)
           const end = lastDecl.getEnd()
+          const firstIndex = source.statements.indexOf(firstDecl)
+          const lastIndex = source.statements.indexOf(lastDecl)
+          const importBlock = source.statements.slice(firstIndex, lastIndex + 1)
+          const lineEnd = source.text.indexOf("\n", end)
+          const trailingLine = source.text.slice(end, lineEnd === -1 ? source.text.length : lineEnd)
+          const hasComment = (text: string): boolean => /\/[/*]/.test(text)
+          const currentImports = source.text.slice(start, end)
+
+          if (
+            importBlock.length !== importDecls.length ||
+            importBlock.some((statement) => !isImportDeclaration(statement)) ||
+            hasComment(source.text.slice(firstDecl.getFullStart(), start)) ||
+            hasComment(currentImports) ||
+            hasComment(trailingLine) ||
+            currentImports.includes("\r")
+          ) {
+            return empty
+          }
 
           // Group by module
           const byModule = new Map<
             string,
-            { isTypeOnly: boolean; defaultImport?: string; namedImports: Set<string> }
+            { quote: string; defaultImport?: string; namedImports: Set<string> }
           >()
           for (const decl of importDecls) {
-            if (isStringLiteral(decl.moduleSpecifier)) {
-              const mod = decl.moduleSpecifier.text
-              let existing = byModule.get(mod)
-              if (existing === undefined) {
-                existing = { isTypeOnly: false, namedImports: new Set() }
-                byModule.set(mod, existing)
-              }
-              const clause = decl.importClause
-              if (clause) {
-                if (clause.name) existing.defaultImport = clause.name.text
-                if (clause.namedBindings && isNamedImports(clause.namedBindings)) {
-                  for (const el of clause.namedBindings.elements) {
-                    const specText = el.propertyName
-                      ? `${el.propertyName.text} as ${el.name.text}`
-                      : el.name.text
-                    existing.namedImports.add(specText)
-                  }
-                }
+            const specifier = decl.moduleSpecifier
+            const clause = decl.importClause
+            if (
+              !isStringLiteral(specifier) ||
+              clause === undefined ||
+              clause.phaseModifier !== undefined
+            ) {
+              return empty
+            }
+            if (
+              (clause.name !== undefined && !isIdentifier(clause.name)) ||
+              (clause.namedBindings !== undefined && !isNamedImports(clause.namedBindings)) ||
+              (clause.name === undefined && clause.namedBindings === undefined)
+            ) {
+              return empty
+            }
+            const named =
+              clause.namedBindings !== undefined && isNamedImports(clause.namedBindings)
+                ? clause.namedBindings
+                : undefined
+            if (
+              (clause.name === undefined && (named === undefined || named.elements.length === 0)) ||
+              named?.elements.some(
+                (element) =>
+                  element.isTypeOnly ||
+                  !isIdentifier(element.name) ||
+                  (element.propertyName !== undefined && !isIdentifier(element.propertyName)),
+              ) === true
+            ) {
+              return empty
+            }
+
+            const specifierText = specifier.getText(source)
+            const quote = specifierText[0]
+            const suffix = source.text.slice(specifier.getEnd(), decl.getEnd())
+            if (
+              (quote !== '"' && quote !== "'") ||
+              specifierText !== `${quote}${specifier.text}${quote}` ||
+              !/^\s*;$/.test(suffix)
+            ) {
+              return empty
+            }
+
+            const mod = specifier.text
+            let existing = byModule.get(mod)
+            if (existing === undefined) {
+              existing = { quote, namedImports: new Set() }
+              byModule.set(mod, existing)
+            } else if (
+              existing.quote !== quote ||
+              (existing.defaultImport !== undefined &&
+                clause.name !== undefined &&
+                existing.defaultImport !== clause.name.text)
+            ) {
+              return empty
+            }
+            if (clause.name) existing.defaultImport = clause.name.text
+            if (named !== undefined) {
+              for (const element of named.elements) {
+                const specText = element.propertyName
+                  ? `${element.propertyName.text} as ${element.name.text}`
+                  : element.name.text
+                existing.namedImports.add(specText)
               }
             }
           }
@@ -315,7 +375,7 @@ export const imports = {
                   const sortedNamed = [...entry.namedImports].sort()
                   parts.push(`{ ${sortedNamed.join(", ")} }`)
                 }
-                return `import ${parts.join(", ")} from "${mod}";`
+                return `import ${parts.join(", ")} from ${entry.quote}${mod}${entry.quote};`
               })
               .join("\n")
 
@@ -325,22 +385,20 @@ export const imports = {
             renderGroup(internal),
           ].filter(Boolean)
           const formattedImports = groups.join("\n\n")
+          if (formattedImports === currentImports) return empty
 
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, source.fileName),
-                start,
-                end,
-                expectedTextHash: textHash(source.text.slice(start, end)),
-                newText: formattedImports,
-                evidenceIds: ["import:organize"],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, source.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(currentImports),
+              newText: formattedImports,
+            },
+            "import:organize",
+            { imports: importDecls.length },
+          )
         }),
       )
     }),

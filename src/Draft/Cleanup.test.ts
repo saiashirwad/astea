@@ -16,9 +16,22 @@ describe("declarative transformations API (@effect/vitest)", () => {
       () =>
         withFixture((root, app) =>
           Effect.gen(function* () {
-            const mainLayer = applicationLayerNode.pipe(
-              Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
+            const consumerPath = Path.join(root, "src/consumer.ts")
+            const consumer = yield* Effect.tryPromise(() => Fs.readFile(consumerPath, "utf8"))
+            yield* Effect.tryPromise(() =>
+              Fs.writeFile(
+                consumerPath,
+                consumer.replace(
+                  'import { other, target as renamed } from "./library.js"',
+                  [
+                    'import { target as renamed } from "./library.js";',
+                    'import { other } from "./library.js";',
+                  ].join("\n"),
+                ),
+              ),
             )
+            const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+            const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
             const organizeRecipe = Recipe.define("organize-imports-recipe", {
               version: "1.0.0",
@@ -30,10 +43,14 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 }),
             })
 
-            const plan = yield* Recipe.run(organizeRecipe, undefined)
+            const plan = yield* Recipe.run(organizeRecipe, undefined).pipe(
+              Effect.provide(workspaceLayer),
+            )
             expect(plan.edits.length).toBe(1)
 
-            const verified = yield* Verification.verify(plan, organizeRecipe, undefined)
+            const verified = yield* Verification.verify(plan, organizeRecipe, undefined).pipe(
+              Effect.provide(workspaceLayer),
+            )
             yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
 
             const consumerContent = yield* Effect.tryPromise(() =>
@@ -42,6 +59,12 @@ describe("declarative transformations API (@effect/vitest)", () => {
             expect(consumerContent).toContain(
               'import { other, target as renamed } from "./library.js";',
             )
+
+            const rerunWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+            const secondPlan = yield* Recipe.run(organizeRecipe, undefined).pipe(
+              Effect.provide(rerunWorkspaceLayer),
+            )
+            expect(secondPlan.edits).toEqual([])
           }),
         ),
       60_000,

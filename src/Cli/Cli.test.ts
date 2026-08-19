@@ -27,6 +27,7 @@ const execFileAsync = promisify(execFile)
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
 const binPath = fileURLToPath(new URL("../../bin/safemods.ts", import.meta.url))
 const wrapRecipePath = fileURLToPath(new URL("../test/wrap-target-input.ts", import.meta.url))
+const echoRecipePath = fileURLToPath(new URL("../test/echo-input.ts", import.meta.url))
 
 const withFixture = <A, E, R>(
   use: (root: string, app: ConfiguredProject) => Effect.Effect<A, E, R>,
@@ -248,12 +249,12 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           expect(textOut).toContain("Audit Report: wrap-target-input [v1.0.0]")
           expect(textOut).toContain("src/consumer.ts")
 
-          // Execute scan with --json
+          // Execute scan with the compatibility alias and --json
           const { stdout: jsonOut } = yield* Effect.tryPromise(() =>
             execFileAsync("node", [
               binPath,
-              "scan",
               wrapRecipePath,
+              "--scan",
               "--cwd",
               root,
               "--input",
@@ -283,6 +284,29 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           )
           expect(csvOut).toContain("app,src/consumer.ts")
 
+          // Execute the tool command through its compatibility alias
+          const { stdout: toolOut } = yield* Effect.tryPromise(() =>
+            execFileAsync("node", [binPath, wrapRecipePath, "--tool-schema"]),
+          )
+          const tool = JSON.parse(toolOut)
+          expect(tool.name).toBe("safemods_wrap_target_input")
+          expect(tool.schema.type).toBe("object")
+
+          // Reject extra positional arguments instead of silently ignoring them
+          const positionalStderr = yield* Effect.promise(async () => {
+            try {
+              await execFileAsync("node", [binPath, "scan", wrapRecipePath, "unexpected.ts"])
+              return ""
+            } catch (cause) {
+              return Predicate.isObject(cause) &&
+                "stderr" in cause &&
+                Predicate.isString(cause.stderr)
+                ? cause.stderr
+                : ""
+            }
+          })
+          expect(positionalStderr).toContain("unexpected.ts")
+
           // Execute scan with --fail-on-match asserting exit code 1
           const failOnMatchError = yield* Effect.tryPromise(() =>
             execFileAsync("node", [
@@ -302,44 +326,106 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
     60_000,
   )
 
-  effect("CLI executable rejects unknown flags, missing option values, and invalid formats", () =>
-    Effect.gen(function* () {
-      const execError = (cause: unknown): ExecResult => {
-        if (Predicate.isObject(cause)) {
-          // SAFETY: error object caught from child_process.execFile.
-          const record = cause as { readonly code?: unknown; readonly stderr?: unknown }
-          return {
-            code: record.code,
-            stderr: Predicate.isString(record.stderr) ? record.stderr : "",
+  effect(
+    "CLI executable rejects unknown flags, missing option values, and invalid formats",
+    () =>
+      Effect.gen(function* () {
+        const execError = (cause: unknown): ExecResult => {
+          if (Predicate.isObject(cause)) {
+            // SAFETY: error object caught from child_process.execFile.
+            const record = cause as { readonly code?: unknown; readonly stderr?: unknown }
+            return {
+              code: record.code,
+              stderr: Predicate.isString(record.stderr) ? record.stderr : "",
+            }
           }
+          return { code: undefined, stderr: "" }
         }
-        return { code: undefined, stderr: "" }
-      }
-      const runCli = (args: ReadonlyArray<string>) =>
-        Effect.promise(async () => {
-          try {
-            await execFileAsync("node", [...args])
-            return { code: 0, stderr: "" }
-          } catch (cause) {
-            return execError(cause)
-          }
-        })
-      const expectNamedFailure = (args: ReadonlyArray<string>, named: string) =>
-        Effect.gen(function* () {
-          const first = yield* runCli(args)
-          const second = yield* runCli(args)
-          expect(first.code).not.toBe(0)
-          expect(second.code).toBe(first.code)
-          expect(first.stderr).toContain(named)
-          expect(second.stderr).toBe(first.stderr)
-        })
+        const runCli = (args: ReadonlyArray<string>) =>
+          Effect.promise(async () => {
+            try {
+              await execFileAsync("node", [...args])
+              return { code: 0, stderr: "" }
+            } catch (cause) {
+              return execError(cause)
+            }
+          })
+        const expectNamedFailure = (args: ReadonlyArray<string>, named: string) =>
+          Effect.gen(function* () {
+            const first = yield* runCli(args)
+            const second = yield* runCli(args)
+            expect(first.code).not.toBe(0)
+            expect(second.code).toBe(first.code)
+            expect(first.stderr).toContain(named)
+            expect(second.stderr).toBe(first.stderr)
+          })
 
-      yield* expectNamedFailure(
-        [binPath, "scan", wrapRecipePath, "--unknown-flag"],
-        "--unknown-flag",
-      )
-      yield* expectNamedFailure([binPath, "scan", wrapRecipePath, "--input"], "--input")
-      yield* expectNamedFailure([binPath, "scan", wrapRecipePath, "--format", "bogus"], "bogus")
-    }),
+        yield* expectNamedFailure(
+          [binPath, "scan", wrapRecipePath, "--unknown-flag"],
+          "--unknown-flag",
+        )
+        yield* expectNamedFailure([binPath, "scan", wrapRecipePath, "--input"], "--input")
+        yield* expectNamedFailure([binPath, "scan", wrapRecipePath, "--format", "bogus"], "bogus")
+
+        const hyphenHelp = yield* Effect.promise(async () => {
+          const { stdout } = await execFileAsync("node", [binPath, "--help"])
+          return stdout
+        })
+        expect(hyphenHelp).toContain("--input=-1")
+
+        const inlineHyphen = yield* runCli([
+          binPath,
+          "scan",
+          wrapRecipePath,
+          "--input=-1",
+          "--format",
+          "bogus",
+        ])
+        expect(inlineHyphen.stderr).toContain("bogus")
+        expect(inlineHyphen.stderr).not.toContain("Missing value for --input")
+
+        const spacedHyphen = yield* runCli([
+          binPath,
+          "scan",
+          wrapRecipePath,
+          "--input",
+          "-1",
+          "--format",
+          "bogus",
+        ])
+        expect(spacedHyphen.stderr).toContain("bogus")
+        expect(spacedHyphen.stderr).not.toContain("Missing value for --input")
+
+        const echoInput = (inputArgs: ReadonlyArray<string>) =>
+          Effect.promise(async () => {
+            const { stdout } = await execFileAsync("node", [
+              binPath,
+              "scan",
+              echoRecipePath,
+              ...inputArgs,
+            ])
+            const line = stdout.split("\n").find((candidate) => candidate.startsWith("ECHO_INPUT:"))
+            return line === undefined ? undefined : JSON.parse(line.slice("ECHO_INPUT:".length))
+          })
+
+        expect(yield* echoInput(["--input=-1"])).toBe(-1)
+        expect(yield* echoInput(["--input", "-1"])).toBe(-1)
+        expect(yield* echoInput(["--input", "not-json"])).toBe("not-json")
+        expect(yield* echoInput(["--input", ""])).toBe("")
+        yield* expectNamedFailure(
+          [binPath, "scan", echoRecipePath, "--input="],
+          "Missing value for --input",
+        )
+
+        yield* expectNamedFailure(
+          [binPath, "scan", wrapRecipePath, "--cwd", "--apply"],
+          "Missing value for --cwd",
+        )
+        yield* expectNamedFailure(
+          [binPath, "scan", wrapRecipePath, "--input", "--apply"],
+          "Missing value for --input",
+        )
+      }),
+    60_000,
   )
 })

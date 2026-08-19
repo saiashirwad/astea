@@ -2,7 +2,11 @@
 export {
   audit,
   concat,
+  concatEffect,
+  DraftEvidenceConflict,
   empty,
+  mergeEvidence,
+  mergeEvidenceEffect,
   insertAfter,
   insertBefore,
   isDraft,

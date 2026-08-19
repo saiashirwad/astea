@@ -1005,6 +1005,82 @@ describe("declarative transformations API (@effect/vitest)", () => {
         ),
       60_000,
     )
+
+    effect(
+      "Recipe.pipe deduplicates identical helper evidence when later stages edit the same range",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const bump = Recipe.define("bump-first-arg", {
+              version: "1.0.0",
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  const calls = yield* Query.calls(project).pipe(
+                    Query.within("src/consumer.ts"),
+                    Query.withArgCount(1),
+                    Query.collect,
+                  )
+                  const call = calls.find((selection) => selection.value.arguments[0] !== undefined)
+                  expect(call).toBeDefined()
+                  if (call === undefined) return Draft.empty
+                  return yield* Draft.args.wrap(project, call.value, 0, (text) => text)
+                }),
+            })
+            const again = Recipe.define("wrap-same-arg-again", {
+              version: "1.0.0",
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  const calls = yield* Query.calls(project).pipe(
+                    Query.within("src/consumer.ts"),
+                    Query.withArgCount(1),
+                    Query.collect,
+                  )
+                  const call = calls.find((selection) => selection.value.arguments[0] !== undefined)
+                  expect(call).toBeDefined()
+                  if (call === undefined) return Draft.empty
+                  return yield* Draft.args.wrap(project, call.value, 0, (text) => text)
+                }),
+            })
+            const plan = yield* Recipe.run(Recipe.pipe(bump, again), undefined)
+            const wrapIds = plan.evidence.filter((item) => item.id.includes("argument:wrap"))
+            expect(new Set(wrapIds.map((item) => item.id)).size).toBe(wrapIds.length)
+
+            const conflictingA = Recipe.define("conflict-a", {
+              version: "1.0.0",
+              run: () =>
+                Effect.succeed({
+                  edits: [],
+                  evidence: [{ id: "shared", kind: "file-operation", facts: { kind: "create" } }],
+                  matches: 1,
+                }),
+            })
+            const conflictingB = Recipe.define("conflict-b", {
+              version: "1.0.0",
+              run: () =>
+                Effect.succeed({
+                  edits: [],
+                  evidence: [{ id: "shared", kind: "file-operation", facts: { kind: "delete" } }],
+                  matches: 1,
+                }),
+            })
+            const pipedConflict = yield* Recipe.run(
+              Recipe.pipe(conflictingA, conflictingB),
+              undefined,
+            ).pipe(Effect.flip)
+            expect(pipedConflict._tag).toBe("DraftEvidenceConflict")
+            const allConflict = yield* Recipe.run(
+              Recipe.all([conflictingA, conflictingB]),
+              undefined,
+            ).pipe(Effect.flip)
+            expect(allConflict._tag).toBe("DraftEvidenceConflict")
+          }),
+        ),
+      60_000,
+    )
   })
 
   // ---------------------------------------------------------------------------

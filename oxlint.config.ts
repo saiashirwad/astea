@@ -343,6 +343,7 @@ export default defineConfig({
           {
             patterns: [
               "../Draft/*",
+              "../Edit/*",
               "../Plan/*",
               "../Overlay/*",
               "../Preview/*",

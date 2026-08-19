@@ -42,7 +42,7 @@ export type RelationalMatcher<Out = unknown, E = never, R = never> =
   | Criterion<Node, E, R>
   | ((node: Node) => boolean)
 
-const matcherId = (matcher: RelationalMatcher<any, any, any>): string => {
+const matcherId = <Out, E, R>(matcher: RelationalMatcher<Out, E, R>): string => {
   if (Predicate.isFunction(matcher)) {
     return matcher.name || "predicate"
   }

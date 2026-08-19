@@ -17,7 +17,7 @@ import {
 import { textHash } from "../Edit/Hash.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
-import { empty, type Draft } from "./Model.ts"
+import { draftForEdit, empty, type Draft } from "./Model.ts"
 
 // // =============================================================================
 
@@ -45,21 +45,18 @@ export const interfaces = {
         const comment = options.leadingComment ? `  /** ${options.leadingComment} */\n` : ""
         const propertyText = `${comment}  ${ro}${options.name}${opt}: ${options.type};\n`
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: propertyText,
-              evidenceIds: [`interface:addProperty:${options.name}`],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: propertyText,
+          },
+          `interface:addProperty:${options.name}`,
+          { name: options.name },
+        )
       }),
     ),
 
@@ -81,21 +78,18 @@ export const interfaces = {
               const end = member.getEnd()
               const nextChar = sourceFile.text[end]
               const actualEnd = nextChar === ";" || nextChar === "," ? end + 1 : end
-              return {
-                edits: [
-                  {
-                    projectId: project.project.id,
-                    fileName: projectRelativePath(project.root, sourceFile.fileName),
-                    start,
-                    end: actualEnd,
-                    expectedTextHash: textHash(sourceFile.text.slice(start, actualEnd)),
-                    newText: "",
-                    evidenceIds: [`interface:removeProperty:${propertyName}`],
-                  },
-                ],
-                evidence: [],
-                matches: 1,
-              }
+              return draftForEdit(
+                {
+                  projectId: project.project.id,
+                  fileName: projectRelativePath(project.root, sourceFile.fileName),
+                  start,
+                  end: actualEnd,
+                  expectedTextHash: textHash(sourceFile.text.slice(start, actualEnd)),
+                  newText: "",
+                },
+                `interface:removeProperty:${propertyName}`,
+                { name: propertyName },
+              )
             }
           }
         }
@@ -141,21 +135,18 @@ export const classes = {
         const init = options.initializer ? ` = ${options.initializer}` : ""
         const propText = `  ${acc}${st}${ro}${options.name}${ty}${init};\n`
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: propText,
-              evidenceIds: [`class:addProperty:${options.name}`],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: propText,
+          },
+          `class:addProperty:${options.name}`,
+          { name: options.name },
+        )
       }),
     ),
 
@@ -176,21 +167,18 @@ export const classes = {
         const ret = options.returnType ? `: ${options.returnType}` : ""
         const methodText = `  ${acc}${st}${asy}${options.name}(${params})${ret} {\n    ${options.body}\n  }\n`
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: methodText,
-              evidenceIds: [`class:addMethod:${options.name}`],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: methodText,
+          },
+          `class:addMethod:${options.name}`,
+          { name: options.name },
+        )
       }),
     ),
 }
@@ -247,39 +235,33 @@ export const functions = {
           const closeEnd = emptyParameterListCloseEnd(fn, sourceFile)
           if (closeEnd === undefined) return empty
           const insertPos = closeEnd - 1
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, sourceFile.fileName),
-                start: insertPos,
-                end: insertPos,
-                expectedTextHash: textHash(""),
-                newText: paramStr,
-                evidenceIds: [`function:addParam:${options.name}`],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: paramStr,
+            },
+            `function:addParam:${options.name}`,
+            { name: options.name },
+          )
         } else {
           const lastParam = params[params.length - 1]!
           const insertPos = lastParam.getEnd()
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, sourceFile.fileName),
-                start: insertPos,
-                end: insertPos,
-                expectedTextHash: textHash(""),
-                newText: `, ${paramStr}`,
-                evidenceIds: [`function:addParam:${options.name}`],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: `, ${paramStr}`,
+            },
+            `function:addParam:${options.name}`,
+            { name: options.name },
+          )
         }
       }),
     ),
@@ -296,39 +278,34 @@ export const functions = {
         if (fn.type !== undefined) {
           const start = fn.type.getStart(sourceFile)
           const end = fn.type.getEnd()
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, sourceFile.fileName),
-                start,
-                end,
-                expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-                newText: returnType,
-                evidenceIds: ["function:setReturnType"],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          if (sourceFile.text.slice(start, end) === returnType) return empty
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start,
+              end,
+              expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+              newText: returnType,
+            },
+            "function:setReturnType",
+            { returnType },
+          )
         } else {
           const insertPos = emptyParameterListCloseEnd(fn, sourceFile)
           if (insertPos === undefined) return empty
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, sourceFile.fileName),
-                start: insertPos,
-                end: insertPos,
-                expectedTextHash: textHash(""),
-                newText: `: ${returnType}`,
-                evidenceIds: ["function:setReturnType"],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: `: ${returnType}`,
+            },
+            "function:setReturnType",
+            { returnType },
+          )
         }
       }),
     ),
