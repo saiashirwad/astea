@@ -23,16 +23,25 @@ export interface DiagnosticDiff {
   readonly unchanged: ReadonlyArray<DiagnosticRecord>
 }
 
+export interface AllowedError {
+  readonly code: number | string
+  readonly max?: number | undefined
+}
+
 export interface PolicyEvaluationContext {
   readonly actualMatches: number
   readonly affectedFiles: number
   readonly diagnosticDiff: DiagnosticDiff
   readonly replayEdits?: number | undefined
+  /** Codes `allowErrors()` has permitted through the default no-new-errors gate. */
+  readonly allowedErrors?: ReadonlyArray<AllowedError> | undefined
 }
 
 export interface VerificationRule {
   readonly name: string
   readonly evaluate: (context: PolicyEvaluationContext) => boolean | string
+  /** When set, this rule also exempts the listed code from no-new-errors. */
+  readonly allowedError?: AllowedError | undefined
 }
 
 export interface Policy {
@@ -99,6 +108,40 @@ export const computeDiagnosticDiff = (
   return { introduced, resolved, unchanged }
 }
 
+const diagnosticCodeKey = (code: number | string): string => String(code).replace(/^TS/, "")
+
+/** Collect `allowErrors()` exemptions recorded on compiled verification rules. */
+export const allowedErrorsFromRules = (
+  rules: ReadonlyArray<VerificationRule>,
+): ReadonlyArray<AllowedError> =>
+  rules.flatMap((rule) => (rule.allowedError === undefined ? [] : [rule.allowedError]))
+
+/**
+ * New error diagnostics that are not covered by `allowErrors()`. Each listed
+ * code may consume up to its `max` (unbounded when omitted).
+ */
+export const unpermittedIntroducedErrors = (
+  diff: DiagnosticDiff,
+  allowed: ReadonlyArray<AllowedError> = [],
+): ReadonlyArray<DiagnosticRecord> => {
+  const remaining = new Map<string, number>()
+  for (const entry of allowed) {
+    remaining.set(diagnosticCodeKey(entry.code), entry.max ?? Infinity)
+  }
+  const unpermitted: Array<DiagnosticRecord> = []
+  for (const diagnostic of diff.introduced) {
+    if (diagnostic.category !== "error") continue
+    const key = diagnosticCodeKey(diagnostic.code)
+    const left = remaining.get(key)
+    if (left === undefined || left <= 0) {
+      unpermitted.push(diagnostic)
+      continue
+    }
+    remaining.set(key, left - 1)
+  }
+  return unpermitted
+}
+
 /** Require the primary-run match count to fall within the given bounds. */
 export const matches = (bounds: { readonly min?: number; readonly max?: number }): Policy => ({
   matchCount: bounds,
@@ -117,7 +160,7 @@ export const noNewErrors = (): Policy => ({
     {
       name: "no-new-errors",
       evaluate: (ctx) => {
-        const newErrors = ctx.diagnosticDiff.introduced.filter((d) => d.category === "error")
+        const newErrors = unpermittedIntroducedErrors(ctx.diagnosticDiff, ctx.allowedErrors ?? [])
         return newErrors.length === 0
           ? true
           : `Introduced ${newErrors.length} new error diagnostic(s): ${newErrors.map((e) => `TS${e.code}: ${e.message}`).join("; ")}`
@@ -152,10 +195,11 @@ export const allowErrors = (options: {
   rules: [
     {
       name: `allow-errors:TS${options.code}`,
+      allowedError: { code: options.code, max: options.max },
       evaluate: (ctx) => {
-        const targetStr = String(options.code).replace(/^TS/, "")
+        const targetStr = diagnosticCodeKey(options.code)
         const matchingIntroduced = ctx.diagnosticDiff.introduced.filter(
-          (d) => String(d.code).replace(/^TS/, "") === targetStr,
+          (d) => diagnosticCodeKey(d.code) === targetStr,
         )
         const max = options.max ?? Infinity
         return matchingIntroduced.length <= max

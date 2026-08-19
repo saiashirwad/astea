@@ -1,5 +1,6 @@
+import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
 import { describe, effect, expect, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 import * as Draft from "../Draft/index.ts"
 import { computeDiagnosticDiff, type DiagnosticRecord } from "../Policy/index.ts"
 import * as Policy from "../Policy/index.ts"
@@ -7,9 +8,18 @@ import * as Recipe from "../Recipe/index.ts"
 import { VerificationFailure } from "../Verification/index.ts"
 import * as Verification from "../Verification/index.ts"
 import { verifyPreview, type VerificationObservation } from "../Verification/Engine.ts"
-import type { TransformationPlan } from "../Plan/index.ts"
+import { finalizePlan, type Json, type TransformationPlan } from "../Plan/index.ts"
 import { WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
+
+const didMutate = (write: () => void): boolean => {
+  try {
+    write()
+    return true
+  } catch {
+    return false
+  }
+}
 
 describe("declarative transformations API (@effect/vitest)", () => {
   describe("diagnostic diffs and verification policies", () => {
@@ -217,10 +227,11 @@ describe("declarative transformations API (@effect/vitest)", () => {
             if (inputResult._tag === "Failure")
               expect(inputResult.failure._tag).toBe("RecipeInputMismatch")
 
-            const wrongToolchain: TransformationPlan = {
-              ...plan,
+            const { schemaVersion: _, planId: __, snapshotHash: ___, ...planInput } = plan
+            const wrongToolchain = yield* finalizePlan({
+              ...planInput,
               toolchain: { ...plan.toolchain, systemVersion: "different-system" },
-            }
+            })
             const toolchainResult = yield* Verification.verify(wrongToolchain, author, input).pipe(
               Effect.result,
             )
@@ -264,8 +275,301 @@ describe("declarative transformations API (@effect/vitest)", () => {
         ),
       60_000,
     )
+
+    effect(
+      "no-new-errors fails when a plan introduces a syntax error",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const broken = "export const broken = {\n"
+            const recipe = Recipe.define("introduce-syntax-error", {
+              version: "1.0.0",
+              policies: [Policy.noNewErrors()],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/broken.ts", broken)
+                }),
+            })
+            const plan = yield* Recipe.run(recipe, undefined)
+            const result = yield* Verification.verify(plan, recipe, undefined).pipe(Effect.result)
+            expect(result._tag).toBe("Failure")
+            if (result._tag === "Failure") {
+              expect(result.failure._tag).toBe("VerificationFailure")
+              if (result.failure._tag === "VerificationFailure")
+                expect(result.failure.policy).toBe("diagnostics")
+            }
+          }),
+        ),
+      60_000,
+    )
+
+    effect(
+      "allowErrors permits a listed code through the default no-new-errors gate",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const source = `export const n: number = "string";\n`
+            const observe = Recipe.define("observe-introduced-error", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/assign.ts", source)
+                }),
+            })
+            const observedPlan = yield* Recipe.run(observe, undefined)
+            const observed = yield* Verification.verify(observedPlan, observe, undefined)
+            const introduced = observed.diagnosticDiff.introduced.filter(
+              (diagnostic) => diagnostic.category === "error",
+            )
+            expect(introduced.length).toBeGreaterThan(0)
+            const code = introduced[0]!.code
+            const introducedKeys = new Set(
+              introduced.map((diagnostic) => String(diagnostic.code).replace(/^TS/, "")),
+            )
+            let otherCode = 1
+            while (introducedKeys.has(String(otherCode))) otherCode += 1
+
+            const allowed = Recipe.define("allow-observed-error", {
+              version: "1.0.0",
+              policies: [Policy.allowErrors({ code })],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/assign.ts", source)
+                }),
+            })
+            const denied = Recipe.define("deny-other-error", {
+              version: "1.0.0",
+              policies: [Policy.allowErrors({ code: otherCode })],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/assign.ts", source)
+                }),
+            })
+
+            const allowedPlan = yield* Recipe.run(allowed, undefined)
+            const deniedPlan = yield* Recipe.run(denied, undefined)
+            const allowedResult = yield* Verification.verify(allowedPlan, allowed, undefined)
+            const deniedResult = yield* Verification.verify(deniedPlan, denied, undefined).pipe(
+              Effect.result,
+            )
+            expect(
+              allowedResult.diagnosticDiff.introduced.some(
+                (diagnostic) => diagnostic.code === code,
+              ),
+            ).toBe(true)
+            expect(deniedResult._tag).toBe("Failure")
+            if (deniedResult._tag === "Failure")
+              expect(deniedResult.failure._tag).toBe("VerificationFailure")
+          }),
+        ),
+      60_000,
+    )
   })
 
-  // ---------------------------------------------------------------------------
-  // 6. File Lifecycle Operations (Create, Delete, Move + Import Rewriting)
+  describe("issued verified plans and project identity", () => {
+    effect(
+      "rejects a structurally decoded plan whose paths are not canonical",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const recipe = Recipe.define("unvalidated-paths", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/created.ts", "export {}\n")
+                }),
+            })
+            const plan = yield* Recipe.run(recipe, undefined)
+            const unvalidated: TransformationPlan = {
+              ...plan,
+              sources: plan.sources.map((source) => ({
+                ...source,
+                fileName: `./${source.fileName}`,
+              })),
+              edits: plan.edits.map((edit) => ({ ...edit, fileName: `./${edit.fileName}` })),
+            }
+            const verified = yield* Verification.verify(unvalidated, recipe, undefined).pipe(
+              Effect.result,
+            )
+            const previewed = yield* Verification.of(unvalidated).pipe(Effect.result)
+            expect(verified._tag).toBe("Failure")
+            expect(previewed._tag).toBe("Failure")
+          }),
+        ),
+      60_000,
+    )
+
+    effect(
+      "rejects a finalized plan whose project config is not the live Workspace identity",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const recipe = Recipe.define("identity-mismatch", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/created.ts", "export {}\n")
+                }),
+            })
+            const plan = yield* Recipe.run(recipe, undefined)
+            const { schemaVersion: _, planId: __, snapshotHash: ___, ...input } = plan
+            const mismatched = yield* finalizePlan({
+              ...input,
+              projects: input.projects.map((project) => ({
+                ...project,
+                configFileName: "other.json",
+              })),
+            })
+            const verified = yield* Verification.verify(mismatched, recipe, undefined).pipe(
+              Effect.result,
+            )
+            const previewed = yield* Verification.of(mismatched).pipe(Effect.result)
+            expect(verified._tag).toBe("Failure")
+            expect(previewed._tag).toBe("Failure")
+          }),
+        ),
+      60_000,
+    )
+
+    effect(
+      "stales verify and apply when an extends parent or other recorded manifest input changes",
+      () =>
+        withFixture((root, app) =>
+          Effect.gen(function* () {
+            // Environment inputs are not reported by the TS 7 native host, so
+            // they are not invented here. Directory / missing / realpath entries
+            // are recorded only when the host actually observes them.
+            const originalConfig = yield* Effect.tryPromise(() =>
+              Fs.readFile(Path.join(root, "tsconfig.json"), "utf8"),
+            )
+            yield* Effect.tryPromise(() =>
+              Fs.writeFile(
+                Path.join(root, "tsconfig.base.json"),
+                `${JSON.stringify({ compilerOptions: { strict: true } }, null, 2)}\n`,
+              ),
+            )
+            const parsedUnknown: unknown = JSON.parse(originalConfig)
+            const parsed =
+              Predicate.isObject(parsedUnknown) && !Array.isArray(parsedUnknown)
+                ? (() => {
+                    // SAFETY: the test wrote this JSON document immediately above.
+                    return parsedUnknown as {
+                      readonly compilerOptions?: Readonly<Record<string, Json>>
+                      readonly include?: Json
+                    }
+                  })()
+                : {}
+            yield* Effect.tryPromise(() =>
+              Fs.writeFile(
+                Path.join(root, "tsconfig.json"),
+                `${JSON.stringify(
+                  {
+                    extends: "./tsconfig.base.json",
+                    compilerOptions: parsed.compilerOptions ?? {},
+                    include: parsed.include ?? ["src/**/*.ts"],
+                  },
+                  null,
+                  2,
+                )}\n`,
+              ),
+            )
+
+            const recipe = Recipe.define("manifest-stale", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/created.ts", "export {}\n")
+                }),
+            })
+            const plan = yield* Recipe.run(recipe, undefined)
+            expect(plan.sources.some((source) => source.fileName === "tsconfig.json")).toBe(true)
+            expect(plan.sources.some((source) => source.fileName === "tsconfig.base.json")).toBe(
+              true,
+            )
+            expect(
+              plan.sources.some(
+                (source) => source.kind === "directory" && source.fileName === "src",
+              ),
+            ).toBe(true)
+
+            yield* Effect.tryPromise(() =>
+              Fs.writeFile(
+                Path.join(root, "tsconfig.base.json"),
+                `${JSON.stringify({ compilerOptions: { strict: false } }, null, 2)}\n`,
+              ),
+            )
+            const verified = yield* Verification.verify(plan, recipe, undefined).pipe(Effect.result)
+            const previewed = yield* Verification.of(plan).pipe(Effect.result)
+            expect(verified._tag).toBe("Failure")
+            expect(previewed._tag).toBe("Failure")
+            if (verified._tag === "Failure") expect(verified.failure._tag).toBe("StalePlanError")
+            if (previewed._tag === "Failure") expect(previewed.failure._tag).toBe("StalePlanError")
+          }),
+        ),
+      60_000,
+    )
+
+    effect(
+      "freezes nested values on an issued verified plan and still exposes them for apply",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const recipe = Recipe.define("issued-freeze", {
+              version: "1.0.0",
+              policies: [{ diagnostics: "exact-delta" }],
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.files.create(project, "src/created.ts", "export {}\n")
+                }),
+            })
+            const plan = yield* Recipe.run(recipe, undefined)
+            const verified = yield* Verification.verify(plan, recipe, undefined)
+            const project = verified.plan.projects[0]
+            const file = verified.preview.files[0]
+            expect(project).toBeDefined()
+            expect(file).toBeDefined()
+            if (project === undefined || file === undefined) return
+            const originalConfig = project.configFileName
+            const originalFileName = file.fileName
+            expect(
+              didMutate(() => {
+                // SAFETY: the test asserts the issued capability rejects mutation.
+                (project as { configFileName: string }).configFileName = "mutated.json"
+              }),
+            ).toBe(false)
+            expect(
+              didMutate(() => {
+                // SAFETY: the test asserts nested preview state is not caller-mutable.
+                (file as { fileName: string }).fileName = "src/mutated.ts"
+              }),
+            ).toBe(false)
+            expect(project.configFileName).toBe(originalConfig)
+            expect(file.fileName).toBe(originalFileName)
+            expect(verified.plan.planId).toBe(plan.planId)
+            expect(verified.diagnosticDiff).toBeDefined()
+          }),
+        ),
+      60_000,
+    )
+  })
 })

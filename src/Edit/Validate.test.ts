@@ -29,6 +29,15 @@ describe("Edit", () => {
     }),
   )
 
+  effect("rejects NaN and non-integer offsets", () =>
+    Effect.gen(function* () {
+      const nanOffset = yield* Effect.exit(normalizeEdits([edit(Number.NaN, 2, "x")]))
+      const fractional = yield* Effect.exit(normalizeEdits([edit(1.5, 2, "x")]))
+      expect(Exit.isFailure(nanOffset)).toBe(true)
+      expect(Exit.isFailure(fractional)).toBe(true)
+    }),
+  )
+
   effect("guards expected source text", () =>
     Effect.gen(function* () {
       const guarded = makeTextEdit({

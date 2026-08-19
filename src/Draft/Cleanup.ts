@@ -12,10 +12,10 @@ export const cleanUnused = (
 ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
   Effect.gen(function* () {
     let accumulated = empty
-    const sourceNames = yield* project.sourceFileNames
+    const owned = yield* project.files
 
-    for (const absPath of sourceNames) {
-      const file = yield* project.sourceFile(absPath)
+    for (const projectFile of owned) {
+      const file = yield* project.sourceFile(projectFile.path)
       if (file === undefined) continue
 
       for (const statement of file.statements) {
@@ -26,7 +26,7 @@ export const cleanUnused = (
         ) {
           const named = statement.importClause.namedBindings
           for (const element of named.elements) {
-            const sym = yield* project.symbolAt(file.fileName, element.name.getStart(file))
+            const sym = yield* projectFile.symbolAt(element.name.getStart(file))
             if (sym !== undefined) {
               const refs = yield* Query.collect(Query.referencesTo(project, sym))
               // If only reference is the import itself

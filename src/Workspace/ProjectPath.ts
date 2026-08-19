@@ -35,6 +35,7 @@ const canonicalPath = (value: string): string | undefined => {
 /** Parse and normalize a portable project-relative path. */
 export const parseProjectRelativePath = (value: string): ProjectRelativePath | undefined => {
   const normalized = canonicalPath(value)
+  // SAFETY: canonicalPath returns only normalized project-relative paths.
   return normalized as ProjectRelativePath | undefined
 }
 
@@ -47,17 +48,50 @@ export const requireProjectRelativePath = (value: string): ProjectRelativePath =
   return parsed
 }
 
+/**
+ * Platform-aware containment: host separators and `path.relative`, without a
+ * universal lowercase compare that would merge distinct case-sensitive paths.
+ */
+const isContained = (root: string, candidate: string): boolean => {
+  const relative = Path.relative(root, candidate)
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${Path.sep}`) && !Path.isAbsolute(relative))
+  )
+}
+
+/** True when `fileName` is a descendant of `projectRoot`. Comparison preserves case. */
 export const isWithinProject = (projectRoot: string, fileName: string): boolean => {
   const root = Path.resolve(projectRoot)
   const file = Path.resolve(fileName)
-  return file.toLowerCase().startsWith(`${root.toLowerCase()}${Path.sep}`)
+  return file !== root && isContained(root, file)
 }
 
-export const projectRelativePath = (projectRoot: string, fileName: string): string => {
-  const root = Path.resolve(projectRoot)
-  const file = Path.resolve(fileName)
-  if (file.toLowerCase().startsWith(`${root.toLowerCase()}${Path.sep}`)) {
-    return file.slice(root.length + 1)
-  }
-  return Path.relative(root, file)
+export const projectRelativePath = (projectRoot: string, fileName: string): string =>
+  Path.relative(Path.resolve(projectRoot), Path.resolve(fileName))
+
+/** Resolve a project-relative path that stays inside `projectRoot`. */
+export const resolveProjectRelativeFile = (
+  projectRoot: string,
+  fileName: string,
+): string | undefined => {
+  const relative = parseProjectRelativePath(fileName)
+  if (relative === undefined) return undefined
+  const absolute = Path.resolve(projectRoot, relative)
+  return isWithinProject(projectRoot, absolute) ? absolute : undefined
+}
+
+/**
+ * Resolve a snapshot lookup path. Project-relative inputs and already-contained
+ * absolute compiler paths are accepted; `../` escape and external paths are not.
+ */
+export const resolveContainedSnapshotPath = (
+  projectRoot: string,
+  fileName: string,
+): string | undefined => {
+  const relative = resolveProjectRelativeFile(projectRoot, fileName)
+  if (relative !== undefined) return relative
+  if (!Path.isAbsolute(fileName)) return undefined
+  const absolute = Path.resolve(fileName)
+  return isWithinProject(projectRoot, absolute) ? absolute : undefined
 }

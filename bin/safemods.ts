@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { runCli } from "../src/Cli/Run.ts"
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 
 const args = process.argv.slice(2)
 
 const isErrorRecord = (
   value: unknown,
 ): value is { readonly _tag?: unknown; readonly message?: unknown } =>
-  value !== null && typeof value === "object"
+  Predicate.isObject(value)
 
 const printHelp = () => {
   console.log(`
@@ -40,6 +40,24 @@ if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
 
 const commands = new Set(["scan", "run", "tool"])
 const optionsWithValues = new Set(["--input", "--cwd", "--format"])
+const knownFlags = new Set([
+  "--preview",
+  "--verify",
+  "--apply",
+  "--json",
+  "--csv",
+  "--fail-on-match",
+  "--no-color",
+  "--help",
+  "-h",
+  "--tool-schema",
+  "--scan",
+])
+
+const failArg = (message: string): never => {
+  console.error(`Error: ${message}`)
+  process.exit(1)
+}
 
 let command: string | undefined = undefined
 let recipeArg: string | undefined = undefined
@@ -51,13 +69,18 @@ while (i < args.length) {
   const arg = args[i]
   if (arg === undefined) break
   if (optionsWithValues.has(arg)) {
-    if (i + 1 < args.length) {
-      optionsMap[arg] = args[i + 1]!
-      i += 2
-      continue
+    const value = args[i + 1]
+    if (value === undefined || value.startsWith("-")) {
+      failArg(`Missing value for ${arg}`)
     }
+    optionsMap[arg] = value
+    i += 2
+    continue
   }
   if (arg.startsWith("-")) {
+    if (!knownFlags.has(arg)) {
+      failArg(`Unknown flag ${arg}`)
+    }
     flags.add(arg)
     i++
     continue
@@ -88,10 +111,20 @@ const isVerify = flags.has("--verify") || isApply
 const noColor = flags.has("--no-color")
 const failOnMatch = flags.has("--fail-on-match")
 
+const formatOption = optionsMap["--format"]
+if (
+  formatOption !== undefined &&
+  formatOption !== "text" &&
+  formatOption !== "json" &&
+  formatOption !== "csv"
+) {
+  failArg(`Invalid format ${formatOption}`)
+}
+
 let format: "text" | "json" | "csv" = "text"
-if (optionsMap["--format"] === "json" || flags.has("--json")) {
+if (formatOption === "json" || flags.has("--json")) {
   format = "json"
-} else if (optionsMap["--format"] === "csv" || flags.has("--csv")) {
+} else if (formatOption === "csv" || flags.has("--csv")) {
   format = "csv"
 }
 
@@ -130,7 +163,7 @@ Effect.runPromise(
   if (error?._tag === "CliMatchFoundError") {
     process.exit(1)
   }
-  const msg = typeof error?.message === "string" ? error.message : String(cause)
+  const msg = Predicate.isString(error?.message) ? error.message : String(cause)
   console.error(`\n✖ ${msg}`)
   process.exit(1)
 })

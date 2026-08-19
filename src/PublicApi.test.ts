@@ -2,8 +2,8 @@ import { path as Path, nodeFsPromises as Fs } from "./platform/node.ts"
 import { fileURLToPath } from "node:url"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Layer, type Stream } from "effect"
-import type { CallExpression } from "typescript/unstable/ast"
-import { Application, Plan, Recipe, Verification, Workspace, type Query } from "./index.ts"
+import type { CallExpression, Node } from "typescript/unstable/ast"
+import { Application, Pattern, Plan, Recipe, Verification, Workspace, type Query } from "./index.ts"
 import { applicationLayerNode } from "./Node/index.ts"
 import { wrapTargetInput, type WrapTargetInput } from "./test/wrap-target-input.ts"
 import { migrateImportSource, type MigrateImportSourceInput } from "./test/migrate-import-source.ts"
@@ -40,6 +40,12 @@ void _rawPlanIsNotApplicationAuthority
 const _verifiedPlanIsApplicationAuthority = (verified: Verification.VerifiedPlan) =>
   Application.apply(verified)
 void _verifiedPlanIsApplicationAuthority
+
+const _booleanPredicate = Pattern.predicate("boolean-node", (_node: Node) => true)
+type PredicateOutput<P> = P extends Pattern.Pattern<infer _N, infer Out> ? Out : never
+export type _BooleanPredicateYieldsNode = Assert<
+  Equal<PredicateOutput<typeof _booleanPredicate>, Node>
+>
 
 // --- End-to-end pipeline ---------------------------------------------------
 

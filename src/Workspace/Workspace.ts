@@ -9,7 +9,8 @@
  */
 import { nodeFs as Fs, path as Path } from "../platform/node.ts"
 import { Context, Data, Effect, Layer, Option, Predicate, Semaphore } from "effect"
-import type { SourceFile } from "typescript/unstable/ast"
+import type { Node, SourceFile } from "typescript/unstable/ast"
+import { isIdentifier } from "typescript/unstable/ast/is"
 import {
   SymbolFlags,
   type APIOptions,
@@ -24,11 +25,24 @@ import {
   type NativeCompilerError,
   nativeRequest,
 } from "../Compiler/Service.ts"
-import { makeDependencyGraphNavigation } from "./internal/DependencyGraph.ts"
-import { isWithinProject, projectRelativePath } from "./ProjectPath.ts"
+import { dependencyGraphNavigation } from "./internal/DependencyGraph.ts"
+import {
+  attachInputObserver,
+  inputObserverOf,
+  type CompilerObservation,
+} from "./internal/ObservedInputs.ts"
+import {
+  InvalidProjectRelativePath,
+  isWithinProject,
+  projectRelativePath,
+  resolveContainedSnapshotPath,
+  resolveProjectRelativeFile,
+} from "./ProjectPath.ts"
 import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
 
 export type { NativeCompilerError }
+export type { CompilerObservation, CompilerObservationKind } from "./internal/ObservedInputs.ts"
+export { hashDirectoryListing } from "./internal/ObservedInputs.ts"
 
 const ConfiguredProjectTypeId: unique symbol = Symbol.for("@safemods/ConfiguredProject")
 
@@ -167,11 +181,11 @@ export interface ProjectSnapshot {
   /** Retrieve a validated reference to an existing file, failing fast if absent. */
   readonly file: (
     fileName: string,
-  ) => Effect.Effect<ProjectFile, FileNotFound | ProjectSnapshotError>
+  ) => Effect.Effect<ProjectFile, FileNotFound | InvalidProjectRelativePath | ProjectSnapshotError>
   /** Look up an optional validated reference to a file. */
   readonly findFile: (
     fileName: string,
-  ) => Effect.Effect<Option.Option<ProjectFile>, ProjectSnapshotError>
+  ) => Effect.Effect<Option.Option<ProjectFile>, InvalidProjectRelativePath | ProjectSnapshotError>
   /** All source files in the project as validated ProjectFile references. */
   readonly files: Effect.Effect<ReadonlyArray<ProjectFile>, ProjectSnapshotError>
   readonly semanticDiagnosticCount: Effect.Effect<number, ProjectSnapshotError>
@@ -182,8 +196,8 @@ export interface ProjectSnapshot {
   ) => Effect.Effect<NativeSymbol | undefined, ProjectSnapshotError>
   /**
    * Find the canonical symbol declared under `name` in a project-relative
-   * file, resolving through import aliases. Convenience over `symbolAt` so
-   * recipes never hand-compute declaration positions.
+   * file, resolving through import aliases and re-exports. Convenience over
+   * `symbolAt` so recipes never hand-compute declaration positions.
    */
   readonly symbolNamed: (
     name: string,
@@ -261,6 +275,8 @@ export interface WorkspaceService {
     E | NativeCompilerError | ProjectNotInSnapshot,
     Exclude<R, WorkspaceSnapshot>
   >
+  /** Compiler filesystem observations recorded for the current snapshot region. */
+  readonly compilerObservations: () => ReadonlyArray<CompilerObservation>
 }
 
 export class Workspace extends Context.Service<Workspace, WorkspaceService>()(
@@ -270,12 +286,16 @@ export class Workspace extends Context.Service<Workspace, WorkspaceService>()(
   static readonly layerWithoutDependencies = (
     definition: WorkspaceDefinition,
     options: APIOptions = {},
-  ): Layer.Layer<Workspace, DuplicateConfiguredProject, NativeCompiler> =>
-    layerWithoutDependencies(definition, options)
+  ): Layer.Layer<
+    Workspace,
+    DuplicateConfiguredProject | InvalidProjectRelativePath,
+    NativeCompiler
+  > => layerWithoutDependencies(definition, options)
   static readonly layer = (
     definition: WorkspaceDefinition,
     options: APIOptions = {},
-  ): Layer.Layer<Workspace, DuplicateConfiguredProject> => layer(definition, options)
+  ): Layer.Layer<Workspace, DuplicateConfiguredProject | InvalidProjectRelativePath> =>
+    layer(definition, options)
 }
 
 interface NativeFileChangeLists {
@@ -305,21 +325,27 @@ const toNativeChanges = (changes: WorkspaceChanges | undefined): FileChanges | u
   return result
 }
 
-const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-
 export const make = (
   definition: WorkspaceDefinition,
   apiOptions: APIOptions,
-): Effect.Effect<Workspace["Service"], DuplicateConfiguredProject, NativeCompiler> =>
+): Effect.Effect<
+  Workspace["Service"],
+  DuplicateConfiguredProject | InvalidProjectRelativePath,
+  NativeCompiler
+> =>
   Effect.gen(function* () {
     const compiler = yield* NativeCompiler
     const transitionLock = yield* Semaphore.make(1)
     const root = Path.resolve(apiOptions.cwd ?? ".")
+    const inputObserver = inputObserverOf(apiOptions.fs)
 
     const projects = Object.freeze([...definition.projects])
     const resolvedById = new Map<string, string>()
     for (const project of projects) {
-      const configFileName = Path.resolve(root, project.config)
+      const configFileName = resolveProjectRelativeFile(root, project.config)
+      if (configFileName === undefined) {
+        return yield* new InvalidProjectRelativePath({ path: project.config })
+      }
       if (resolvedById.has(project.id) || [...resolvedById.values()].includes(configFileName)) {
         return yield* new DuplicateConfiguredProject({ id: project.id, configFileName })
       }
@@ -372,10 +398,45 @@ export const make = (
 
             const projectRoot = Path.dirname(configFileName)
 
+            const requireContainedPath = (fileName: string): string | undefined =>
+              resolveContainedSnapshotPath(projectRoot, fileName)
+
+            const isOwnedSourceFile = (sf: SourceFile, observedName = sf.fileName) =>
+              Effect.gen(function* () {
+                if (!isWithinProject(projectRoot, observedName)) return false
+                const isDefault = yield* nativeRequest("isSourceFileDefaultLibrary", () =>
+                  nativeProject.program.isSourceFileDefaultLibrary(sf),
+                )
+                const isExternal = yield* nativeRequest("isSourceFileFromExternalLibrary", () =>
+                  nativeProject.program.isSourceFileFromExternalLibrary(sf),
+                )
+                return !isDefault && !isExternal
+              })
+
+            const ownedSourceFiles = Effect.gen(function* () {
+              const allFileNames = yield* nativeRequest("getSourceFileNames", () =>
+                nativeProject.program.getSourceFileNames(),
+              )
+              const owned: Array<{ relative: string; sourceFile: SourceFile }> = []
+              for (const fn of allFileNames) {
+                if (!isWithinProject(projectRoot, fn)) continue
+                const sf = yield* nativeRequest("getSourceFile", () =>
+                  nativeProject.program.getSourceFile(fn),
+                )
+                if (sf === undefined) continue
+                if (!(yield* isOwnedSourceFile(sf, fn))) continue
+                owned.push({
+                  relative: projectRelativePath(projectRoot, fn),
+                  sourceFile: sf,
+                })
+              }
+              return owned
+            })
+
             const sourceFileNames = Effect.gen(function* () {
               yield* ensureActive
-              return yield* nativeRequest("getSourceFileNames", () =>
-                nativeProject.program.getSourceFileNames(),
+              return (yield* ownedSourceFiles).map((file) =>
+                Path.resolve(projectRoot, file.relative),
               )
             })
 
@@ -383,10 +444,13 @@ export const make = (
               fileName: string,
             ) {
               yield* ensureActive
-              const absolute = Path.resolve(projectRoot, fileName)
-              return yield* nativeRequest("getSourceFile", () =>
+              const absolute = requireContainedPath(fileName)
+              if (absolute === undefined) return undefined
+              const sf = yield* nativeRequest("getSourceFile", () =>
                 nativeProject.program.getSourceFile(absolute),
               )
+              if (sf === undefined || !(yield* isOwnedSourceFile(sf, absolute))) return undefined
+              return sf
             })
 
             const sourceText = Effect.fn("ProjectSnapshot.sourceText")(function* (
@@ -413,11 +477,10 @@ export const make = (
               position: number,
             ) {
               yield* ensureActive
+              const absolute = requireContainedPath(fileName)
+              if (absolute === undefined) return undefined
               return yield* nativeRequest("getSymbolAtPosition", () =>
-                nativeProject.checker.getSymbolAtPosition(
-                  Path.resolve(projectRoot, fileName),
-                  position,
-                ),
+                nativeProject.checker.getSymbolAtPosition(absolute, position),
               )
             })
 
@@ -433,26 +496,34 @@ export const make = (
               options: { readonly within: string },
             ) {
               yield* ensureActive
-              const absolute = Path.resolve(projectRoot, options.within)
+              const absolute = requireContainedPath(options.within)
+              if (absolute === undefined) {
+                return yield* new SymbolNotFound({ name, fileName: options.within })
+              }
               const sourceFile = yield* nativeRequest("getSourceFile", () =>
                 nativeProject.program.getSourceFile(absolute),
               )
-              if (sourceFile === undefined) {
+              if (sourceFile === undefined || !(yield* isOwnedSourceFile(sourceFile, absolute))) {
                 return yield* new SymbolNotFound({ name, fileName: options.within })
               }
-              const positions = [
-                ...sourceFile.text.matchAll(new RegExp(`\\b${escapeRegExp(name)}\\b`, "g")),
-              ].map((match) => match.index)
-              if (positions.length === 0) {
+              const identifiers: Array<Node> = []
+              const visit = (node: Node): void => {
+                if (isIdentifier(node) && node.text === name) identifiers.push(node)
+                node.forEachChild((child) => {
+                  visit(child)
+                  return undefined
+                })
+              }
+              visit(sourceFile)
+              if (identifiers.length === 0) {
                 return yield* new SymbolNotFound({ name, fileName: options.within })
               }
-              const symbols = yield* nativeRequest("getSymbolsAtPositions", () =>
-                nativeProject.checker.getSymbolAtPosition(absolute, positions),
+              const symbols = yield* nativeRequest("getSymbolsAtLocations", () =>
+                nativeProject.checker.getSymbolAtLocation(identifiers),
               )
               for (const symbol of symbols) {
                 if (symbol === undefined) continue
-                const canonical = yield* canonicalSymbol(symbol)
-                if (canonical.name === name) return canonical
+                return yield* canonicalSymbol(symbol)
               }
               return yield* new SymbolNotFound({ name, fileName: options.within })
             })
@@ -472,10 +543,10 @@ export const make = (
               position: number,
             ) {
               yield* ensureActive
+              const absolute = requireContainedPath(fileName)
+              if (absolute === undefined) return undefined
               const types = yield* nativeRequest("getTypeAtPosition", () =>
-                nativeProject.checker.getTypeAtPosition(Path.resolve(projectRoot, fileName), [
-                  position,
-                ]),
+                nativeProject.checker.getTypeAtPosition(absolute, [position]),
               )
               return types[0]
             })
@@ -529,7 +600,7 @@ export const make = (
                 Effect.suspend(() => use(nativeProject)),
               )
 
-            const navigateDependencyGraph = makeDependencyGraphNavigation({
+            const navigateDependencyGraph = dependencyGraphNavigation({
               nativeProject,
               projectRoot,
               ensureActive,
@@ -568,15 +639,14 @@ export const make = (
 
             const file = Effect.fn("ProjectSnapshot.file")(function* (fileName: string) {
               yield* ensureActive
-              const rel = projectRelativePath(projectRoot, Path.resolve(projectRoot, fileName))
-              const absolute = Path.resolve(projectRoot, rel)
-              const sf = yield* nativeRequest("getSourceFile", () =>
-                nativeProject.program.getSourceFile(absolute),
-              )
-              if (sf === undefined) {
-                return yield* new FileNotFound({ projectId: configured.id, fileName: rel })
+              if (resolveProjectRelativeFile(projectRoot, fileName) === undefined) {
+                return yield* new InvalidProjectRelativePath({ path: fileName })
               }
-              return makeProjectFile(rel)
+              const sf = yield* sourceFile(fileName)
+              if (sf === undefined) {
+                return yield* new FileNotFound({ projectId: configured.id, fileName })
+              }
+              return makeProjectFile(projectRelativePath(projectRoot, sf.fileName))
             })
 
             const findFile = Effect.fn("ProjectSnapshot.findFile")(function* (fileName: string) {
@@ -588,26 +658,7 @@ export const make = (
 
             const files: ProjectSnapshot["files"] = Effect.gen(function* () {
               yield* ensureActive
-              const allFileNames = yield* nativeRequest("getSourceFileNames", () =>
-                nativeProject.program.getSourceFileNames(),
-              )
-              const projectFileHandles: Array<ProjectFile> = []
-              for (const fn of allFileNames) {
-                const sf = yield* nativeRequest("getSourceFile", () =>
-                  nativeProject.program.getSourceFile(fn),
-                )
-                if (sf === undefined) continue
-                const isDefault = yield* nativeRequest("isSourceFileDefaultLibrary", () =>
-                  nativeProject.program.isSourceFileDefaultLibrary(sf),
-                )
-                const isExternal = yield* nativeRequest("isSourceFileFromExternalLibrary", () =>
-                  nativeProject.program.isSourceFileFromExternalLibrary(sf),
-                )
-                if (!isDefault && !isExternal && isWithinProject(projectRoot, fn)) {
-                  projectFileHandles.push(makeProjectFile(projectRelativePath(projectRoot, fn)))
-                }
-              }
-              return projectFileHandles
+              return (yield* ownedSourceFiles).map((owned) => makeProjectFile(owned.relative))
             })
 
             const snapshotView: ProjectSnapshot = {
@@ -654,6 +705,7 @@ export const make = (
     const withSnapshot: WorkspaceService["withSnapshot"] = (transition, program) =>
       transitionLock.withPermit(
         Effect.suspend(() => {
+          inputObserver?.reset()
           const openProjects = opened ? undefined : [...resolvedById.values()]
           return openRegion(
             compiler,
@@ -735,7 +787,7 @@ export const make = (
             for (const [plannedFileName, content] of overlay.files) {
               if (matchesVirtualPath(fileName, plannedFileName)) return content
             }
-            return undefined
+            return apiOptions.fs?.readFile?.(fileName)
           },
           fileExists: (fileName) => {
             for (const plannedFileName of deleted) {
@@ -745,7 +797,7 @@ export const make = (
             for (const plannedFileName of overlay.files.keys()) {
               if (matchesVirtualPath(fileName, plannedFileName)) return true
             }
-            return undefined
+            return apiOptions.fs?.fileExists?.(fileName)
           },
         },
       }
@@ -754,11 +806,14 @@ export const make = (
         const changed = [...overlay.files.keys()].filter(
           (path) => !created.has(path) && !deleted.has(path),
         )
-        const fileChanges = {
-          ...(changed.length > 0 ? { changed } : {}),
-          ...(created.size > 0 ? { created: [...created] } : {}),
-          ...(deleted.size > 0 ? { deleted: [...deleted] } : {}),
-        }
+        const fileChanges: {
+          changed?: ReadonlyArray<string>
+          created?: ReadonlyArray<string>
+          deleted?: ReadonlyArray<string>
+        } = {}
+        if (changed.length > 0) fileChanges.changed = changed
+        if (created.size > 0) fileChanges.created = [...created]
+        if (deleted.size > 0) fileChanges.deleted = [...deleted]
         const transition = Object.keys(fileChanges).length > 0 ? { changes: fileChanges } : {}
         return yield* openRegion(
           isolatedCompiler,
@@ -770,17 +825,30 @@ export const make = (
       }).pipe(Effect.provide(nativeCompilerLayer(overlayOptions)))
     }
 
-    return Workspace.of({ definition, root, withSnapshot, withIsolatedSnapshot })
+    return Workspace.of({
+      definition,
+      root,
+      withSnapshot,
+      withIsolatedSnapshot,
+      compilerObservations: () => inputObserver?.snapshot() ?? [],
+    })
   })
 
 export const layerWithoutDependencies = (
   definition: WorkspaceDefinition,
   options: APIOptions = {},
-): Layer.Layer<Workspace, DuplicateConfiguredProject, NativeCompiler> =>
-  Layer.effect(Workspace, make(definition, options))
+): Layer.Layer<
+  Workspace,
+  DuplicateConfiguredProject | InvalidProjectRelativePath,
+  NativeCompiler
+> => Layer.effect(Workspace, make(definition, options))
 
 export const layer = (
   definition: WorkspaceDefinition,
   options: APIOptions = {},
-): Layer.Layer<Workspace, DuplicateConfiguredProject> =>
-  layerWithoutDependencies(definition, options).pipe(Layer.provide(nativeCompilerLayer(options)))
+): Layer.Layer<Workspace, DuplicateConfiguredProject | InvalidProjectRelativePath> => {
+  const observed = attachInputObserver(options)
+  return layerWithoutDependencies(definition, observed).pipe(
+    Layer.provide(nativeCompilerLayer(observed)),
+  )
+}

@@ -8,9 +8,9 @@
  * policies, and finalizes the durable Transformation Plan. Recipes can never
  * forge snapshot evidence or return partial plans.
  */
-import { path as Path, nodeFsPromises as Fs } from "../platform/node.ts"
+import { path as Path, nodeFs as NodeFs, nodeFsPromises as Fs } from "../platform/node.ts"
 import { createHash } from "node:crypto"
-import { Data, Effect, Schema } from "effect"
+import { Data, Effect, Predicate, Schema } from "effect"
 import { SYSTEM_VERSION } from "../generated/version.ts"
 import {
   applyFileEdits,
@@ -29,7 +29,11 @@ import {
   type PlanPolicies,
   type TransformationPlan,
 } from "../Plan/index.ts"
-import { isWithinProject, projectRelativePath } from "../Workspace/ProjectPath.ts"
+import {
+  isWithinProject,
+  parseProjectRelativePath,
+  projectRelativePath,
+} from "../Workspace/ProjectPath.ts"
 import * as Draft from "../Draft/index.ts"
 import type { Draft as DraftModel } from "../Draft/index.ts"
 import type { Policy as PolicyModel, VerificationRule } from "../Policy/index.ts"
@@ -39,6 +43,7 @@ import type { VirtualFsError } from "../VirtualFs/index.ts"
 import {
   Workspace,
   WorkspaceSnapshot,
+  hashDirectoryListing,
   type ProjectNotInSnapshot,
   type ProjectSnapshotError,
   type SnapshotExpired,
@@ -179,24 +184,35 @@ const composedIdentity = (
     .update(`${name}@${version}:${recipes.map((recipe) => recipe.implementationHash).join(",")}`)
     .digest("hex")
 
+const tighterMin = (current: number | undefined, next: number | undefined): number | undefined =>
+  current === undefined ? next : next === undefined ? current : Math.max(current, next)
+
+const tighterMax = (current: number | undefined, next: number | undefined): number | undefined =>
+  current === undefined ? next : next === undefined ? current : Math.min(current, next)
+
 const compileChildren = (recipes: ReadonlyArray<Recipe<any, any, any>>) => ({
-  // Durable fields are merged independently from runtime rules.  Compiled
-  // policies contain system defaults, so feeding them back through
-  // `Policy.all` would let a child with no match bound erase another child's
-  // bound.  Merge each optional dimension by its meaningful values instead.
+  // Intersection, not last-write-wins: a later looser child must not drop an
+  // earlier bound, `no-new-errors`, or required idempotence.
   policy: (() => {
-    const matchCount: { min?: number; max?: number } = {}
+    let min: number | undefined
+    let max: number | undefined
     let maxAffectedFiles: number | undefined
-    let diagnostics: PlanPolicies["diagnostics"] = "no-new-errors"
     let idempotence: PlanPolicies["idempotence"] = "not-promised"
     for (const recipe of recipes) {
       const policy = recipe.policies
-      if (policy.matchCount.min !== undefined) matchCount.min = policy.matchCount.min
-      if (policy.matchCount.max !== undefined) matchCount.max = policy.matchCount.max
-      if (policy.maxAffectedFiles !== undefined) maxAffectedFiles = policy.maxAffectedFiles
-      if (policy.diagnostics === "exact-delta") diagnostics = "exact-delta"
+      min = tighterMin(min, policy.matchCount.min)
+      max = tighterMax(max, policy.matchCount.max)
+      maxAffectedFiles = tighterMax(maxAffectedFiles, policy.maxAffectedFiles)
       if (policy.idempotence === "required") idempotence = "required"
     }
+    const diagnostics: PlanPolicies["diagnostics"] =
+      recipes.length === 0 ||
+      recipes.some((recipe) => recipe.policies.diagnostics === "no-new-errors")
+        ? "no-new-errors"
+        : "exact-delta"
+    const matchCount: { min?: number; max?: number } = {}
+    if (min !== undefined) matchCount.min = min
+    if (max !== undefined) matchCount.max = max
     return maxAffectedFiles === undefined
       ? { matchCount, diagnostics, idempotence }
       : { matchCount, maxAffectedFiles, diagnostics, idempotence }
@@ -256,8 +272,13 @@ const composeDrafts = (
     const accumulatedChanged =
       accumulated.edits.length > 0 || (accumulated.fileOperations?.length ?? 0) > 0
     const nextChanged = next.edits.length > 0 || (next.fileOperations?.length ?? 0) > 0
-    if (!accumulatedChanged) return next
-    if (!nextChanged) return accumulated
+    const retained = {
+      evidence: [...accumulated.evidence, ...next.evidence],
+      matches: accumulated.matches + next.matches,
+    }
+    // A no-edit stage still contributes evidence and match measurements.
+    if (!accumulatedChanged) return { ...next, ...retained }
+    if (!nextChanged) return { ...accumulated, ...retained }
 
     const accumulatedByFile = Map.groupBy(accumulated.edits, (e) => `${e.projectId}\0${e.fileName}`)
     const nextByFile = Map.groupBy(next.edits, (e) => `${e.projectId}\0${e.fileName}`)
@@ -399,11 +420,11 @@ const composeDrafts = (
               ? { ...operation, initialHash: textHash(original) }
               : {
                   ...operation,
-                  ...(normalized.kind === "move" && normalized.content !== undefined
-                    ? { content: normalized.content }
-                    : {}),
                   initialHash: textHash(original),
                 }
+              if (normalized.kind === "move" && normalized.content !== undefined) {
+                normalized = { ...normalized, content: normalized.content }
+              }
         }
       }
       // Edits to a deleted/moved source cannot survive the operation.  A move
@@ -654,10 +675,110 @@ const readText = (fileName: string): Effect.Effect<string, NativeCompilerError> 
     catch: (cause) => new NativeCompilerError({ operation: "read workspace input", cause }),
   })
 
+const observationRelativePath = (projectRoot: string, absolute: string): string | undefined => {
+  const direct = parseProjectRelativePath(projectRelativePath(projectRoot, absolute))
+  if (direct !== undefined) return direct
+  try {
+    const realRoot = NodeFs.realpathSync(projectRoot)
+    let realAbsolute = absolute
+    try {
+      realAbsolute = NodeFs.realpathSync(absolute)
+    } catch {
+      if (realAbsolute.startsWith(`${realRoot}${Path.sep}`) || realAbsolute === realRoot) {
+        return parseProjectRelativePath(projectRelativePath(realRoot, realAbsolute))
+      }
+    }
+    if (realAbsolute === realRoot || realAbsolute.startsWith(`${realRoot}${Path.sep}`)) {
+      return parseProjectRelativePath(projectRelativePath(realRoot, realAbsolute))
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+const parseExtendsSpecifiers = (text: string): ReadonlyArray<string> => {
+  try {
+    // SAFETY: JSON.parse returns the JSON configuration document read above.
+    const parsed = JSON.parse(text) as Json
+    if (!Predicate.isObject(parsed) || Array.isArray(parsed)) return []
+    const value = parsed.extends
+    if (Predicate.isString(value)) return [value]
+    if (Array.isArray(value)) return value.filter(Predicate.isString)
+    return []
+  } catch {
+    return []
+  }
+}
+
+const resolveExtendsPath = (fromDir: string, specifier: string): string | undefined => {
+  if (!(specifier.startsWith("./") || specifier.startsWith("../"))) return undefined
+  const resolved = Path.resolve(fromDir, specifier)
+  if (NodeFs.existsSync(resolved)) return resolved
+  if (!resolved.endsWith(".json") && NodeFs.existsSync(`${resolved}.json`))
+    return `${resolved}.json`
+  return resolved
+}
+
+const collectExtendsParents = (configFileName: string): Array<string> => {
+  const parents: Array<string> = []
+  const seen = new Set<string>([configFileName])
+  const queue = [configFileName]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    let text: string
+    try {
+      text = NodeFs.readFileSync(current, "utf8")
+    } catch {
+      continue
+    }
+    for (const specifier of parseExtendsSpecifiers(text)) {
+      const next = resolveExtendsPath(Path.dirname(current), specifier)
+      if (next === undefined || seen.has(next)) continue
+      seen.add(next)
+      parents.push(next)
+      queue.push(next)
+    }
+  }
+  return parents
+}
+
+const fingerprintKey = (source: SourceFingerprint): string =>
+  `${source.projectId}\0${source.kind ?? "file"}\0${source.fileName}`
+
+const addFingerprint = (
+  sources: Map<string, SourceFingerprint>,
+  source: SourceFingerprint,
+): void => {
+  const relative = parseProjectRelativePath(source.fileName)
+  if (relative === undefined) return
+  const next = { ...source, fileName: relative }
+  sources.set(fingerprintKey(next), next)
+}
+
+const resolvedProjectRelative = (projectRoot: string, absolute: string): string | undefined => {
+  try {
+    return observationRelativePath(projectRoot, NodeFs.realpathSync(absolute))
+  } catch {
+    return undefined
+  }
+}
+
+const directoryListingHash = (directory: string): string | undefined => {
+  try {
+    return hashDirectoryListing(NodeFs.readdirSync(directory))
+  } catch {
+    return undefined
+  }
+}
+
 /**
- * Fingerprint every input the engine can observe for each configured
- * project: project-owned source files plus the configuration file. This is
- * the candidate-pass stand-in for the complete Snapshot Input Manifest.
+ * Record the Snapshot Input Manifest from a deterministic walk of compiler
+ * inputs the snapshot can revalidate: owned sources, config, `extends`
+ * parents, containing-directory listings, and project-relative realpaths.
+ * Per-open missing-path probes are not durable — the TS 7 host does not
+ * report a stable probe set across snapshot reopen. Environment inputs are
+ * not reported by the native host at all.
  */
 const fingerprintWorkspace = (
   workspaceRoot: string,
@@ -667,7 +788,7 @@ const fingerprintWorkspace = (
   NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired
 > =>
   Effect.gen(function* () {
-    const sources: Array<SourceFingerprint> = []
+    const sources = new Map<string, SourceFingerprint>()
     for (const configured of snapshot.projects) {
       const project = yield* snapshot.project(configured)
       const owned = (yield* project.sourceFileNames).filter((fileName) =>
@@ -675,16 +796,56 @@ const fingerprintWorkspace = (
       )
       const files = [...new Set(owned)].sort()
       const configFileName = Path.resolve(workspaceRoot, configured.config)
-      for (const absolute of [configFileName, ...files]) {
-        const content = yield* readText(absolute)
-        sources.push({
+      const contentFiles = [configFileName, ...files, ...collectExtendsParents(configFileName)]
+      const directories = new Set<string>()
+      for (const absolute of contentFiles) {
+        const relative = observationRelativePath(project.root, absolute)
+        if (relative === undefined) continue
+        const content = yield* readText(absolute).pipe(Effect.orElseSucceed(() => undefined))
+        if (content === undefined) {
+          addFingerprint(sources, {
+            projectId: configured.id,
+            fileName: relative,
+            hash: "",
+            kind: "missing",
+          })
+        } else {
+          addFingerprint(sources, {
+            projectId: configured.id,
+            fileName: relative,
+            hash: textHash(content),
+          })
+          const dir = Path.dirname(absolute)
+          if (observationRelativePath(project.root, dir) !== undefined) directories.add(dir)
+          const resolvedRelative = resolvedProjectRelative(project.root, absolute)
+          if (resolvedRelative !== undefined && resolvedRelative !== relative) {
+            addFingerprint(sources, {
+              projectId: configured.id,
+              fileName: relative,
+              hash: textHash(resolvedRelative),
+              kind: "realpath",
+            })
+          }
+        }
+      }
+      for (const directory of [...directories].sort()) {
+        const relative = observationRelativePath(project.root, directory)
+        if (relative === undefined) continue
+        const listing = directoryListingHash(directory)
+        addFingerprint(sources, {
           projectId: configured.id,
-          fileName: projectRelativePath(project.root, absolute),
-          hash: textHash(content),
+          fileName: relative,
+          hash: listing ?? "",
+          kind: listing === undefined ? "missing" : "directory",
         })
       }
     }
-    return sources
+    return [...sources.values()].sort(
+      (left, right) =>
+        left.projectId.localeCompare(right.projectId) ||
+        left.fileName.localeCompare(right.fileName) ||
+        (left.kind ?? "file").localeCompare(right.kind ?? "file"),
+    )
   })
 
 /**
@@ -719,15 +880,15 @@ export const run = <Input, E, R>(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )
       validatedInput = decoded
+      // SAFETY: recipe schemas encode to the JSON representation stored in plans.
       const encode = Schema.encodeUnknownEffect(schema) as (
         value: Input,
-      ) => Effect.Effect<unknown, Schema.SchemaError>
+      ) => Effect.Effect<Json, Schema.SchemaError>
       const encoded = yield* encode(decoded).pipe(
         Effect.mapError((cause) => new RecipeInputError({ recipe: recipe.name, cause })),
       )
-      // Schema encodings are the durable input representation.  The schema
-      // boundary guarantees the result is JSON-compatible for recipe options.
-      encodedOptions = encoded as Json
+      // SAFETY: the schema boundary guarantees the result is JSON-compatible.
+      encodedOptions = encoded
     }
 
     const workspace = yield* Workspace

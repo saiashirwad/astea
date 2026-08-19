@@ -910,6 +910,100 @@ describe("declarative transformations API (@effect/vitest)", () => {
         }
       }),
     )
+
+    effect("Recipe.pipe, all, and branch keep the stricter child policy", () =>
+      Effect.sync(() => {
+        const stricter = Recipe.define("stricter-policy", {
+          version: "1.0.0",
+          policies: [
+            Policy.atMostFiles(2),
+            Policy.matches({ min: 3, max: 4 }),
+            Policy.noNewErrors(),
+            Policy.idempotent(),
+          ],
+          run: () => Effect.succeed(Draft.empty),
+        })
+        const looser = Recipe.define("looser-policy", {
+          version: "1.0.0",
+          policies: [
+            Policy.atMostFiles(10),
+            Policy.matches({ min: 1, max: 20 }),
+            { diagnostics: "exact-delta" },
+          ],
+          run: () => Effect.succeed(Draft.empty),
+        })
+
+        const composed = [
+          Recipe.pipe(stricter, looser),
+          Recipe.pipe(looser, stricter),
+          Recipe.all([stricter, looser]),
+          Recipe.branch(() => true, stricter, looser),
+        ]
+        for (const recipe of composed) {
+          expect(recipe.policies.maxAffectedFiles).toBe(stricter.policies.maxAffectedFiles)
+          expect(recipe.policies.matchCount.min).toBe(stricter.policies.matchCount.min)
+          expect(recipe.policies.matchCount.max).toBe(stricter.policies.matchCount.max)
+          expect(recipe.policies.diagnostics).toBe(stricter.policies.diagnostics)
+          expect(recipe.policies.idempotence).toBe(stricter.policies.idempotence)
+        }
+      }),
+    )
+
+    effect(
+      "Recipe.pipe keeps earlier and later evidence when a later stage makes no edits",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const editStage = Recipe.define("pipe-edit-stage", {
+              version: "1.0.0",
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  return yield* Draft.imports.addNamed(project, "src/consumer.ts", {
+                    module: "./library.js",
+                    name: "TargetInput",
+                  })
+                }),
+            })
+            const auditStage = Recipe.define("pipe-audit-stage", {
+              version: "1.0.0",
+              run: () =>
+                Effect.gen(function* () {
+                  const snapshot = yield* WorkspaceSnapshot
+                  const project = yield* snapshot.project(app)
+                  const libraryFile = yield* project.file("src/library.ts")
+                  const decls = yield* Query.match(
+                    libraryFile,
+                    Pattern.functionDeclaration({ exported: true }),
+                  ).pipe(Query.collect)
+                  return Draft.audit(decls)
+                }),
+            })
+
+            const piped = Recipe.pipe(editStage, auditStage)
+            const editPlan = yield* Recipe.run(editStage, undefined)
+            const auditPlan = yield* Recipe.run(auditStage, undefined)
+            const pipedPlan = yield* Recipe.run(piped, undefined)
+
+            expect(auditPlan.edits).toHaveLength(0)
+            expect(auditPlan.evidence.length).toBeGreaterThan(0)
+            expect(editPlan.edits.length).toBeGreaterThan(0)
+            expect(pipedPlan.edits.length).toBe(editPlan.edits.length)
+            expect(pipedPlan.measurements?.matches).toBe(
+              (editPlan.measurements?.matches ?? 0) + (auditPlan.measurements?.matches ?? 0),
+            )
+            const pipedEvidenceIds = new Set(pipedPlan.evidence.map((item) => item.id))
+            for (const item of editPlan.evidence) {
+              expect(pipedEvidenceIds.has(item.id)).toBe(true)
+            }
+            for (const item of auditPlan.evidence) {
+              expect(pipedEvidenceIds.has(item.id)).toBe(true)
+            }
+          }),
+        ),
+      60_000,
+    )
   })
 
   // ---------------------------------------------------------------------------

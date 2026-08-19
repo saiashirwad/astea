@@ -117,6 +117,29 @@ describe("declarative transformations API (@effect/vitest)", () => {
         ),
       60_000,
     )
+
+    effect(
+      "keeps a /g regex name match stable across two calls",
+      () =>
+        withFixture((_, app) =>
+          Effect.gen(function* () {
+            const workspace = yield* Workspace
+            yield* workspace.withSnapshot(
+              {},
+              Effect.gen(function* () {
+                const snapshot = yield* WorkspaceSnapshot
+                const project = yield* snapshot.project(app)
+                const pattern = Pattern.identifier({ name: /^target$/g })
+                const first = yield* Query.match(project, pattern).pipe(Query.collect)
+                const second = yield* Query.match(project, pattern).pipe(Query.collect)
+                expect(first.length).toBeGreaterThan(0)
+                expect(second.length).toBe(first.length)
+              }),
+            )
+          }),
+        ),
+      60_000,
+    )
   })
 
   // ---------------------------------------------------------------------------

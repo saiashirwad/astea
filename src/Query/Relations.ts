@@ -1,5 +1,5 @@
 /** AST ancestry, containment, and sibling relations. */
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 import { SyntaxKind, type Node } from "typescript/unstable/ast"
 import {
   isArrowFunction,
@@ -43,7 +43,7 @@ export type RelationalMatcher<Out = unknown, E = never, R = never> =
   | ((node: Node) => boolean)
 
 const matcherId = (matcher: RelationalMatcher<any, any, any>): string => {
-  if (typeof matcher === "function") {
+  if (Predicate.isFunction(matcher)) {
     return matcher.name || "predicate"
   }
   if (matcher.mode === "node") {
@@ -65,7 +65,7 @@ const evaluateMatcher = <Out, E, R>(
   E | ProjectSnapshotError,
   R
 > => {
-  if (typeof matcher === "function") {
+  if (Predicate.isFunction(matcher)) {
     const matched = matcher(node)
     return Effect.succeed(
       matched

@@ -86,6 +86,7 @@ export interface JsonObject {
 }
 
 export type JsonSchemaDoc = JsonObject
+type SchemaDocument = ReturnType<typeof Schema.toJsonSchemaDocument>
 
 export interface AgentTool<R = never> {
   readonly name: string
@@ -105,6 +106,35 @@ export class ToolExecutionError extends Data.TaggedError("ToolExecutionError")<{
 
 const emptyObjectSchema: JsonSchemaDoc = { type: "object", properties: {} }
 
+const asJsonObject = (value: JsonValue | SchemaDocument | undefined): JsonObject | undefined => {
+  if (!Predicate.isObject(value) || Array.isArray(value)) return undefined
+  // SAFETY: JsonValue object members are JsonValue by construction.
+  return value as JsonObject
+}
+
+/** LLM tool protocols expect an object `inputSchema` with `type` and `properties`. */
+const protocolInputSchema = (generated: SchemaDocument): JsonSchemaDoc => {
+  const document = asJsonObject(generated)
+  const schemaObject =
+    document !== undefined && "schema" in document ? asJsonObject(document.schema) : document
+  const schema: Record<string, JsonValue> = {}
+  if (schemaObject !== undefined) Object.assign(schema, schemaObject)
+  const definitions =
+    document !== undefined && "definitions" in document
+      ? asJsonObject(document.definitions)
+      : undefined
+  if (
+    definitions !== undefined &&
+    Object.keys(definitions).length > 0 &&
+    schema.$defs === undefined
+  ) {
+    schema.$defs = definitions
+  }
+  if (schema.type !== "object") schema.type = "object"
+  if (asJsonObject(schema.properties) === undefined) schema.properties = {}
+  return schema
+}
+
 /** Convert a recipe into a structured Agent Tool. */
 export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
   recipe: RecipeModel<Input, E, R>,
@@ -112,11 +142,7 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
 ): AgentTool<Exclude<R, WorkspaceSnapshot>> => {
   let jsonSchema: JsonSchemaDoc = emptyObjectSchema
   if (recipe.schema !== undefined) {
-    // SAFETY: JSONSchema generator yields a JSON-object document for object schemas
-    const generated = Schema.toJsonSchemaDocument(recipe.schema)
-    const jsonDocument: unknown = generated
-    // SAFETY: draft generator returns a JSON object document.
-    jsonSchema = jsonDocument as JsonSchemaDoc
+    jsonSchema = protocolInputSchema(Schema.toJsonSchemaDocument(recipe.schema))
   }
 
   return {
@@ -184,20 +210,24 @@ const decodeToolInput = <Input, E, R>(
   )
 }
 
-const toToolPolicyResult = (result: PolicyResult): ToolPolicyResult => ({
-  name: result.name,
-  passed: result.passed,
-  ...(result.detail === undefined ? {} : { detail: result.detail }),
-})
+const toToolPolicyResult = (result: PolicyResult): ToolPolicyResult =>
+  result.detail === undefined
+    ? { name: result.name, passed: result.passed }
+    : { name: result.name, passed: result.passed, detail: result.detail }
 
-const toToolDiagnostic = (diagnostic: DiagnosticRecord): ToolDiagnostic => ({
-  code: diagnostic.code,
-  message: diagnostic.message,
-  category: diagnostic.category,
-  ...(diagnostic.fileName === undefined ? {} : { fileName: diagnostic.fileName }),
-  ...(diagnostic.start === undefined ? {} : { start: diagnostic.start }),
-  ...(diagnostic.length === undefined ? {} : { length: diagnostic.length }),
-})
+const toToolDiagnostic = (diagnostic: DiagnosticRecord): ToolDiagnostic => {
+  const base = {
+    code: diagnostic.code,
+    message: diagnostic.message,
+    category: diagnostic.category,
+  }
+  const withFileName =
+    diagnostic.fileName === undefined ? base : { ...base, fileName: diagnostic.fileName }
+  const withStart = diagnostic.start === undefined ? withFileName : { ...withFileName, start: diagnostic.start }
+  return diagnostic.length === undefined
+    ? withStart
+    : { ...withStart, length: diagnostic.length }
+}
 
 const toDiagnosticReport = (diff: DiagnosticDiff): ToolDiagnosticReport => ({
   introduced: diff.introduced.map(toToolDiagnostic),
@@ -216,7 +246,7 @@ const flattenSchemaIssue = (
       return flattenSchemaIssue(
         issue.issue,
         prefix.concat(
-          issue.path.map((segment) => (typeof segment === "number" ? segment : String(segment))),
+          issue.path.map((segment) => (Predicate.isNumber(segment) ? segment : String(segment))),
         ),
       )
     case "Composite":
@@ -246,9 +276,6 @@ const schemaDetails = (cause: Schema.SchemaError): ToolExecutionErrorDetails => 
   issues: flattenSchemaIssue(cause.issue),
 })
 
-const nestedCause = (cause: unknown): unknown =>
-  Predicate.isObject(cause) && "cause" in cause ? cause.cause : undefined
-
 const detailsForCause = (cause: unknown): ToolExecutionErrorDetails => {
   if (cause instanceof VerificationFailure) {
     return {
@@ -270,8 +297,9 @@ const detailsForCause = (cause: unknown): ToolExecutionErrorDetails => {
   if (cause instanceof RecipeInputError && Schema.isSchemaError(cause.cause)) {
     return schemaDetails(cause.cause)
   }
-  const nested = nestedCause(cause)
-  if (nested !== undefined && Schema.isSchemaError(nested)) return schemaDetails(nested)
+  if (Predicate.isObject(cause) && "cause" in cause && Schema.isSchemaError(cause.cause)) {
+    return schemaDetails(cause.cause)
+  }
   return { _tag: "UnknownToolError", message: String(cause) }
 }
 

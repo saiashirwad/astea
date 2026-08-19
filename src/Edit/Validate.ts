@@ -24,7 +24,12 @@ export const normalizeEdits = (
   Effect.gen(function* () {
     const sorted = [...edits].sort(compareEdits)
     for (const edit of sorted) {
-      if (edit.start < 0 || edit.end < edit.start) {
+      if (
+        !Number.isInteger(edit.start) ||
+        !Number.isInteger(edit.end) ||
+        edit.start < 0 ||
+        edit.end < edit.start
+      ) {
         return yield* new InvalidEdit({ edit, reason: "range" })
       }
     }

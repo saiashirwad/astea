@@ -3,6 +3,7 @@ export {
   verify,
   StalePlanError,
   VerificationFailure,
+  ProjectIdentityMismatch,
   RecipeMismatch,
   RecipeInputMismatch,
   PolicyMismatch,

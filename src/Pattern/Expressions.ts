@@ -85,6 +85,7 @@ export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?
         string,
         EvidenceFact
       >
+      // SAFETY: the caller's expression pattern constrains this output type.
       let expression = node.expression as EOut
       if (options?.expression !== undefined) {
         const result = yield* options.expression.match(node.expression, project)
@@ -92,6 +93,7 @@ export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?
         expression = result.value
         if (result.facts !== undefined) Object.assign(facts, result.facts)
       }
+      // SAFETY: the caller's argument pattern constrains this output type.
       let args = node.arguments as AOut
       if (options?.arguments !== undefined) {
         const argumentPattern = isPattern(options.arguments)
@@ -99,6 +101,7 @@ export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?
           : tuple(options.arguments)
         const result = yield* argumentPattern.match(node, project)
         if (!result.matched) return matchFailure
+        // SAFETY: argumentPattern was constructed from the caller's AOut pattern.
         args = result.value as AOut
         if (result.facts !== undefined) Object.assign(facts, result.facts)
       }

@@ -30,7 +30,7 @@ const traverseGraph = (
   return result.sort()
 }
 
-export const makeDependencyGraphNavigation = <E>(options: {
+export const dependencyGraphNavigation = <E>(options: {
   readonly nativeProject: NativeProject
   readonly projectRoot: string
   readonly ensureActive: Effect.Effect<void, E>

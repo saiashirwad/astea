@@ -52,6 +52,8 @@ describe("declarative transformations API (@effect/vitest)", () => {
             expect(tool.name).toBe("safemods_agent_tool_sample")
             expect(tool.description).toBe("Sample codemod tool")
             expect(tool.schema).toBeDefined()
+            expect(tool.schema.type).toBe("object")
+            expect(tool.schema.properties).toBeDefined()
 
             const result = yield* tool.execute({ multiplier: 10 })
             expect(result.status).toBe("preview")

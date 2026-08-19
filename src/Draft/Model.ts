@@ -154,7 +154,7 @@ export const replaceWith = (
 /** The replacement a selection maps to: text only (replace the selected node) or an explicit target node. */
 export type Replacement = string | { readonly node: Node; readonly text: string }
 
-const isTextReplacement = (val: Replacement): val is string => typeof val === "string"
+const isTextReplacement = (val: Replacement): val is string => Predicate.isString(val)
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Type guard boundary for candidate draft values.
 export const isDraft = (value: unknown): value is Draft =>

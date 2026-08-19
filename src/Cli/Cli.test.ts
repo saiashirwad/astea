@@ -296,4 +296,44 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
       ),
     60_000,
   )
+
+  effect("CLI executable rejects unknown flags, missing option values, and invalid formats", () =>
+    Effect.gen(function* () {
+      const execError = (cause: unknown): { readonly code: unknown; readonly stderr: string } => {
+        if (cause !== null && typeof cause === "object") {
+          const record = cause as { readonly code?: unknown; readonly stderr?: unknown }
+          return {
+            code: record.code,
+            stderr: typeof record.stderr === "string" ? record.stderr : "",
+          }
+        }
+        return { code: undefined, stderr: "" }
+      }
+      const runCli = (args: ReadonlyArray<string>) =>
+        Effect.promise(async () => {
+          try {
+            await execFileAsync("node", [...args])
+            return { code: 0, stderr: "" }
+          } catch (cause) {
+            return execError(cause)
+          }
+        })
+      const expectNamedFailure = (args: ReadonlyArray<string>, named: string) =>
+        Effect.gen(function* () {
+          const first = yield* runCli(args)
+          const second = yield* runCli(args)
+          expect(first.code).not.toBe(0)
+          expect(second.code).toBe(first.code)
+          expect(first.stderr).toContain(named)
+          expect(second.stderr).toBe(first.stderr)
+        })
+
+      yield* expectNamedFailure(
+        [binPath, "scan", wrapRecipePath, "--unknown-flag"],
+        "--unknown-flag",
+      )
+      yield* expectNamedFailure([binPath, "scan", wrapRecipePath, "--input"], "--input")
+      yield* expectNamedFailure([binPath, "scan", wrapRecipePath, "--format", "bogus"], "bogus")
+    }),
+  )
 })

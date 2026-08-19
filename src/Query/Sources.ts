@@ -41,29 +41,33 @@ const resolveScope = (
     const uniqueFiles: Array<TargetFileScope> = []
     for (const f of scope) {
       const key = `${f.project.project.id}:${f.path}`
-      if (!seen.has(key)) {
+      const fileName = Path.resolve(f.project.root, f.path)
+      if (!seen.has(key) && isWithinProject(f.project.root, fileName)) {
         seen.add(key)
         uniqueFiles.push({
           project: f.project,
-          fileName: Path.resolve(f.project.root, f.path),
+          fileName,
         })
       }
     }
     return Stream.fromIterable(uniqueFiles)
   }
   if (isProjectFile(scope)) {
-    return Stream.make({
-      project: scope.project,
-      fileName: Path.resolve(scope.project.root, scope.path),
-    })
+    const fileName = Path.resolve(scope.project.root, scope.path)
+    return isWithinProject(scope.project.root, fileName)
+      ? Stream.make({
+          project: scope.project,
+          fileName,
+        })
+      : Stream.empty
   }
   return Stream.fromIterableEffect(
-    scope.sourceFileNames.pipe(
-      Effect.map((fileNames) =>
-        fileNames.map((fileName) => ({
-          project: scope,
-          fileName,
-        })),
+    scope.files.pipe(
+      Effect.map((projectFiles) =>
+        projectFiles.flatMap((file) => {
+          const fileName = Path.resolve(file.project.root, file.path)
+          return isWithinProject(file.project.root, fileName) ? [{ project: scope, fileName }] : []
+        }),
       ),
     ),
   )
@@ -72,13 +76,14 @@ const resolveScope = (
 const collectNodes = <A extends Node>(
   project: ProjectSnapshot,
   sourceFile: SourceFile,
+  requestedFileName: string,
   guard: (node: Node) => node is A,
   syntaxKind?: SyntaxKindFilter,
 ): Array<Selection<A>> => {
   const selections: Array<Selection<A>> = []
   const fileName = isWithinProject(project.root, sourceFile.fileName)
     ? projectRelativePath(project.root, sourceFile.fileName)
-    : sourceFile.fileName
+    : projectRelativePath(project.root, requestedFileName)
 
   const visit = (node: Node): void => {
     const kindMatches =
@@ -125,7 +130,7 @@ export const nodes = <A extends Node>(
         Stream.flatMap((sourceFile) =>
           sourceFile === undefined
             ? Stream.empty
-            : Stream.fromIterable(collectNodes(project, sourceFile, guard, syntaxKind)),
+            : Stream.fromIterable(collectNodes(project, sourceFile, fileName, guard, syntaxKind)),
         ),
       ),
     ),
@@ -159,6 +164,9 @@ export const match = <Out>(
       ).pipe(
         Stream.flatMap((sourceFile) => {
           if (sourceFile === undefined) return Stream.empty
+          const relFileName = isWithinProject(project.root, sourceFile.fileName)
+            ? projectRelativePath(project.root, sourceFile.fileName)
+            : projectRelativePath(project.root, fileName)
           const candidateNodes: Array<Node> = []
           const visit = (node: Node) => {
             const kindMatches =
@@ -179,9 +187,6 @@ export const match = <Out>(
               pattern.match(node, project).pipe(
                 Effect.map((result): Selection<Out> | undefined => {
                   if (!result.matched) return undefined
-                  const relFileName = isWithinProject(project.root, sourceFile.fileName)
-                    ? projectRelativePath(project.root, sourceFile.fileName)
-                    : sourceFile.fileName
                   return {
                     value: result.value,
                     project,

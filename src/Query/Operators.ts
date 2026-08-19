@@ -102,6 +102,35 @@ export const collect = <A, E, R>(
     ),
   )
 
+const escapeGlobRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/** Match a project-relative path against a documented `*` / `**` glob. */
+export const matchesPathGlob = (fileName: string, glob: string): boolean => {
+  const path = fileName.replaceAll("\\", "/")
+  const pattern = glob.replaceAll("\\", "/")
+  let source = "^"
+  for (let index = 0; index < pattern.length;) {
+    if (pattern[index] === "*" && pattern[index + 1] === "*") {
+      index += 2
+      if (pattern[index] === "/") {
+        index += 1
+        source += "(?:.*/)?"
+      } else {
+        source += ".*"
+      }
+      continue
+    }
+    if (pattern[index] === "*") {
+      source += "[^/]*"
+      index += 1
+      continue
+    }
+    source += escapeGlobRegExp(pattern[index]!)
+    index += 1
+  }
+  return new RegExp(`${source}$`).test(path)
+}
+
 /** Filter selections to only those whose project-relative fileName matches a glob pattern, suffix, RegExp, or ProjectFile. */
 export const within = Function.dual<
   <A>(pattern: string | RegExp | ProjectFile) => <E, R>(query: Query<A, E, R>) => Query<A, E, R>,
@@ -116,20 +145,10 @@ export const within = Function.dual<
     )
   }
   const predicate = Predicate.isString(pattern)
-    ? (fileName: string) => {
-        if (pattern.includes("*")) {
-          const regex = new RegExp(
-            "^" +
-              pattern
-                .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-                .replace(/\*\*/g, ".*")
-                .replace(/\*/g, "[^/]*") +
-              "$",
-          )
-          return regex.test(fileName)
-        }
-        return fileName.includes(pattern) || fileName.endsWith(pattern)
-      }
+    ? (fileName: string) =>
+        pattern.includes("*")
+          ? matchesPathGlob(fileName, pattern)
+          : fileName.includes(pattern) || fileName.endsWith(pattern)
     : (fileName: string) => pattern.test(fileName)
 
   return Stream.filter(query, (selection) => predicate(selection.fileName))

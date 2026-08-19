@@ -13,11 +13,18 @@ export interface ProjectEvidence {
   readonly configFileName: string
 }
 
+export type SourceFingerprintKind = "file" | "missing" | "directory" | "realpath"
+
 export interface SourceFingerprint {
   readonly projectId: string
   readonly fileName: string
   readonly hash: string
+  /** Absent or `"file"` is a content hash. Other kinds are non-source observations. */
+  readonly kind?: SourceFingerprintKind | undefined
 }
+
+export const isContentFingerprint = (source: SourceFingerprint): boolean =>
+  source.kind === undefined || source.kind === "file"
 
 interface FileOperationBase {
   readonly projectId: string
@@ -95,6 +102,17 @@ export interface PlanInput {
   readonly measurements?: PlanMeasurements | undefined
 }
 
+type Inspectable =
+  | Json
+  | ReadonlyArray<Json>
+  | PlanInput
+  | PlannedFileOperation
+  | ProjectEvidence
+  | SourceFingerprint
+  | TextEdit
+  | EvidenceRecord
+  | undefined
+
 export class PlanBuildError extends Data.TaggedError("PlanBuildError")<{
   readonly reason:
     | "invalid-edit"
@@ -152,78 +170,82 @@ const fail = (
   detail: string,
 ): Effect.Effect<never, PlanBuildError> => Effect.fail(new PlanBuildError({ reason, detail }))
 
-const isFiniteNonnegativeInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0
+const isFiniteNonnegativeInteger = (value: Inspectable): value is number =>
+  Predicate.isNumber(value) && Number.isFinite(value) && Number.isInteger(value) && value >= 0
 
-const isReadonlyArray = <A>(value: unknown): value is ReadonlyArray<A> => Array.isArray(value)
+const isReadonlyArray = (value: Inspectable): value is ReadonlyArray<Json> => Array.isArray(value)
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: Inspectable): value is Readonly<Record<string, Json>> =>
   Predicate.isObject(value)
 
-const isStringArray = (value: unknown): value is ReadonlyArray<string> =>
-  isReadonlyArray<string>(value) && value.every((item) => typeof item === "string")
+const isStringArray = (value: Inspectable): value is ReadonlyArray<string> =>
+  isReadonlyArray(value) && value.every(Predicate.isString)
 
-const isProjectEvidence = (value: unknown): value is ProjectEvidence =>
-  isRecord(value) && typeof value.id === "string" && typeof value.configFileName === "string"
+const isProjectEvidence = (value: Inspectable): value is ProjectEvidence =>
+  isRecord(value) && Predicate.isString(value.id) && Predicate.isString(value.configFileName)
 
-const isSourceFingerprint = (value: unknown): value is SourceFingerprint =>
+const isSourceFingerprintKind = (value: Inspectable): value is SourceFingerprintKind =>
+  value === "file" || value === "missing" || value === "directory" || value === "realpath"
+
+const isSourceFingerprint = (value: Inspectable): value is SourceFingerprint =>
   isRecord(value) &&
-  typeof value.projectId === "string" &&
-  typeof value.fileName === "string" &&
-  typeof value.hash === "string"
+  Predicate.isString(value.projectId) &&
+  Predicate.isString(value.fileName) &&
+  Predicate.isString(value.hash) &&
+  (value.kind === undefined || isSourceFingerprintKind(value.kind))
 
-const isTextEdit = (value: unknown): value is TextEdit =>
+const isTextEdit = (value: Inspectable): value is TextEdit =>
   isRecord(value) &&
-  typeof value.projectId === "string" &&
-  typeof value.fileName === "string" &&
-  typeof value.start === "number" &&
-  typeof value.end === "number" &&
-  typeof value.expectedTextHash === "string" &&
-  typeof value.newText === "string" &&
+  Predicate.isString(value.projectId) &&
+  Predicate.isString(value.fileName) &&
+  Predicate.isNumber(value.start) &&
+  Predicate.isNumber(value.end) &&
+  Predicate.isString(value.expectedTextHash) &&
+  Predicate.isString(value.newText) &&
   isStringArray(value.evidenceIds)
 
-const isEvidenceRecord = (value: unknown): value is EvidenceRecord =>
+const isEvidenceRecord = (value: Inspectable): value is EvidenceRecord =>
   isRecord(value) &&
-  typeof value.id === "string" &&
-  typeof value.kind === "string" &&
+  Predicate.isString(value.id) &&
+  Predicate.isString(value.kind) &&
   isRecord(value.facts)
 
-const isPlannedFileOperation = (value: unknown): value is PlannedFileOperation => {
+const isPlannedFileOperation = (value: Inspectable): value is PlannedFileOperation => {
   if (!hasExactOperationFields(value) || !isRecord(value)) return false
   if (
-    typeof value.projectId !== "string" ||
-    typeof value.path !== "string" ||
+    !Predicate.isString(value.projectId) ||
+    !Predicate.isString(value.path) ||
     !isStringArray(value.evidenceIds ?? [])
   )
     return false
-  if (value.kind === "create") return typeof value.content === "string"
-  if (value.kind === "delete") return typeof value.initialHash === "string"
+  if (value.kind === "create") return Predicate.isString(value.content)
+  if (value.kind === "delete") return Predicate.isString(value.initialHash)
   return (
-    typeof value.toPath === "string" &&
-    typeof value.initialHash === "string" &&
-    (value.content === undefined || typeof value.content === "string")
+    Predicate.isString(value.toPath) &&
+    Predicate.isString(value.initialHash) &&
+    (value.content === undefined || Predicate.isString(value.content))
   )
 }
 
-const isPlanInput = (value: unknown): value is PlanInput => {
+const isPlanInput = (value: Inspectable): value is PlanInput => {
   if (!isRecord(value) || !isRecord(value.recipe) || !isRecord(value.toolchain)) return false
   if (
-    typeof value.recipe.name !== "string" ||
-    typeof value.recipe.version !== "string" ||
-    typeof value.recipe.implementationHash !== "string" ||
-    typeof value.toolchain.systemVersion !== "string" ||
-    typeof value.toolchain.typescriptVersion !== "string" ||
-    typeof value.toolchain.effectVersion !== "string" ||
-    !isReadonlyArray<ProjectEvidence>(value.projects) ||
+    !Predicate.isString(value.recipe.name) ||
+    !Predicate.isString(value.recipe.version) ||
+    !Predicate.isString(value.recipe.implementationHash) ||
+    !Predicate.isString(value.toolchain.systemVersion) ||
+    !Predicate.isString(value.toolchain.typescriptVersion) ||
+    !Predicate.isString(value.toolchain.effectVersion) ||
+    !isReadonlyArray(value.projects) ||
     !value.projects.every(isProjectEvidence) ||
-    !isReadonlyArray<SourceFingerprint>(value.sources) ||
+    !isReadonlyArray(value.sources) ||
     !value.sources.every(isSourceFingerprint) ||
-    !isReadonlyArray<TextEdit>(value.edits) ||
+    !isReadonlyArray(value.edits) ||
     !value.edits.every(isTextEdit) ||
-    !isReadonlyArray<EvidenceRecord>(value.evidence) ||
+    !isReadonlyArray(value.evidence) ||
     !value.evidence.every(isEvidenceRecord) ||
     (value.fileOperations !== undefined &&
-      (!isReadonlyArray<PlannedFileOperation>(value.fileOperations) ||
+      (!isReadonlyArray(value.fileOperations) ||
         !value.fileOperations.every(isPlannedFileOperation))) ||
     !isRecord(value.policies) ||
     !isRecord(value.policies.matchCount)
@@ -236,6 +258,11 @@ const isPlanInput = (value: unknown): value is PlanInput => {
     (value.policies.idempotence === "required" || value.policies.idempotence === "not-promised")
   )
 }
+
+const compareSourceFingerprints = (left: SourceFingerprint, right: SourceFingerprint): number =>
+  left.projectId.localeCompare(right.projectId) ||
+  left.fileName.localeCompare(right.fileName) ||
+  (left.kind ?? "file").localeCompare(right.kind ?? "file")
 
 const normalizedPath = (value: string): ProjectRelativePath | undefined =>
   parseProjectRelativePath(value)
@@ -258,7 +285,7 @@ const requiredOperationFields: Record<PlannedFileOperation["kind"], ReadonlyArra
   move: ["kind", "projectId", "path", "toPath", "initialHash"],
 }
 
-const hasExactOperationFields = (operation: unknown): operation is PlannedFileOperation => {
+const hasExactOperationFields = (operation: Inspectable): operation is PlannedFileOperation => {
   if (
     !Predicate.isObject(operation) ||
     (operation.kind !== "create" && operation.kind !== "delete" && operation.kind !== "move")
@@ -307,7 +334,7 @@ const validateInput = (input: PlanInput): Effect.Effect<void, PlanBuildError> =>
     }
     const projectIds = new Set<string>()
     for (const project of input.projects) {
-      if (typeof project.id !== "string" || project.id.length === 0 || projectIds.has(project.id)) {
+      if (!Predicate.isString(project.id) || project.id.length === 0 || projectIds.has(project.id)) {
         return yield* fail(
           projectIds.has(project.id) ? "duplicate-project" : "invalid-plan",
           `Invalid project ${project.id}`,
@@ -319,17 +346,22 @@ const validateInput = (input: PlanInput): Effect.Effect<void, PlanBuildError> =>
       projectIds.add(project.id)
     }
     const sourceMap = new Map<string, SourceFingerprint>()
+    const seenSources = new Set<string>()
     for (const source of input.sources) {
       const path = normalizedPath(source.fileName)
       if (path === undefined) return yield* fail("invalid-path", source.fileName)
       if (!projectIds.has(source.projectId)) return yield* fail("missing-source", source.fileName)
-      const key = `${source.projectId}\0${path}`
-      if (sourceMap.has(key)) return yield* fail("duplicate-source", source.fileName)
-      sourceMap.set(key, { ...source, fileName: path })
+      const kind = source.kind ?? "file"
+      const unique = `${source.projectId}\0${kind}\0${path}`
+      if (seenSources.has(unique)) return yield* fail("duplicate-source", source.fileName)
+      seenSources.add(unique)
+      const normalized = { ...source, fileName: path }
+      if (isContentFingerprint(normalized))
+        sourceMap.set(`${source.projectId}\0${path}`, normalized)
     }
     const evidenceIds = new Set<string>()
     for (const item of input.evidence) {
-      if (typeof item.id !== "string" || item.id.length === 0 || evidenceIds.has(item.id)) {
+      if (!Predicate.isString(item.id) || item.id.length === 0 || evidenceIds.has(item.id)) {
         return yield* fail("duplicate-evidence", `Evidence IDs must be unique: ${item.id}`)
       }
       evidenceIds.add(item.id)
@@ -399,11 +431,7 @@ export const finalizePlan = (input: PlanInput): Effect.Effect<TransformationPlan
         ...source,
         fileName: normalizedPath(source.fileName)!,
       }))
-      .sort(
-        (left, right) =>
-          left.projectId.localeCompare(right.projectId) ||
-          left.fileName.localeCompare(right.fileName),
-      )
+      .sort(compareSourceFingerprints)
     const edits = [...input.edits]
       .map((edit) => ({
         ...edit,
@@ -473,6 +501,20 @@ export const finalizePlan = (input: PlanInput): Effect.Effect<TransformationPlan
 
 export const serializePlan = (plan: TransformationPlan): string => canonicalJson(asJson(plan))
 
+/** Reject a structurally decoded plan that is not canonical or content-addressed. */
+export const validatePlan = (
+  plan: TransformationPlan,
+): Effect.Effect<TransformationPlan, PlanDecodeError> =>
+  Effect.gen(function* () {
+    yield* validateDecodedPlan(plan).pipe(
+      Effect.mapError(() => new PlanDecodeError({ reason: "schema" })),
+    )
+    if (digest(canonicalJson(withoutId(plan))) !== plan.planId) {
+      return yield* new PlanDecodeError({ reason: "hash" })
+    }
+    return plan
+  })
+
 const TextEditSchema = Schema.Struct({
   projectId: Schema.String,
   fileName: Schema.String,
@@ -515,7 +557,7 @@ const FileOperationSchema = Schema.Union([
   MoveFileOperationSchema,
 ])
 
-const hasExactFileOperationFields = (value: unknown): boolean => {
+const hasExactFileOperationFields = (value: Inspectable): boolean => {
   if (!Predicate.isObject(value)) return false
   const operations = value.fileOperations
   if (operations === undefined) return true
@@ -533,11 +575,7 @@ const validateDecodedPlan = (plan: TransformationPlan): Effect.Effect<void, Plan
     if (expectedSnapshot !== plan.snapshotHash)
       return yield* fail("invalid-plan", "Snapshot hash mismatch")
     const projects = [...plan.projects].sort((left, right) => left.id.localeCompare(right.id))
-    const sources = [...plan.sources].sort(
-      (left, right) =>
-        left.projectId.localeCompare(right.projectId) ||
-        left.fileName.localeCompare(right.fileName),
-    )
+    const sources = [...plan.sources].sort(compareSourceFingerprints)
     const edits = [...plan.edits].sort(compareEdits)
     const evidence = [...plan.evidence].sort((left, right) => left.id.localeCompare(right.id))
     const operations =
@@ -614,6 +652,14 @@ export const TransformationPlanSchema = Schema.Struct({
       projectId: Schema.String,
       fileName: Schema.String,
       hash: Schema.String,
+      kind: Schema.optional(
+        Schema.Union([
+          Schema.Literal("file"),
+          Schema.Literal("missing"),
+          Schema.Literal("directory"),
+          Schema.Literal("realpath"),
+        ]),
+      ),
     }),
   ),
   snapshotHash: Schema.String,
@@ -638,16 +684,19 @@ export const TransformationPlanSchema = Schema.Struct({
   measurements: Schema.optional(Schema.Struct({ matches: Schema.optional(Schema.Finite) })),
 })
 
-const decodePlan = (decoded: unknown): Effect.Effect<TransformationPlan, PlanDecodeError> =>
+const decodePlan = (decoded: Inspectable): Effect.Effect<TransformationPlan, PlanDecodeError> =>
   hasExactFileOperationFields(decoded)
     ? Schema.decodeUnknownEffect(TransformationPlanSchema)(decoded).pipe(
         Effect.mapError(() => new PlanDecodeError({ reason: "schema" })),
-        Effect.map((value) => value as unknown as TransformationPlan),
+        Effect.map((value) => {
+          // SAFETY: the schema validates every field; branded path types are runtime strings.
+          return value as TransformationPlan
+        }),
       )
     : Effect.fail(new PlanDecodeError({ reason: "schema" }))
 
 export const parsePlan = (text: string): Effect.Effect<TransformationPlan, PlanDecodeError> =>
-  Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+  Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(text).pipe(
     Effect.mapError(() => new PlanDecodeError({ reason: "json" })),
     Effect.flatMap(decodePlan),
     Effect.flatMap((decoded) =>

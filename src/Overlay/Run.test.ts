@@ -133,8 +133,8 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     },
                   ],
                   deleteDraft.fileOperations,
-                )
-                expect(deletedOverlay[Path.resolve(project.root, "src/library.ts")]).toBeUndefined()
+                ).pipe(Effect.result)
+                expect(deletedOverlay._tag).toBe("Failure")
 
                 const textEdit = Recipe.define("text-edit", {
                   version: "1.0.0",

@@ -43,6 +43,18 @@ type TupleMatch<P extends ReadonlyArray<AnyPattern>> = {
   [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never
 }
 
+const bindingOf = <K extends string, Out>(key: K, value: Out): Binding<K, Out> => {
+  // SAFETY: the computed key is the binding name supplied to this pattern.
+  return { [key]: value } as Binding<K, Out>
+}
+
+const tupleMatchOf = <P extends ReadonlyArray<AnyPattern>>(
+  values: ReadonlyArray<unknown>,
+): TupleMatch<P> => {
+  // SAFETY: tuple patterns push one value for every matched pattern in order.
+  return values as TupleMatch<P>
+}
+
 /** Matches any node and yields it as-is. */
 export const any: Pattern<Node, Node> = {
   mode: "node",
@@ -50,22 +62,41 @@ export const any: Pattern<Node, Node> = {
   match: (node) => Effect.succeed(matchSuccess(node)),
 }
 
-/** Matches a node against an arbitrary predicate. */
-export const predicate = <N extends Node = Node, Out = N>(
+/** Matches a node against a type predicate and yields the narrowed node. */
+export function predicate<N extends Node = Node, Out extends Node = N>(
+  kind: string,
+  test: (node: Node) => node is Out,
+  syntaxKind?: SyntaxKindFilter,
+): Pattern<N, Out>
+/** Matches a node against a boolean test and yields the node. */
+export function predicate<N extends Node = Node>(
+  kind: string,
+  test: (node: Node) => boolean,
+  syntaxKind?: SyntaxKindFilter,
+): Pattern<N, N>
+/** Matches a node against an explicit transform. */
+export function predicate<N extends Node = Node, Out = N>(
+  kind: string,
+  test: (node: Node) => PatternResult<Out>,
+  syntaxKind?: SyntaxKindFilter,
+): Pattern<N, Out>
+export function predicate<N extends Node = Node, Out = N>(
   kind: string,
   test: (node: Node) => boolean | PatternResult<Out>,
   syntaxKind?: SyntaxKindFilter,
-): Pattern<N, Out> => ({
-  mode: "node",
-  kind,
-  ...(syntaxKind === undefined ? {} : { syntaxKind }),
-  match: (node) =>
-    Effect.sync(() => {
-      const result = test(node)
-      if (result === true) return matchSuccess(node as Out)
-      return result === false ? matchFailure : result
-    }),
-})
+): Pattern<N, Out> {
+  const result = {
+    mode: "node",
+    kind,
+    match: (node) =>
+      Effect.sync(() => {
+        const result = test(node)
+        if (result === true) return matchSuccess(node as N & Out)
+        return result === false ? matchFailure : result
+      }),
+  }
+  return syntaxKind === undefined ? result : { ...result, syntaxKind }
+}
 
 export const not = <N extends Node, Out>(pattern: Pattern<N, Out>): Pattern<N, Node> => ({
   mode: "node",
@@ -79,19 +110,20 @@ export const not = <N extends Node, Out>(pattern: Pattern<N, Out>): Pattern<N, N
 export const bind = <K extends string, N extends Node, Out>(
   key: K,
   pattern: Pattern<N, Out>,
-): Pattern<N, Binding<K, Out>> => ({
-  mode: "node",
-  kind: `bind(${key})`,
-  ...(pattern.syntaxKind === undefined ? {} : { syntaxKind: pattern.syntaxKind }),
-  match: (node, project) =>
-    pattern.match(node, project).pipe(
-      Effect.map((result) => {
-        if (!result.matched) return matchFailure
-        const bound = { [key]: result.value } as Binding<K, Out>
-        return matchSuccess(bound, result.facts)
-      }),
-    ),
-})
+): Pattern<N, Binding<K, Out>> => {
+  const result = {
+    mode: "node" as const,
+    kind: `bind(${key})`,
+    match: (node: Node, project: ProjectSnapshot) =>
+      pattern.match(node, project).pipe(
+        Effect.map((matched) => {
+          if (!matched.matched) return matchFailure
+          return matchSuccess(bindingOf(key, matched.value), matched.facts)
+        }),
+      ),
+  }
+  return pattern.syntaxKind === undefined ? result : { ...result, syntaxKind: pattern.syntaxKind }
+}
 
 /** Matches patterns against call arguments, or a singleton node. */
 export const tuple = <P extends ReadonlyArray<AnyPattern>>(
@@ -111,6 +143,6 @@ export const tuple = <P extends ReadonlyArray<AnyPattern>>(
         values.push(result.value)
         if (result.facts !== undefined) Object.assign(facts, result.facts)
       }
-      return matchSuccess(values as TupleMatch<P>, facts)
+      return matchSuccess(tupleMatchOf<P>(values), facts)
     }),
 })

@@ -1,6 +1,10 @@
 /** Application domain values and write-authority service contract. */
 import { Context, Data, type Effect, type FileSystem, type Path } from "effect"
-import type { StalePlanError, VerifiedPlan } from "../Verification/Engine.ts"
+import type {
+  ProjectIdentityMismatch,
+  StalePlanError,
+  VerifiedPlan,
+} from "../Verification/Engine.ts"
 
 export class ApplicationFailure extends Data.TaggedError("ApplicationFailure")<{
   readonly planId: string
@@ -29,7 +33,7 @@ export interface PlanApplicationService {
     verified: VerifiedPlan,
   ) => Effect.Effect<
     ApplicationReceipt,
-    StalePlanError | ApplicationFailure | ApplicationIndeterminate,
+    StalePlanError | ApplicationFailure | ApplicationIndeterminate | ProjectIdentityMismatch,
     FileSystem.FileSystem | Path.Path
   >
 }

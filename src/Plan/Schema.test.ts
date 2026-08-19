@@ -1,6 +1,6 @@
 import { describe, effect, expect } from "@effect/vitest"
-import { Effect, Exit } from "effect"
-import { finalizePlan, parsePlan, serializePlan } from "./index.ts"
+import { Effect, Exit, Predicate } from "effect"
+import { finalizePlan, parsePlan, serializePlan, type Json } from "./index.ts"
 import { createHash } from "node:crypto"
 import { parseProjectRelativePath } from "../Workspace/ProjectPath.ts"
 
@@ -38,7 +38,8 @@ describe("Plan schema", () => {
 
   effect("rejects malformed finalize input without throwing", () =>
     Effect.gen(function* () {
-      const malformed = { ...input, projects: [null] } as unknown as typeof input
+      // SAFETY: the test deliberately injects an invalid project at the input boundary.
+      const malformed = { ...input, projects: [null] } as typeof input
       expect(Exit.isFailure(yield* Effect.exit(finalizePlan(malformed)))).toBe(true)
     }),
   )
@@ -78,9 +79,9 @@ describe("Plan schema", () => {
         ],
       }
       const withoutId = ({ planId: _, ...rest }: typeof malformed) => rest
-      const canonicalize = (value: unknown): unknown => {
+      const canonicalize = (value: Json): Json => {
         if (Array.isArray(value)) return value.map(canonicalize)
-        if (value !== null && typeof value === "object") {
+        if (Predicate.isObject(value)) {
           return Object.fromEntries(
             Object.entries(value)
               .sort(([a], [b]) => a.localeCompare(b))

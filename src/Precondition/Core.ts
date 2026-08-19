@@ -6,6 +6,7 @@
  * and type-checker operations.
  */
 import { Effect, Predicate } from "effect"
+import { matchesPathGlob } from "../Query/Operators.ts"
 import type { ProjectFile, ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
 
 export interface FilePrecondition<E = never, R = never> {
@@ -20,16 +21,6 @@ const testRegExp = (regex: RegExp, value: string): boolean => {
 }
 
 const normalizePath = (path: string): string => path.replace(/\\/g, "/")
-
-const globToRegex = (glob: string): RegExp => {
-  const escaped = glob
-    .replace(/\\/g, "/")
-    .replace(/[.+^${}()|[\]]/g, "\\$&")
-    .replace(/\*\*/g, "<<DOUBLE_STAR>>")
-    .replace(/\*/g, "[^/]*")
-    .replace(/<<DOUBLE_STAR>>/g, ".*")
-  return new RegExp(`^${escaped}$`)
-}
 
 const IMPORT_SPECIFIER_PATTERNS = [
   // static import or export ... from "..."
@@ -133,29 +124,23 @@ export const hasImport = (specifier: string | RegExp): FilePrecondition => {
  */
 export const pathMatches = (pattern: RegExp | string): FilePrecondition => {
   const id = `pathMatches(${pattern.toString()})`
-  const regex = Predicate.isString(pattern)
-    ? pattern.includes("*")
-      ? globToRegex(pattern)
-      : undefined
-    : pattern
-
   return {
     _tag: "FilePrecondition",
     id,
     evaluate: (file) => {
       const normalized = normalizePath(file.path)
-      if (regex !== undefined) {
-        return Effect.succeed(testRegExp(regex, normalized))
+      if (!Predicate.isString(pattern)) {
+        return Effect.succeed(testRegExp(pattern, normalized))
       }
-      if (Predicate.isString(pattern)) {
-        const rawPattern = normalizePath(pattern)
-        const matches =
-          normalized === rawPattern ||
-          normalized.endsWith(rawPattern) ||
-          normalized.includes(rawPattern)
-        return Effect.succeed(matches)
+      if (pattern.includes("*")) {
+        return Effect.succeed(matchesPathGlob(normalized, pattern))
       }
-      return Effect.succeed(false)
+      const rawPattern = normalizePath(pattern)
+      const matches =
+        normalized === rawPattern ||
+        normalized.endsWith(rawPattern) ||
+        normalized.includes(rawPattern)
+      return Effect.succeed(matches)
     },
   }
 }

@@ -37,7 +37,7 @@ export interface VirtualFsMaterializeOptions<E> {
   readonly load: (projectId: string, fileName: string) => Effect.Effect<string, E>
   readonly resolvePath: (projectId: string, fileName: string) => string
   readonly edits: ReadonlyArray<TextEdit>
-  readonly fileOperations?: ReadonlyArray<PlannedFileOperation>
+  readonly fileOperations?: ReadonlyArray<PlannedFileOperation> | undefined
 }
 
 export const virtualFileKey = (projectId: string, fileName: string): string =>
@@ -160,8 +160,13 @@ export const materialize = <E>(
       const first = group[0]!
       touched.add(virtualFileKey(first.projectId, first.fileName))
       const current = yield* load(first.projectId, first.fileName)
-      // Deletion is terminal: edits authored before a delete cannot resurrect it.
-      if (!current.exists) continue
+      if (!current.exists) {
+        return yield* new VirtualFsError({
+          reason: "missing-source",
+          projectId: first.projectId,
+          fileName: first.fileName,
+        })
+      }
       current.content = yield* applyFileEdits(current.content, group)
     }
 

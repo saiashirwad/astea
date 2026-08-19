@@ -1,15 +1,23 @@
 import { randomUUID } from "node:crypto"
-import { Effect, FileSystem, Layer, Path } from "effect"
+import { Effect, FileSystem, Layer, Path, Predicate, Semaphore } from "effect"
 import {
   ApplicationFailure,
   ApplicationIndeterminate,
   PlanApplication,
 } from "../Application/Model.ts"
 import { textHash } from "../Edit/index.ts"
-import type { TransformationPlan } from "../Plan/index.ts"
-import { StalePlanError, type FilePreview, type VerifiedPlan } from "../Verification/Engine.ts"
+import type { Json, TransformationPlan } from "../Plan/index.ts"
+import {
+  issuedVerifiedPlan,
+  previewPlan,
+  requireMatchingProjectIdentity,
+  revalidatePlanSources,
+  StalePlanError,
+  type FilePreview,
+  type VerifiedPlan,
+} from "../Verification/Engine.ts"
 import { isProjectRelativePath } from "../Workspace/ProjectPath.ts"
-import { Workspace } from "../Workspace/index.ts"
+import { Workspace, type WorkspaceDefinition } from "../Workspace/index.ts"
 import { layer as nodeLayer } from "../platform/node.ts"
 
 /** Node filesystem implementation of the sole write-authority service. */
@@ -24,7 +32,7 @@ export const applicationLayerNode: Layer.Layer<
 /** Node-backed application service without leaking filesystem authority upward. */
 export const makeApplicationLayerNode = (
   workspaceRoot: string,
-): Layer.Layer<PlanApplication | FileSystem.FileSystem | Path.Path> =>
+): Layer.Layer<PlanApplication | FileSystem.FileSystem | Path.Path, never, Workspace> =>
   Layer.merge(applicationLayer(workspaceRoot), nodeLayer)
 
 const isContained = (path: Path.Path, root: string, candidate: string): boolean => {
@@ -40,6 +48,230 @@ const asApplicationFailure = (
   cause: unknown,
   rolledBack = false,
 ): ApplicationFailure => new ApplicationFailure({ planId, cause, rolledBack })
+
+const APPLY_LOCK_NAME = ".safemods-apply.lock"
+const APPLY_JOURNAL_NAME = ".safemods-apply.journal"
+
+const isSafemodsTemporaryName = (name: string): boolean =>
+  name.includes(".safemods-") && name.endsWith(".tmp")
+
+const processExists = (pid: number): boolean => {
+  try {
+    // Signal 0 does not kill; it reports whether the lock owner is alive.
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+interface JournalBeforeState {
+  readonly exists: boolean
+  readonly text?: string
+}
+
+interface JournalEntry {
+  readonly target: string
+  readonly temporary?: string
+  readonly before: JournalBeforeState
+}
+
+interface TransactionJournal {
+  readonly planId: string
+  readonly phase: "open" | "committed"
+  readonly files: ReadonlyArray<JournalEntry>
+  readonly createdDirectories: ReadonlyArray<string>
+}
+
+const asRecord = (value: Json): Readonly<Record<string, Json>> | undefined => {
+  if (!Predicate.isObject(value)) return undefined
+  return value
+}
+
+const parseJournalBefore = (value: Json): JournalBeforeState | undefined => {
+  const record = asRecord(value)
+  if (record === undefined || !Predicate.isBoolean(record.exists)) return undefined
+  if (!record.exists) return { exists: false }
+  if (record.text !== undefined && !Predicate.isString(record.text)) return undefined
+  return { exists: true, text: Predicate.isString(record.text) ? record.text : "" }
+}
+
+const parseJournalEntry = (value: Json): JournalEntry | undefined => {
+  const record = asRecord(value)
+  if (record === undefined || !Predicate.isString(record.target)) return undefined
+  const before = parseJournalBefore(record.before)
+  if (before === undefined) return undefined
+  if (record.temporary !== undefined && !Predicate.isString(record.temporary)) return undefined
+  return {
+    target: record.target,
+    ...(Predicate.isString(record.temporary) ? { temporary: record.temporary } : {}),
+    before,
+  }
+}
+
+const parseJournal = (text: string): TransactionJournal | undefined => {
+  let value: Json
+  try {
+    // SAFETY: journal files are persisted as JSON by persistJournal.
+    value = JSON.parse(text) as Json
+  } catch {
+    return undefined
+  }
+  const record = asRecord(value)
+  if (record === undefined || !Predicate.isString(record.planId) || !Array.isArray(record.files)) {
+    return undefined
+  }
+  const files: Array<JournalEntry> = []
+  for (const entry of record.files) {
+    const parsed = parseJournalEntry(entry)
+    if (parsed === undefined) return undefined
+    files.push(parsed)
+  }
+  const createdDirectories = Array.isArray(record.createdDirectories)
+    ? record.createdDirectories.filter(Predicate.isString)
+    : []
+  const phase = record.phase === "committed" ? "committed" : "open"
+  return { planId: record.planId, phase, files, createdDirectories }
+}
+
+const resolveContainedPath = (
+  path: Path.Path,
+  workspaceRoot: string,
+  candidate: string,
+): string | undefined => {
+  const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(workspaceRoot, candidate)
+  return isContained(path, workspaceRoot, resolved) ? resolved : undefined
+}
+
+const persistJournal = (
+  journalPath: string,
+  journal: TransactionJournal,
+): Effect.Effect<void, ApplicationFailure, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const temporary = `${journalPath}.${randomUUID()}.tmp`
+    yield* fs
+      .writeFileString(temporary, JSON.stringify(journal), { flag: "wx" })
+      .pipe(Effect.mapError((cause) => asApplicationFailure(journal.planId, cause)))
+    yield* fs.rename(temporary, journalPath).pipe(
+      Effect.mapError((cause) => asApplicationFailure(journal.planId, cause)),
+      Effect.ensuring(fs.remove(temporary, { force: true }).pipe(Effect.ignore)),
+    )
+  })
+
+const sweepSafemodsTemporaries = (
+  workspaceRoot: string,
+  planId: string,
+): Effect.Effect<void, ApplicationFailure, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const names = yield* fs
+      .readDirectory(workspaceRoot, { recursive: true })
+      .pipe(Effect.mapError((cause) => asApplicationFailure(planId, cause)))
+    for (const name of names) {
+      if (!isSafemodsTemporaryName(name)) continue
+      const target = path.resolve(workspaceRoot, name)
+      if (!isContained(path, workspaceRoot, target)) continue
+      yield* fs.remove(target, { force: true }).pipe(Effect.ignore)
+    }
+  })
+
+const restoreJournalEntry = (
+  workspaceRoot: string,
+  planId: string,
+  entry: JournalEntry,
+): Effect.Effect<void, ApplicationFailure, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    if (entry.temporary !== undefined) {
+      const temporary = resolveContainedPath(path, workspaceRoot, entry.temporary)
+      if (temporary !== undefined) {
+        yield* fs.remove(temporary, { force: true }).pipe(Effect.ignore)
+      }
+    }
+    const target = resolveContainedPath(path, workspaceRoot, entry.target)
+    if (target === undefined) {
+      return yield* asApplicationFailure(planId, `Journal path escapes workspace: ${entry.target}`)
+    }
+    yield* entry.before.exists
+      ? fs
+          .writeFileString(target, entry.before.text ?? "")
+          .pipe(Effect.mapError((cause) => asApplicationFailure(planId, cause)))
+      : fs.remove(target, { force: true }).pipe(Effect.ignore)
+  })
+
+const recoverUnfinishedApplication = (
+  workspaceRoot: string,
+  planId: string,
+): Effect.Effect<void, ApplicationFailure, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const journalPath = path.join(workspaceRoot, APPLY_JOURNAL_NAME)
+    const exists = yield* fs
+      .exists(journalPath)
+      .pipe(Effect.mapError((cause) => asApplicationFailure(planId, cause)))
+    if (exists) {
+      const text = yield* fs
+        .readFileString(journalPath)
+        .pipe(Effect.mapError((cause) => asApplicationFailure(planId, cause)))
+      const journal = parseJournal(text)
+      if (journal !== undefined && journal.phase !== "committed") {
+        for (const entry of journal.files) {
+          yield* restoreJournalEntry(workspaceRoot, planId, entry)
+        }
+        for (const directory of [...journal.createdDirectories].reverse()) {
+          const target = resolveContainedPath(path, workspaceRoot, directory)
+          if (target !== undefined) {
+            yield* fs.remove(target, { force: true }).pipe(Effect.ignore)
+          }
+        }
+      }
+      yield* fs.remove(journalPath, { force: true }).pipe(Effect.ignore)
+    }
+    yield* sweepSafemodsTemporaries(workspaceRoot, planId)
+  })
+
+const acquireApplyLock = (
+  workspaceRoot: string,
+  planId: string,
+): Effect.Effect<string, ApplicationFailure, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const lockPath = path.join(workspaceRoot, APPLY_LOCK_NAME)
+    const exists = yield* fs
+      .exists(lockPath)
+      .pipe(Effect.mapError((cause) => asApplicationFailure(planId, cause)))
+    if (exists) {
+      const owner = yield* fs.readFileString(lockPath).pipe(Effect.orElseSucceed(() => ""))
+      const pid = Math.trunc(Number(owner.trim()))
+      if (Number.isInteger(pid) && pid > 0 && processExists(pid)) {
+        return yield* asApplicationFailure(planId, "Application lock is held")
+      }
+      yield* fs
+        .remove(lockPath, { force: true })
+        .pipe(Effect.mapError((cause) => asApplicationFailure(planId, cause)))
+    }
+    yield* fs
+      .writeFileString(lockPath, String(process.pid), { flag: "wx" })
+      .pipe(Effect.mapError(() => asApplicationFailure(planId, "Application lock is held")))
+    return lockPath
+  })
+
+const withExclusiveApplyLock = <A, E, R>(
+  workspaceRoot: string,
+  planId: string,
+  body: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | ApplicationFailure, R | FileSystem.FileSystem | Path.Path> =>
+  Effect.acquireUseRelease(
+    acquireApplyLock(workspaceRoot, planId),
+    () => body,
+    (lockPath) =>
+      FileSystem.FileSystem.use((fs) => fs.remove(lockPath, { force: true })).pipe(Effect.ignore),
+  )
 
 /**
  * Resolve a durable project-relative path and enforce both lexical and real
@@ -178,23 +410,87 @@ const checkExpectedState = (
     return target
   })
 
+/** Install over an existing file without rename-over of the live name. */
+const installExistingFile = (
+  plan: TransformationPlan,
+  file: FilePreview,
+  temporary: string,
+  target: string,
+): Effect.Effect<void, StalePlanError | ApplicationFailure, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const stale = new StalePlanError({
+      planId: plan.planId,
+      projectId: file.projectId,
+      fileName: file.fileName,
+    })
+    const fail = (cause: unknown) => asApplicationFailure(plan.planId, cause)
+    // Vacate the live name by moving its bytes aside, then no-replace link
+    // the staged inode. Never rename the staged file onto the live name —
+    // that would replace a write that landed after the last hash check.
+    const backup = `${target}.safemods-swap-${randomUUID()}.tmp`
+    yield* fs.rename(target, backup).pipe(Effect.mapError(fail))
+    const linked = yield* fs.link(temporary, target).pipe(Effect.result)
+    if (linked._tag === "Failure") {
+      const exists = yield* fs.exists(target).pipe(Effect.mapError(fail))
+      if (!exists) {
+        yield* fs.rename(backup, target).pipe(Effect.mapError(fail))
+        return yield* fail(linked.failure)
+      }
+      yield* fs.remove(backup, { force: true }).pipe(Effect.ignore)
+      return yield* stale
+    }
+    const moved = yield* fs.readFileString(backup).pipe(Effect.mapError(() => stale))
+    if (textHash(moved) !== file.before.hash) {
+      yield* fs.remove(target, { force: true }).pipe(Effect.ignore)
+      yield* fs.rename(backup, target).pipe(Effect.mapError(fail))
+      return yield* stale
+    }
+    yield* fs.remove(backup, { force: true }).pipe(Effect.ignore)
+  })
+
 interface StagedFile {
   readonly file: FilePreview
   readonly target: string
   readonly temporary?: string | undefined
 }
 
-/**
- * The service-only layer is intentionally exported from this module (but not
- * the public Node barrel) so failure-injection tests can provide a controlled
- * FileSystem implementation.
- */
-export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplication> =>
-  Layer.succeed(
-    PlanApplication,
-    PlanApplication.of({
-      apply: Effect.fn("PlanApplication.apply")(function* (verified: VerifiedPlan) {
-        const { plan, preview } = verified
+const planIdOf = (verified: VerifiedPlan): string => {
+  if (
+    Predicate.isObject(verified) &&
+    "plan" in verified &&
+    Predicate.isObject(verified.plan) &&
+    "planId" in verified.plan &&
+    Predicate.isString(verified.plan.planId)
+  ) {
+    return verified.plan.planId
+  }
+  return "unissued"
+}
+
+const applyVerifiedPlan = (workspaceRoot: string, definition: WorkspaceDefinition) =>
+  Effect.fn("PlanApplication.apply")(function* (verified: VerifiedPlan) {
+    const issued = issuedVerifiedPlan(verified)
+    if (issued === undefined) {
+      return yield* asApplicationFailure(
+        planIdOf(verified),
+        "Verified plan was not issued by verification",
+      )
+    }
+    const plan = issued.plan
+    yield* requireMatchingProjectIdentity(plan, definition.projects)
+    return yield* withExclusiveApplyLock(
+      workspaceRoot,
+      plan.planId,
+      Effect.gen(function* () {
+        // Recover leftover temps and partial commits before reading sources.
+        yield* recoverUnfinishedApplication(workspaceRoot, plan.planId)
+        // Rematerialize from the issued plan. Caller preview text is not used.
+        const preview = yield* previewPlan(plan, workspaceRoot).pipe(
+          Effect.mapError((error) =>
+            error instanceof StalePlanError ? error : asApplicationFailure(plan.planId, error),
+          ),
+        )
         const staged: Array<StagedFile> = []
         const applied: Array<StagedFile> = []
         const createdDirectories: Array<string> = []
@@ -219,26 +515,11 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
           const path = yield* Path.Path
 
           // Revalidate every fingerprint, including inputs not directly edited.
-          for (const source of plan.sources) {
-            const target = yield* safeTarget(plan, workspaceRoot, source.projectId, source.fileName)
-            const current = yield* fs.readFileString(target).pipe(
-              Effect.mapError(
-                () =>
-                  new StalePlanError({
-                    planId: plan.planId,
-                    projectId: source.projectId,
-                    fileName: source.fileName,
-                  }),
-              ),
-            )
-            if (textHash(current) !== source.hash) {
-              return yield* new StalePlanError({
-                planId: plan.planId,
-                projectId: source.projectId,
-                fileName: source.fileName,
-              })
-            }
-          }
+          yield* revalidatePlanSources(plan, workspaceRoot).pipe(
+            Effect.mapError((error) =>
+              error instanceof StalePlanError ? error : asApplicationFailure(plan.planId, error),
+            ),
+          )
 
           // Stage every resulting file before changing any target. Missing
           // parent directories are tracked so a failed transaction removes them.
@@ -276,6 +557,21 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
 
           if (stageExit._tag === "Failure") return yield* stageExit.failure
 
+          const journalPath = path.join(workspaceRoot, APPLY_JOURNAL_NAME)
+          const journal: TransactionJournal = {
+            planId: plan.planId,
+            phase: "open",
+            files: staged.map((item) => ({
+              target: item.target,
+              ...(item.temporary === undefined ? {} : { temporary: item.temporary }),
+              before: item.file.before.exists
+                ? { exists: true, text: item.file.before.text }
+                : { exists: false },
+            })),
+            createdDirectories: [...createdDirectories],
+          }
+          yield* persistJournal(journalPath, journal)
+
           // Re-check each precondition immediately before its filesystem state
           // transition. This closes the create-target race after verification.
           const commitExit = yield* Effect.gen(function* () {
@@ -285,17 +581,13 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
                 yield* fs.remove(item.target)
                 applied.push(item)
               } else {
-                if (!item.file.before.exists) {
-                  // A rename would silently replace a concurrently-created
-                  // target. Linking the staged inode is no-clobber on the
-                  // filesystem, after which the temporary name can be removed.
-                  yield* fs.link(item.temporary!, item.target)
-                  applied.push(item)
-                  yield* fs.remove(item.temporary!, { force: true }).pipe(Effect.ignore)
-                } else {
-                  yield* fs.rename(item.temporary!, item.target)
-                  applied.push(item)
-                }
+                // Creates use no-clobber link. Existing files refuse to
+                // rename-over live bytes that no longer match the plan.
+                yield* item.file.before.exists
+                  ? installExistingFile(plan, item.file, item.temporary!, item.target)
+                  : fs.link(item.temporary!, item.target)
+                applied.push(item)
+                yield* fs.remove(item.temporary!, { force: true }).pipe(Effect.ignore)
               }
             }
           }).pipe(
@@ -340,10 +632,15 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
                 rollbackCause: rollbackExit.failure,
               })
             }
+            yield* fs.remove(journalPath, { force: true }).pipe(Effect.ignore)
             if (commitExit.failure instanceof StalePlanError) return yield* commitExit.failure
             return yield* asApplicationFailure(plan.planId, commitExit.failure.cause, true)
           }
 
+          yield* persistJournal(journalPath, { ...journal, phase: "committed" })
+          yield* fs
+            .remove(journalPath, { force: true })
+            .pipe(Effect.mapError((cause) => asApplicationFailure(plan.planId, cause)))
           committed = true
           return {
             planId: plan.planId,
@@ -356,5 +653,26 @@ export const applicationLayer = (workspaceRoot: string): Layer.Layer<PlanApplica
           }
         }).pipe(Effect.ensuring(cleanup))
       }),
-    }),
+    )
+  })
+
+/**
+ * The service-only layer is intentionally exported from this module (but not
+ * the public Node barrel) so failure-injection tests can provide a controlled
+ * FileSystem implementation.
+ */
+export const applicationLayer = (
+  workspaceRoot: string,
+): Layer.Layer<PlanApplication, never, Workspace> =>
+  Layer.effect(
+    PlanApplication,
+    Workspace.use((workspace) =>
+      Effect.gen(function* () {
+        const mutex = yield* Semaphore.make(1)
+        return PlanApplication.of({
+          apply: (verified) =>
+            mutex.withPermit(applyVerifiedPlan(workspaceRoot, workspace.definition)(verified)),
+        })
+      }),
+    ),
   )

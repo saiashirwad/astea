@@ -1,14 +1,27 @@
 /** Verification and application service engine. */
-import { Data, Effect, FileSystem, Path } from "effect"
+import { Data, Effect, FileSystem, Path, Predicate } from "effect"
 import { textHash } from "../Edit/index.ts"
-import type { DiagnosticDiff, DiagnosticRecord } from "../Policy/index.ts"
-import type { TransformationPlan } from "../Plan/index.ts"
+import {
+  unpermittedIntroducedErrors,
+  type AllowedError,
+  type DiagnosticDiff,
+  type DiagnosticRecord,
+} from "../Policy/index.ts"
+import {
+  isContentFingerprint,
+  type PlanDecodeError,
+  type SourceFingerprint,
+  validatePlan,
+  type TransformationPlan,
+} from "../Plan/index.ts"
+import { hashDirectoryListing } from "../Workspace/index.ts"
 import {
   materialize as materializeVirtualFs,
   virtualFileKey,
   type VirtualFsInitialFile,
   VirtualFsError,
 } from "../VirtualFs/index.ts"
+import { isProjectRelativePath, parseProjectRelativePath } from "../Workspace/ProjectPath.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{
   readonly planId: string
@@ -22,6 +35,13 @@ export class VerificationFailure extends Data.TaggedError("VerificationFailure")
   readonly detail: string
   /** Diagnostics relevant to the failed policy, including source locations. */
   readonly diagnostics?: ReadonlyArray<DiagnosticRecord> | undefined
+}> {}
+
+/** A plan's project identities are not the live Workspace definition. */
+export class ProjectIdentityMismatch extends Data.TaggedError("ProjectIdentityMismatch")<{
+  readonly planId: string
+  readonly expected: ReadonlyArray<{ readonly id: string; readonly config: string }>
+  readonly actual: ReadonlyArray<{ readonly id: string; readonly config: string }>
 }> {}
 
 export type FileState =
@@ -52,6 +72,7 @@ export interface VerificationObservation {
   readonly secondPlanChangeCount?: number
   readonly diagnosticDiff: DiagnosticDiff
   readonly policyResults?: ReadonlyArray<PolicyResult>
+  readonly allowedErrors?: ReadonlyArray<AllowedError>
 }
 
 export interface PolicyResult {
@@ -72,8 +93,8 @@ export interface VerificationReceipt {
   readonly policyResults: ReadonlyArray<PolicyResult>
 }
 
-// SAFETY: nominal brand symbol creation
-const VerifiedPlanTypeId: unique symbol = Symbol.for("@safemods/internal/VerifiedPlan") as never
+// Process-local token. Symbol.for would be forgeable across the isolate.
+const VerifiedPlanTypeId: unique symbol = Symbol("@safemods/internal/VerifiedPlan")
 
 export interface VerifiedPlan {
   readonly [VerifiedPlanTypeId]: typeof VerifiedPlanTypeId
@@ -82,18 +103,174 @@ export interface VerifiedPlan {
   readonly receipt: VerificationReceipt
 }
 
+interface IssuedVerifiedPlan {
+  readonly plan: TransformationPlan
+  readonly preview: PlanPreview
+  readonly receipt: VerificationReceipt
+}
+
+const issuedVerifiedPlans = new WeakMap<VerifiedPlan, IssuedVerifiedPlan>()
+
+const freezeDeep = <A>(value: A): A => {
+  if (Array.isArray(value)) {
+    for (const item of value) freezeDeep(item)
+    return Object.freeze(value)
+  }
+  if (value !== null && Predicate.isObject(value)) {
+    for (const item of Object.values(value)) freezeDeep(item)
+    return Object.freeze(value)
+  }
+  return value
+}
+
+const issueVerifiedPlan = (
+  plan: TransformationPlan,
+  preview: PlanPreview,
+  receipt: VerificationReceipt,
+  diagnosticDiff: DiagnosticDiff,
+): VerifiedPlan & { readonly diagnosticDiff: DiagnosticDiff } => {
+  const issuedPlan = freezeDeep(structuredClone(plan))
+  const issuedPreview = freezeDeep(structuredClone(preview))
+  const issuedReceipt = freezeDeep(structuredClone(receipt))
+  const verified: VerifiedPlan & { readonly diagnosticDiff: DiagnosticDiff } = {
+    [VerifiedPlanTypeId]: VerifiedPlanTypeId,
+    plan: issuedPlan,
+    preview: issuedPreview,
+    receipt: issuedReceipt,
+    diagnosticDiff: freezeDeep(structuredClone(diagnosticDiff)),
+  }
+  Object.freeze(verified)
+  issuedVerifiedPlans.set(verified, {
+    plan: issuedPlan,
+    preview: issuedPreview,
+    receipt: issuedReceipt,
+  })
+  return verified
+}
+
+/** Contents of a VerifiedPlan minted by successful verification, if any. */
+export const issuedVerifiedPlan = (verified: VerifiedPlan): IssuedVerifiedPlan | undefined =>
+  issuedVerifiedPlans.get(verified)
+
+const liveProjectIdentities = (
+  projects: ReadonlyArray<{ readonly id: string; readonly config: string }>,
+): ReadonlyArray<{ readonly id: string; readonly config: string }> =>
+  [...projects]
+    .map((project) => ({ id: project.id, config: project.config }))
+    .sort((left, right) => left.id.localeCompare(right.id))
+
+const planProjectIdentities = (
+  plan: TransformationPlan,
+): ReadonlyArray<{ readonly id: string; readonly config: string }> =>
+  [...plan.projects]
+    .map((project) => ({ id: project.id, config: project.configFileName }))
+    .sort((left, right) => left.id.localeCompare(right.id))
+
+const sameIdentities = (
+  expected: ReadonlyArray<{ readonly id: string; readonly config: string }>,
+  actual: ReadonlyArray<{ readonly id: string; readonly config: string }>,
+): boolean =>
+  expected.length === actual.length &&
+  expected.every(
+    (project, index) =>
+      project.id === actual[index]?.id && project.config === actual[index]?.config,
+  )
+
+export const requireMatchingProjectIdentity = (
+  plan: TransformationPlan,
+  liveProjects: ReadonlyArray<{ readonly id: string; readonly config: string }>,
+): Effect.Effect<void, ProjectIdentityMismatch> => {
+  const expected = liveProjectIdentities(liveProjects)
+  const actual = planProjectIdentities(plan)
+  if (sameIdentities(expected, actual)) return Effect.void
+  return Effect.fail(
+    new ProjectIdentityMismatch({
+      planId: plan.planId,
+      expected,
+      actual,
+    }),
+  )
+}
+
 const absoluteFileName = (
   plan: TransformationPlan,
   workspaceRoot: string,
   projectId: string,
   fileName: string,
-): Effect.Effect<string, never, Path.Path> =>
+): Effect.Effect<string, VerificationFailure, Path.Path> =>
   Effect.gen(function* () {
     const path = yield* Path.Path
     const project = plan.projects.find((candidate) => candidate.id === projectId)
-    if (project === undefined)
-      return yield* Effect.die(new Error(`Unknown project ID: ${projectId}`))
+    if (
+      project === undefined ||
+      !isProjectRelativePath(fileName) ||
+      !isProjectRelativePath(project.configFileName)
+    ) {
+      return yield* new VerificationFailure({
+        planId: plan.planId,
+        policy: "edits",
+        detail: `Unsafe or unknown project path: ${projectId}:${fileName}`,
+      })
+    }
     return path.resolve(workspaceRoot, path.dirname(project.configFileName), fileName)
+  })
+
+const staleSource = (planId: string, source: SourceFingerprint): StalePlanError =>
+  new StalePlanError({
+    planId,
+    projectId: source.projectId,
+    fileName: source.fileName,
+  })
+
+const revalidateSource = (
+  plan: TransformationPlan,
+  workspaceRoot: string,
+  source: SourceFingerprint,
+): Effect.Effect<
+  string | undefined,
+  StalePlanError | VerificationFailure,
+  FileSystem.FileSystem | Path.Path
+> =>
+  Effect.gen(function* () {
+    const stale = staleSource(plan.planId, source)
+    const absolute = yield* absoluteFileName(plan, workspaceRoot, source.projectId, source.fileName)
+    const fs = yield* FileSystem.FileSystem
+    if (source.kind === "missing") {
+      const exists = yield* fs.exists(absolute).pipe(Effect.mapError(() => stale))
+      if (exists) return yield* stale
+      return undefined
+    }
+    if (source.kind === "directory") {
+      const names = yield* fs.readDirectory(absolute).pipe(Effect.mapError(() => stale))
+      if (hashDirectoryListing(names) !== source.hash) return yield* stale
+      return undefined
+    }
+    if (source.kind === "realpath") {
+      const resolved = yield* fs.realPath(absolute).pipe(Effect.mapError(() => stale))
+      const project = plan.projects.find((candidate) => candidate.id === source.projectId)
+      if (project === undefined) return yield* stale
+      const path = yield* Path.Path
+      const projectRoot = path.resolve(workspaceRoot, path.dirname(project.configFileName))
+      const realRoot = yield* fs.realPath(projectRoot).pipe(Effect.orElseSucceed(() => projectRoot))
+      const relative = parseProjectRelativePath(
+        path.relative(realRoot, resolved).split(path.sep).join("/"),
+      )
+      if (relative === undefined || textHash(relative) !== source.hash) return yield* stale
+      return undefined
+    }
+    const content = yield* fs.readFileString(absolute).pipe(Effect.mapError(() => stale))
+    if (textHash(content) !== source.hash) return yield* stale
+    return content
+  })
+
+export const revalidatePlanSources = (
+  plan: TransformationPlan,
+  workspaceRoot: string,
+): Effect.Effect<void, StalePlanError | VerificationFailure, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    for (const source of plan.sources) {
+      yield* revalidateSource(plan, workspaceRoot, source)
+    }
   })
 
 export const previewPlan = (
@@ -101,37 +278,17 @@ export const previewPlan = (
   workspaceRoot: string,
 ): Effect.Effect<
   PlanPreview,
-  StalePlanError | VerificationFailure,
+  StalePlanError | VerificationFailure | PlanDecodeError,
   FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
+    const validated = yield* validatePlan(plan)
     const path = yield* Path.Path
     const initialFiles: Array<VirtualFsInitialFile> = []
     const initial = new Map<string, string>()
-    for (const source of plan.sources) {
-      const absolute = yield* absoluteFileName(
-        plan,
-        workspaceRoot,
-        source.projectId,
-        source.fileName,
-      )
-      const content = yield* FileSystem.FileSystem.use((fs) => fs.readFileString(absolute)).pipe(
-        Effect.mapError(
-          () =>
-            new StalePlanError({
-              planId: plan.planId,
-              projectId: source.projectId,
-              fileName: source.fileName,
-            }),
-        ),
-      )
-      if (textHash(content) !== source.hash) {
-        return yield* new StalePlanError({
-          planId: plan.planId,
-          projectId: source.projectId,
-          fileName: source.fileName,
-        })
-      }
+    for (const source of validated.sources) {
+      const content = yield* revalidateSource(validated, workspaceRoot, source)
+      if (!isContentFingerprint(source) || content === undefined) continue
       initialFiles.push({
         projectId: source.projectId,
         fileName: source.fileName,
@@ -141,8 +298,14 @@ export const previewPlan = (
     }
 
     const resolvePath = (projectId: string, fileName: string): string => {
-      const project = plan.projects.find((candidate) => candidate.id === projectId)
-      if (project === undefined) throw new Error(`Unknown project ID: ${projectId}`)
+      const project = validated.projects.find((candidate) => candidate.id === projectId)
+      if (
+        project === undefined ||
+        !isProjectRelativePath(fileName) ||
+        !isProjectRelativePath(project.configFileName)
+      ) {
+        throw new Error(`Unsafe or unknown project path: ${projectId}:${fileName}`)
+      }
       return path.resolve(workspaceRoot, path.dirname(project.configFileName), fileName)
     }
 
@@ -153,26 +316,26 @@ export const previewPlan = (
       load: (projectId, fileName) =>
         Effect.die(new Error(`Missing fingerprint for ${projectId}:${fileName}`)),
       resolvePath,
-      edits: plan.edits,
-      ...(plan.fileOperations === undefined ? {} : { fileOperations: plan.fileOperations }),
+      edits: validated.edits,
+      fileOperations: validated.fileOperations,
     }).pipe(
       Effect.mapError((error) => {
         if (error instanceof VirtualFsError) {
           if (error.reason === "source-mismatch") {
             return new StalePlanError({
-              planId: plan.planId,
+              planId: validated.planId,
               projectId: error.projectId,
               fileName: error.fileName,
             })
           }
           return new VerificationFailure({
-            planId: plan.planId,
+            planId: validated.planId,
             policy: "edits",
             detail: `Missing source for ${error.projectId}\\0${error.fileName}`,
           })
         }
         return new VerificationFailure({
-          planId: plan.planId,
+          planId: validated.planId,
           policy: "edits",
           detail: error._tag,
         })
@@ -182,7 +345,7 @@ export const previewPlan = (
     const touched = new Set<string>()
     const moveCounterpart = new Map<string, string>()
     const operationKinds = new Map<string, "create" | "delete" | "move">()
-    for (const op of plan.fileOperations ?? []) {
+    for (const op of validated.fileOperations ?? []) {
       const sourceKey = virtualFileKey(op.projectId, op.path)
       touched.add(sourceKey)
       if (op.kind === "create") {
@@ -199,7 +362,7 @@ export const previewPlan = (
       }
     }
 
-    for (const edit of plan.edits) {
+    for (const edit of validated.edits) {
       touched.add(virtualFileKey(edit.projectId, edit.fileName))
     }
 
@@ -207,6 +370,7 @@ export const previewPlan = (
     const stateOf = (text: string | undefined): FileState =>
       text === undefined ? { exists: false } : { exists: true, text, hash: textHash(text) }
     for (const key of touched) {
+      // SAFETY: every virtualFileKey is created from exactly one project ID and file name.
       const [projectId, fileName] = key.split("\0") as [string, string]
       const absolute = resolvePath(projectId, fileName)
       const before = initial.get(key)
@@ -231,14 +395,17 @@ export const previewPlan = (
         left.projectId.localeCompare(right.projectId) ||
         left.fileName.localeCompare(right.fileName),
     )
-    return { planId: plan.planId, snapshotHash: plan.snapshotHash, files }
+    return { planId: validated.planId, snapshotHash: validated.snapshotHash, files }
   })
 
 export const verifyPreview = (
   plan: TransformationPlan,
   preview: PlanPreview,
   observation: VerificationObservation,
-): Effect.Effect<VerifiedPlan, VerificationFailure> =>
+): Effect.Effect<
+  VerifiedPlan & { readonly diagnosticDiff: DiagnosticDiff },
+  VerificationFailure | PlanDecodeError
+> =>
   Effect.gen(function* () {
     const { min, max } = plan.policies.matchCount
     if (
@@ -261,15 +428,16 @@ export const verifyPreview = (
         detail: `Observed ${preview.files.length}`,
       })
     }
-    if (
-      plan.policies.diagnostics === "no-new-errors" &&
-      observation.diagnosticDiff.introduced.some((d) => d.category === "error")
-    ) {
+    const unpermittedErrors = unpermittedIntroducedErrors(
+      observation.diagnosticDiff,
+      observation.allowedErrors ?? [],
+    )
+    if (plan.policies.diagnostics === "no-new-errors" && unpermittedErrors.length > 0) {
       return yield* new VerificationFailure({
         planId: plan.planId,
         policy: "diagnostics",
         detail: `${observation.baselineErrorCount} -> ${observation.proposedErrorCount}; introduced error diagnostics are not permitted`,
-        diagnostics: observation.diagnosticDiff.introduced,
+        diagnostics: unpermittedErrors,
       })
     }
     if (plan.policies.idempotence === "required" && observation.secondPlanChangeCount !== 0) {
@@ -311,5 +479,6 @@ export const verifyPreview = (
       idempotenceChecked: plan.policies.idempotence === "required",
       policyResults: observation.policyResults ?? [],
     }
-    return { [VerifiedPlanTypeId]: VerifiedPlanTypeId, plan, preview, receipt }
+    const validated = yield* validatePlan(plan)
+    return issueVerifiedPlan(validated, preview, receipt, observation.diagnosticDiff)
   })

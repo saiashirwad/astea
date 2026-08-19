@@ -9,13 +9,22 @@
  * Application accepts. Neither stage writes project files.
  */
 import { path as Path, layer as nodeLayer } from "../platform/node.ts"
-import { Data, Effect, Predicate, Schema } from "effect"
+import { Data, Effect, Schema } from "effect"
+import { DiagnosticCategory, type Diagnostic } from "typescript/unstable/async"
 import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
-import { canonicalJson, type Json, type TransformationPlan } from "../Plan/index.ts"
+import {
+  canonicalJson,
+  type PlanDecodeError,
+  validatePlan,
+  type Json,
+  type TransformationPlan,
+} from "../Plan/index.ts"
 import {
   type PlanPreview,
   type PolicyResult,
   previewPlan,
+  type ProjectIdentityMismatch,
+  requireMatchingProjectIdentity,
   type StalePlanError,
   type VerificationObservation,
   VerificationFailure,
@@ -23,13 +32,16 @@ import {
   verifyPreview,
 } from "./Engine.ts"
 import {
+  allowedErrorsFromRules,
   computeDiagnosticDiff,
   type DiagnosticDiff,
   type DiagnosticRecord,
   type PolicyEvaluationContext,
+  unpermittedIntroducedErrors,
 } from "../Policy/index.ts"
 import { TOOLCHAIN, type Recipe } from "../Recipe/index.ts"
 import {
+  isProjectRelativePath,
   Workspace,
   WorkspaceSnapshot,
   type ProjectNotInSnapshot,
@@ -37,7 +49,9 @@ import {
 } from "../Workspace/index.ts"
 import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
 
-export { StalePlanError, VerificationFailure } from "./Engine.ts"
+export { ProjectIdentityMismatch, StalePlanError, VerificationFailure } from "./Engine.ts"
+
+const decodeJson = Schema.decodeUnknownSync(Schema.Json)
 
 /** The supplied recipe is not the recipe that authored the durable plan. */
 export class RecipeMismatch extends Data.TaggedError("RecipeMismatch")<{
@@ -86,25 +100,31 @@ export type {
 
 export type { DiagnosticDiff, DiagnosticRecord, PolicyEvaluationContext } from "../Policy/index.ts"
 
-interface NativeDiagnosticMessage {
-  readonly messageText: string
-}
+const normalizeDiagnostic = (diagnostic: Diagnostic): DiagnosticRecord => ({
+  code: diagnostic.code,
+  message: diagnostic.text,
+  category:
+    diagnostic.category === DiagnosticCategory.Warning
+      ? "warning"
+      : diagnostic.category === DiagnosticCategory.Suggestion
+        ? "suggestion"
+        : diagnostic.category === DiagnosticCategory.Message
+          ? "message"
+          : "error",
+  fileName: diagnostic.fileName,
+  start: diagnostic.pos,
+  length: diagnostic.end - diagnostic.pos,
+})
 
-interface NativeDiagnostic {
-  readonly code: number
-  readonly messageText?: string | NativeDiagnosticMessage
-  readonly category: number
-  readonly file?: { readonly fileName?: string }
-  readonly start?: number
-  readonly length?: number
-}
-
-const diagnosticMessageText = (
-  messageText: string | NativeDiagnosticMessage | undefined,
-): string => {
-  if (Predicate.isString(messageText)) return messageText
-  return messageText?.messageText ?? "Unknown diagnostic"
-}
+const diagnosticIdentity = (diagnostic: DiagnosticRecord): string =>
+  JSON.stringify([
+    diagnostic.category,
+    diagnostic.code,
+    diagnostic.fileName ?? null,
+    diagnostic.start ?? null,
+    diagnostic.length ?? null,
+    diagnostic.message,
+  ])
 
 const absoluteTarget = (
   workspaceRoot: string,
@@ -113,9 +133,12 @@ const absoluteTarget = (
   fileName: string,
 ): string => {
   const project = plan.projects.find((candidate) => candidate.id === projectId)
-  if (project === undefined) {
-    // Finalization guarantees every edit references a known project.
-    throw new Error(`Unknown project ID: ${projectId}`)
+  if (
+    project === undefined ||
+    !isProjectRelativePath(fileName) ||
+    !isProjectRelativePath(project.configFileName)
+  ) {
+    throw new Error(`Unsafe or unknown project path: ${projectId}:${fileName}`)
   }
   return Path.resolve(workspaceRoot, Path.dirname(project.configFileName), fileName)
 }
@@ -127,10 +150,18 @@ const absoluteTarget = (
  */
 export const of = (
   plan: TransformationPlan,
-): Effect.Effect<PlanPreview, StalePlanError | VerificationFailure, Workspace> =>
-  Workspace.use((workspace) => previewPlan(plan, workspace.root).pipe(Effect.provide(nodeLayer)))
-
-const asJsonValue = (value: unknown): Json => value as Json
+): Effect.Effect<
+  PlanPreview,
+  StalePlanError | VerificationFailure | PlanDecodeError | ProjectIdentityMismatch,
+  Workspace
+> =>
+  Workspace.use((workspace) =>
+    Effect.gen(function* () {
+      const validated = yield* validatePlan(plan)
+      yield* requireMatchingProjectIdentity(validated, workspace.definition.projects)
+      return yield* previewPlan(validated, workspace.root)
+    }).pipe(Effect.provide(nodeLayer)),
+  )
 
 const canonicalInput = <Input, E, R>(
   recipe: Recipe<Input, E, R>,
@@ -141,20 +172,24 @@ const canonicalInput = <Input, E, R>(
   Effect.gen(function* () {
     let validated = input
     if (recipe.schema !== undefined) {
+      // SAFETY: recipe.schema is the declared boundary contract for Input.
       const decode = Schema.decodeUnknownEffect(recipe.schema) as (
-        value: unknown,
+        value: Input,
       ) => Effect.Effect<Input, Schema.SchemaError>
       validated = yield* decode(input)
       // Encode after decoding. This mirrors Recipe.run's validation and gives
       // schemas with transforms/defaults the same canonical representation used
       // in plan.recipe.options.
+      // SAFETY: recipe schemas encode to the JSON representation stored in plans.
       const encode = Schema.encodeUnknownEffect(recipe.schema) as (
         value: Input,
-      ) => Effect.Effect<unknown, Schema.SchemaError>
+      ) => Effect.Effect<Json, Schema.SchemaError>
       const encoded = yield* encode(validated)
-      return { value: validated, json: asJsonValue(encoded ?? null) }
+      const json = encoded ?? null
+      return { value: validated, json }
     }
-    return { value: validated, json: asJsonValue(validated ?? null) }
+    const json = decodeJson(validated ?? null)
+    return { value: validated, json }
   }).pipe(Effect.mapError(() => new RecipeInputMismatch({ planId, expected, actual: null })))
 
 const validateRecipeForPlan = <Input, E, R>(
@@ -197,7 +232,7 @@ const validateRecipeForPlan = <Input, E, R>(
       })
     }
 
-    if (canonicalJson(asJsonValue(recipe.policies)) !== canonicalJson(asJsonValue(plan.policies))) {
+    if (canonicalJson(decodeJson(recipe.policies)) !== canonicalJson(decodeJson(plan.policies))) {
       return yield* new PolicyMismatch({
         planId: plan.planId,
         expected: plan.policies,
@@ -205,7 +240,7 @@ const validateRecipeForPlan = <Input, E, R>(
       })
     }
 
-    if (canonicalJson(asJsonValue(TOOLCHAIN)) !== canonicalJson(asJsonValue(plan.toolchain))) {
+    if (canonicalJson(decodeJson(TOOLCHAIN)) !== canonicalJson(decodeJson(plan.toolchain))) {
       return yield* new ToolchainMismatch({
         planId: plan.planId,
         expected: plan.toolchain,
@@ -215,34 +250,45 @@ const validateRecipeForPlan = <Input, E, R>(
     return encoded.value
   })
 
+const collectProjectDiagnostics = (nativeProject: {
+  readonly program: {
+    readonly getSyntacticDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
+    readonly getBindDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
+    readonly getSemanticDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
+    readonly getProgramDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
+    readonly getGlobalDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
+    readonly getConfigFileParsingDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
+  }
+}) =>
+  Effect.all([
+    nativeRequest("getSyntacticDiagnostics", () => nativeProject.program.getSyntacticDiagnostics()),
+    nativeRequest("getBindDiagnostics", () => nativeProject.program.getBindDiagnostics()),
+    nativeRequest("getSemanticDiagnostics", () => nativeProject.program.getSemanticDiagnostics()),
+    nativeRequest("getProgramDiagnostics", () => nativeProject.program.getProgramDiagnostics()),
+    nativeRequest("getGlobalDiagnostics", () => nativeProject.program.getGlobalDiagnostics()),
+    nativeRequest("getConfigFileParsingDiagnostics", () =>
+      nativeProject.program.getConfigFileParsingDiagnostics(),
+    ),
+  ])
+
 const collectDiagnostics = Effect.gen(function* () {
   const snapshot = yield* WorkspaceSnapshot
   const allDiagnostics: Array<DiagnosticRecord> = []
+  const seen = new Set<string>()
 
   for (const configured of snapshot.projects) {
     const project = yield* snapshot.project(configured)
-    const diagnosticList = yield* project.unsafeNative((nativeProject) =>
-      nativeRequest<ReadonlyArray<NativeDiagnostic>>("getSemanticDiagnostics", () =>
-        nativeProject.program.getSemanticDiagnostics(),
-      ),
+    const lists = yield* project.unsafeNative((nativeProject) =>
+      collectProjectDiagnostics(nativeProject),
     )
-    for (const d of diagnosticList) {
-      const message = diagnosticMessageText(d.messageText)
-      allDiagnostics.push({
-        code: d.code,
-        message,
-        category:
-          d.category === 0
-            ? "warning"
-            : d.category === 2
-              ? "suggestion"
-              : d.category === 3
-                ? "message"
-                : "error",
-        fileName: d.file?.fileName,
-        start: d.start,
-        length: d.length,
-      })
+    for (const list of lists) {
+      for (const diagnostic of list) {
+        const record = normalizeDiagnostic(diagnostic)
+        const key = diagnosticIdentity(record)
+        if (seen.has(key)) continue
+        seen.add(key)
+        allDiagnostics.push(record)
+      }
     }
   }
   return allDiagnostics
@@ -268,6 +314,8 @@ export const verify = <Input, E, R>(
   | RecipeInputMismatch
   | PolicyMismatch
   | ToolchainMismatch
+  | PlanDecodeError
+  | ProjectIdentityMismatch
   | NativeCompilerError
   | ProjectNotInSnapshot
   | SnapshotExpired,
@@ -275,14 +323,16 @@ export const verify = <Input, E, R>(
 > =>
   Effect.gen(function* () {
     const workspace = yield* Workspace
-    const validatedInput = yield* validateRecipeForPlan(plan, recipe, input)
-    const proposed = yield* of(plan)
+    const validatedPlan = yield* validatePlan(plan)
+    yield* requireMatchingProjectIdentity(validatedPlan, workspace.definition.projects)
+    const validatedInput = yield* validateRecipeForPlan(validatedPlan, recipe, input)
+    const proposed = yield* of(validatedPlan)
 
     const files = new Map<string, string>()
     const created = new Set<string>()
     const deleted = new Set<string>()
     for (const file of proposed.files) {
-      const target = absoluteTarget(workspace.root, plan, file.projectId, file.fileName)
+      const target = absoluteTarget(workspace.root, validatedPlan, file.projectId, file.fileName)
       if (file.after.exists) {
         files.set(target, file.after.text)
         if (!file.before.exists) created.add(target)
@@ -301,7 +351,7 @@ export const verify = <Input, E, R>(
       overlay,
       Effect.gen(function* () {
         const diagnostics = yield* collectDiagnostics
-        if (plan.policies.idempotence !== "required") {
+        if (validatedPlan.policies.idempotence !== "required") {
           // SAFETY: no replay is requested, so this optional count is absent by construction.
           return { diagnostics, replayChanges: undefined }
         }
@@ -316,33 +366,35 @@ export const verify = <Input, E, R>(
     )
 
     const diagnosticDiff = computeDiagnosticDiff(baselineDiagnostics, proposedRun.diagnostics)
+    const allowedErrors = allowedErrorsFromRules(recipe.rules)
+    const introducedErrors = unpermittedIntroducedErrors(diagnosticDiff, allowedErrors)
 
-    const matches = plan.measurements?.matches
-    const { min, max } = plan.policies.matchCount
+    const matches = validatedPlan.measurements?.matches
+    const { min, max } = validatedPlan.policies.matchCount
     if ((min !== undefined || max !== undefined) && matches === undefined) {
       return yield* new VerificationFailure({
-        planId: plan.planId,
+        planId: validatedPlan.planId,
         policy: "matches",
         detail: "Plan carries no primary-run match measurement",
       })
     }
 
     const policyResults: Array<PolicyResult> = []
-    if (plan.policies.matchCount.min !== undefined || plan.policies.matchCount.max !== undefined) {
+    if (
+      validatedPlan.policies.matchCount.min !== undefined ||
+      validatedPlan.policies.matchCount.max !== undefined
+    ) {
       policyResults.push({ name: "match-count", passed: true })
     }
-    if (plan.policies.maxAffectedFiles !== undefined) {
+    if (validatedPlan.policies.maxAffectedFiles !== undefined) {
       policyResults.push({ name: "affected-files", passed: true })
     }
-    const introducedErrors = diagnosticDiff.introduced.filter(
-      (diagnostic) => diagnostic.category === "error",
-    )
-    if (plan.policies.diagnostics === "no-new-errors") {
+    if (validatedPlan.policies.diagnostics === "no-new-errors") {
       policyResults.push({ name: "no-new-errors", passed: introducedErrors.length === 0 })
     } else {
       policyResults.push({ name: "diagnostic-diff", passed: true })
     }
-    if (plan.policies.idempotence === "required") {
+    if (validatedPlan.policies.idempotence === "required") {
       policyResults.push({ name: "idempotence", passed: proposedRun.replayChanges === 0 })
     }
 
@@ -351,6 +403,7 @@ export const verify = <Input, E, R>(
       affectedFiles: proposed.files.length,
       diagnosticDiff,
       replayEdits: proposedRun.replayChanges,
+      allowedErrors,
     }
 
     if (recipe.rules.length > 0) {
@@ -362,7 +415,7 @@ export const verify = <Input, E, R>(
           const detail = result === false ? `Policy rule '${rule.name}' failed` : result
           policyResults.push({ name: rule.name, passed: false, detail })
           return yield* new VerificationFailure({
-            planId: plan.planId,
+            planId: validatedPlan.planId,
             policy: "diagnostics",
             detail,
             diagnostics: diagnosticDiff.introduced,
@@ -382,6 +435,7 @@ export const verify = <Input, E, R>(
             proposedErrorCount,
             diagnosticDiff,
             policyResults,
+            allowedErrors,
           }
         : {
             actualMatches: matches ?? 0,
@@ -390,9 +444,8 @@ export const verify = <Input, E, R>(
             diagnosticDiff,
             policyResults,
             secondPlanChangeCount: proposedRun.replayChanges,
+            allowedErrors,
           }
 
-    const verified = yield* verifyPreview(plan, proposed, observation)
-
-    return Object.assign(verified, { diagnosticDiff })
+    return yield* verifyPreview(validatedPlan, proposed, observation)
   })
