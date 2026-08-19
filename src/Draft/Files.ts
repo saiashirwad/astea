@@ -48,11 +48,15 @@ export const files = {
               projectId: project.project.id,
               path,
               content,
-              evidenceIds: [`file:create:${path}`],
+              evidenceIds: [`file:create:${project.project.id}:${path}`],
             },
           ],
           evidence: [
-            { id: `file:create:${path}`, kind: "file-operation", facts: { kind: "create", path } },
+            {
+              id: `file:create:${project.project.id}:${path}`,
+              kind: "file-operation",
+              facts: { kind: "create", projectId: project.project.id, path },
+            },
           ],
           matches: 1,
         })),
@@ -76,11 +80,15 @@ export const files = {
               projectId: project.project.id,
               path,
               initialHash: textHash(source),
-              evidenceIds: [`file:delete:${path}`],
+              evidenceIds: [`file:delete:${project.project.id}:${path}`],
             },
           ],
           evidence: [
-            { id: `file:delete:${path}`, kind: "file-operation", facts: { kind: "delete", path } },
+            {
+              id: `file:delete:${project.project.id}:${path}`,
+              kind: "file-operation",
+              facts: { kind: "delete", projectId: project.project.id, path },
+            },
           ],
           matches: 1,
         })),
@@ -100,7 +108,7 @@ export const files = {
       const sourcePath = yield* checkedPath(fromPath)
       const targetPath = yield* checkedPath(toPath)
       const source = yield* project.sourceText(sourcePath)
-      const moveEvidence = `file:move:${sourcePath}->${targetPath}`
+      const moveEvidence = `file:move:${project.project.id}:${sourcePath}->${targetPath}`
       const fileOpDraft: Draft = {
         edits: [],
         fileOperations: [
@@ -118,7 +126,12 @@ export const files = {
           {
             id: moveEvidence,
             kind: "file-operation",
-            facts: { kind: "move", path: sourcePath, toPath: targetPath },
+            facts: {
+              kind: "move",
+              projectId: project.project.id,
+              path: sourcePath,
+              toPath: targetPath,
+            },
           },
         ],
         matches: 1,
@@ -146,7 +159,7 @@ export const files = {
           continue
         }
         for (const replacement of replacements) {
-          const importEvidenceId = `import:move-target:${relFile}:${replacement.start}-${replacement.end}`
+          const importEvidenceId = `import:move-target:${project.project.id}:${relFile}:${replacement.start}-${replacement.end}`
           importEdits.push({
             projectId: project.project.id,
             fileName: relFile,
@@ -171,7 +184,11 @@ export const files = {
           edit.evidenceIds.map((id) => ({
             id,
             kind: "file-import-rewrite",
-            facts: { fileName: edit.fileName, target: targetPath },
+            facts: {
+              projectId: edit.projectId,
+              fileName: edit.fileName,
+              target: targetPath,
+            },
           })),
         ),
         matches: importEdits.length,

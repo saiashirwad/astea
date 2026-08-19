@@ -191,12 +191,17 @@ CLI as JSON:
 pnpm exec safemods run ./recipe.ts --input '{"property":"value"}'
 ```
 
+The CLI parses `--input` as JSON when possible. If the value is not valid JSON,
+it passes the raw string to the recipe; a declared recipe schema then decides
+whether that value is valid. Hyphen-prefixed values such as the JSON number
+`-1` can be passed as `--input=-1` or as `--input -1`.
+
 ## Verification and application
 
 The safety boundary is enforced by the API, not by CLI convention:
 
 1. `Recipe.run` creates a plan and fingerprints the configured projects.
-2. `Preview.of` materializes the proposed bytes without writing them.
+2. `Verification.of` materializes the proposed bytes without writing them.
 3. `Verification.verify` compiles the proposed state in memory and evaluates
    the plan policies.
 4. `Application.apply` accepts the resulting `VerifiedPlan`; it does not accept
@@ -219,6 +224,9 @@ success receipt.
 # Preview a plan (the default run mode)
 safemods run ./recipe.ts [--cwd ./project] [--input '{...}']
 
+# Compatibility spelling for the same preview mode; --preview is a no-op
+safemods run ./recipe.ts --preview
+
 # Preview and verify
 safemods run ./recipe.ts --verify
 
@@ -237,7 +245,14 @@ safemods scan ./recipe.ts --fail-on-match
 safemods tool ./recipe.ts
 ```
 
-Use `--no-color` or the `NO_COLOR` environment variable for plain output.
+`--format` accepts `text`, `json`, or `csv`; `--json` and `--csv` are scan-only
+shortcuts. `--fail-on-match` is also scan-only. Use `--no-color` or the
+`NO_COLOR` environment variable for plain output. Exactly one recipe path is
+accepted.
+
+For compatibility, the command may be omitted: a lone recipe path behaves as
+`run`, `--scan` selects the `scan` command, and `--tool-schema` selects the
+`tool` command. Prefer the explicit commands in new scripts.
 
 ## Programmatic use
 

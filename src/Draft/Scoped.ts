@@ -3,7 +3,19 @@ import { args, replaceArgument, wrapArgument } from "./Arguments.ts"
 import { classes, functions, interfaces } from "./Declarations.ts"
 import { files } from "./Files.ts"
 import { imports } from "./Imports.ts"
-import { insertAfter, insertBefore, print, remove, replace, replaceWith } from "./Model.ts"
+import {
+  audit,
+  concat,
+  empty,
+  insertAfter,
+  insertBefore,
+  isDraft,
+  print,
+  remove,
+  replace,
+  replaceEach,
+  replaceWith,
+} from "./Model.ts"
 import { objectLiteral } from "./ObjectLiteral.ts"
 import { cleanUnused } from "./Cleanup.ts"
 import { renameSymbol, renameSymbolNamed } from "./Symbols.ts"
@@ -17,12 +29,19 @@ const bindProject =
     operation(project, ...args)
 
 export const forProject = (project: ProjectSnapshot) => ({
+  audit,
+  concat,
+  empty,
+  isDraft,
+  replaceEach,
   replace: bindProject(replace, project),
   remove: bindProject(remove, project),
   insertBefore: bindProject(insertBefore, project),
   insertAfter: bindProject(insertAfter, project),
   print: bindProject(print, project),
   replaceWith: bindProject(replaceWith, project),
+  replaceArgument: bindProject(replaceArgument, project),
+  wrapArgument: bindProject(wrapArgument, project),
   args: {
     replaceArgument: bindProject(replaceArgument, project),
     wrapArgument: bindProject(wrapArgument, project),
@@ -39,6 +58,7 @@ export const forProject = (project: ProjectSnapshot) => ({
     addNamed: bindProject(imports.addNamed, project),
     removeNamed: bindProject(imports.removeNamed, project),
     updateSource: bindProject(imports.updateSource, project),
+    organize: bindProject(imports.organize, project),
   },
   interfaces: {
     addProperty: bindProject(interfaces.addProperty, project),

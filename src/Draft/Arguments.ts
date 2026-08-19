@@ -3,9 +3,9 @@ import type { CallExpression, Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
-import { empty, replace, type Draft, type EditRangeOptions } from "./Model.ts"
+import { draftForEdit, empty, replace, type Draft, type EditRangeOptions } from "./Model.ts"
 
-/** Replace a specific argument of a call expression by 0-based index. */
+/** Replace a call argument by 0-based index, or return `Draft.empty` when it is absent. */
 export const replaceArgument = (
   project: ProjectSnapshot,
   call: CallExpression,
@@ -19,7 +19,7 @@ export const replaceArgument = (
     : replace(project, argument, newText, options)
 }
 
-/** Wrap a specific argument of a call expression by index using a formatting function. */
+/** Wrap a call argument by index, or return `Draft.empty` when it is absent. */
 export const wrapArgument = (
   project: ProjectSnapshot,
   call: CallExpression,
@@ -52,25 +52,22 @@ export const args = {
         const currentText = sourceFile.text.slice(start, end)
         const newText = transform(currentText, argument)
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start,
-              end,
-              expectedTextHash: textHash(currentText),
-              newText,
-              evidenceIds: [`argument:wrap:${index}`],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start,
+            end,
+            expectedTextHash: textHash(currentText),
+            newText,
+          },
+          `argument:wrap:${index}`,
+          { index },
+        )
       }),
     ),
 
-  /** Reorder call arguments by index array. */
+  /** Reorder by a full index permutation; invalid or identity arrays return `Draft.empty`. */
   reorder: (
     project: ProjectSnapshot,
     call: CallExpression,
@@ -78,7 +75,16 @@ export const args = {
   ): Effect.Effect<Draft, SnapshotExpired> =>
     project.unsafeNative(() =>
       Effect.sync((): Draft => {
-        if (call.arguments.length === 0 || indices.length !== call.arguments.length) {
+        const argumentCount = call.arguments.length
+        if (
+          argumentCount === 0 ||
+          indices.length !== argumentCount ||
+          new Set(indices).size !== argumentCount ||
+          indices.some(
+            (index) => !Number.isInteger(index) || index < 0 || index >= argumentCount,
+          ) ||
+          indices.every((index, position) => index === position)
+        ) {
           return empty
         }
         const sourceFile = call.getSourceFile()
@@ -93,21 +99,18 @@ export const args = {
           return sourceFile.text.slice(arg.getStart(sourceFile), arg.getEnd())
         })
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start,
-              end,
-              expectedTextHash: textHash(originalSlice),
-              newText: orderedTexts.join(", "),
-              evidenceIds: ["argument:reorder"],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start,
+            end,
+            expectedTextHash: textHash(originalSlice),
+            newText: orderedTexts.join(", "),
+          },
+          "argument:reorder",
+          { indices: [...indices] },
+        )
       }),
     ),
 
@@ -123,39 +126,31 @@ export const args = {
         if (call.arguments.length === 0) {
           const callEnd = call.getEnd()
           const insertPos = callEnd - 1
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, sourceFile.fileName),
-                start: insertPos,
-                end: insertPos,
-                expectedTextHash: textHash(""),
-                newText: text,
-                evidenceIds: ["argument:append"],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: text,
+            },
+            "argument:append",
+          )
         } else {
           const lastArg = call.arguments[call.arguments.length - 1]!
           const insertPos = lastArg.getEnd()
-          return {
-            edits: [
-              {
-                projectId: project.project.id,
-                fileName: projectRelativePath(project.root, sourceFile.fileName),
-                start: insertPos,
-                end: insertPos,
-                expectedTextHash: textHash(""),
-                newText: `, ${text}`,
-                evidenceIds: ["argument:append"],
-              },
-            ],
-            evidence: [],
-            matches: 1,
-          }
+          return draftForEdit(
+            {
+              projectId: project.project.id,
+              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              start: insertPos,
+              end: insertPos,
+              expectedTextHash: textHash(""),
+              newText: `, ${text}`,
+            },
+            "argument:append",
+          )
         }
       }),
     ),

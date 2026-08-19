@@ -6,7 +6,7 @@ import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.t
 import { imports } from "./Imports.ts"
 import { concat, empty, type Draft } from "./Model.ts"
 
-/** Clean up unused imports and unused declarations identified by TypeScript compiler diagnostics. */
+/** Clean up named imports that have no references beyond their own import specifier. */
 export const cleanUnused = (
   project: ProjectSnapshot,
 ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>

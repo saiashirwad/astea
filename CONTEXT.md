@@ -33,7 +33,7 @@ The digest of a Transformation Plan's canonical durable content, independent of 
 _Avoid_: Random run ID, database identity
 
 **Snapshot Input Manifest**:
-The canonical record of project, toolchain, file-content, missing-path, directory, realpath, and declared-environment observations that could affect a Workspace Snapshot's compiler or recipe semantics. Any mismatch makes its Plan stale.
+The durable record of project, toolchain, source and configuration file contents, containing-directory listings, and project-relative realpaths captured when a Transformation Plan is created. Missing entries cover only unavailable targets found by that deterministic walk; compiler per-open missing-path probes are not a stable durable set, and declared-environment observations are not recorded. Any recorded mismatch makes the Plan stale.
 _Avoid_: Edited-file list, source-files-only hash
 
 **Durable Path**:
@@ -104,12 +104,12 @@ _Avoid_: Console success message, write attempt log
 Deterministic facts that explain a Transformation Plan's inputs, selections, edits, and Verification results. Operational observations such as timings and trace identifiers are metadata, not Plan Evidence.
 _Avoid_: Logs, opaque reasoning
 
-**Node Anchor**:
-Serializable Plan Evidence locating a native TypeScript node by Configured Project, project-relative file, exact range, syntax kind, and source-text hash. It is valid only after the plan's source fingerprints match and carries no compiler authority.
+**Node Anchor** _(vocabulary only; not an implemented `NodeAnchor` type or API)_:
+A term for serializable Plan Evidence that would locate a native TypeScript node by Configured Project, project-relative file, exact range, syntax kind, and source-text hash. Such evidence would be valid only after the plan's source fingerprints match and would carry no compiler authority.
 _Avoid_: Persistent node, fuzzy locator
 
-**Symbol Anchor**:
-Serializable Plan Evidence identifying a snapshot symbol through its canonical name, flags, and declaration Node Anchors. It explains a semantic choice but does not establish symbol identity across Workspace Snapshots.
+**Symbol Anchor** _(vocabulary only; not an implemented `SymbolAnchor` type or API)_:
+A term for serializable Plan Evidence that would identify a snapshot symbol through its canonical name, flags, and declaration Node Anchors. Such evidence could explain a semantic choice but would not establish symbol identity across Workspace Snapshots.
 _Avoid_: Persistent symbol, cross-generation object identity
 
 **Text Edit**:

@@ -4,7 +4,7 @@ import { isIdentifier, isPropertyAssignment, isStringLiteral } from "typescript/
 import { textHash } from "../Edit/Hash.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
-import { empty, type Draft } from "./Model.ts"
+import { draftForEdit, empty, type Draft } from "./Model.ts"
 
 /** Object literal editing combinators. */
 export const objectLiteral = {
@@ -25,21 +25,19 @@ export const objectLiteral = {
               const init = prop.initializer
               const start = init.getStart(sourceFile)
               const end = init.getEnd()
-              return {
-                edits: [
-                  {
-                    projectId: project.project.id,
-                    fileName: projectRelativePath(project.root, sourceFile.fileName),
-                    start,
-                    end,
-                    expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-                    newText: valueText,
-                    evidenceIds: [`object:setField:${fieldName}`],
-                  },
-                ],
-                evidence: [],
-                matches: 1,
-              }
+              if (sourceFile.text.slice(start, end) === valueText) return empty
+              return draftForEdit(
+                {
+                  projectId: project.project.id,
+                  fileName: projectRelativePath(project.root, sourceFile.fileName),
+                  start,
+                  end,
+                  expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+                  newText: valueText,
+                },
+                `object:setField:${fieldName}`,
+                { fieldName },
+              )
             }
           }
         }
@@ -49,21 +47,18 @@ export const objectLiteral = {
         const suffix = literal.properties.length === 0 ? " " : ""
         const textToInsert = `${prefix}${fieldName}: ${valueText}${suffix}`
 
-        return {
-          edits: [
-            {
-              projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: textToInsert,
-              evidenceIds: [`object:setField:${fieldName}`],
-            },
-          ],
-          evidence: [],
-          matches: 1,
-        }
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: textToInsert,
+          },
+          `object:setField:${fieldName}`,
+          { fieldName },
+        )
       }),
     ),
 
@@ -91,21 +86,18 @@ export const objectLiteral = {
                 start = prevProp.getEnd()
               }
 
-              return {
-                edits: [
-                  {
-                    projectId: project.project.id,
-                    fileName: projectRelativePath(project.root, sourceFile.fileName),
-                    start,
-                    end,
-                    expectedTextHash: textHash(sourceFile.text.slice(start, end)),
-                    newText: "",
-                    evidenceIds: [`object:removeField:${fieldName}`],
-                  },
-                ],
-                evidence: [],
-                matches: 1,
-              }
+              return draftForEdit(
+                {
+                  projectId: project.project.id,
+                  fileName: projectRelativePath(project.root, sourceFile.fileName),
+                  start,
+                  end,
+                  expectedTextHash: textHash(sourceFile.text.slice(start, end)),
+                  newText: "",
+                },
+                `object:removeField:${fieldName}`,
+                { fieldName },
+              )
             }
           }
         }

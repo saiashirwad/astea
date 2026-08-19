@@ -175,9 +175,9 @@ export const fixesError = (code: number | string): Policy => ({
     {
       name: `fixes-error:TS${code}`,
       evaluate: (ctx) => {
-        const targetStr = String(code).replace(/^TS/, "")
+        const targetStr = diagnosticCodeKey(code)
         const resolved = ctx.diagnosticDiff.resolved.some(
-          (d) => String(d.code).replace(/^TS/, "") === targetStr,
+          (d) => diagnosticCodeKey(d.code) === targetStr,
         )
         return resolved
           ? true

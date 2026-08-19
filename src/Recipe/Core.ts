@@ -35,7 +35,7 @@ import {
   projectRelativePath,
 } from "../Workspace/ProjectPath.ts"
 import * as Draft from "../Draft/index.ts"
-import type { Draft as DraftModel } from "../Draft/index.ts"
+import { DraftEvidenceConflict, type Draft as DraftModel } from "../Draft/index.ts"
 import type { Policy as PolicyModel, VerificationRule } from "../Policy/index.ts"
 import * as Policy from "../Policy/index.ts"
 import { run as runOverlay } from "../Overlay/index.ts"
@@ -271,14 +271,19 @@ const composeDrafts = (
   next: DraftModel,
 ): Effect.Effect<
   DraftModel,
-  ProjectSnapshotError | ProjectNotInSnapshot | FileNotFound | InvalidEdit | EditConflict
+  | ProjectSnapshotError
+  | ProjectNotInSnapshot
+  | FileNotFound
+  | InvalidEdit
+  | EditConflict
+  | DraftEvidenceConflict
 > =>
   Effect.gen(function* () {
     const accumulatedChanged =
       accumulated.edits.length > 0 || (accumulated.fileOperations?.length ?? 0) > 0
     const nextChanged = next.edits.length > 0 || (next.fileOperations?.length ?? 0) > 0
     const retained = {
-      evidence: [...accumulated.evidence, ...next.evidence],
+      evidence: yield* Draft.mergeEvidenceEffect([...accumulated.evidence, ...next.evidence]),
       matches: accumulated.matches + next.matches,
     }
     // A no-edit stage still contributes evidence and match measurements.
@@ -436,7 +441,7 @@ const composeDrafts = (
     return {
       edits: combinedEdits.filter((edit) => !consumed.has(`${edit.projectId}\0${edit.fileName}`)),
       fileOperations: normalizedOperations,
-      evidence: [...accumulated.evidence, ...next.evidence],
+      evidence: yield* Draft.mergeEvidenceEffect([...accumulated.evidence, ...next.evidence]),
       matches: accumulated.matches + next.matches,
     }
   })
@@ -455,7 +460,8 @@ export function pipe<Input, E1, R1, E2, R2>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   R1 | R2
 >
 export function pipe<Input, E1, R1, E2, R2, E3, R3>(
@@ -473,7 +479,8 @@ export function pipe<Input, E1, R1, E2, R2, E3, R3>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   R1 | R2 | R3
 >
 export function pipe<Input, E1, R1, E2, R2, E3, R3, E4, R4>(
@@ -493,7 +500,8 @@ export function pipe<Input, E1, R1, E2, R2, E3, R3, E4, R4>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   R1 | R2 | R3 | R4
 >
 export function pipe<Input, E, R>(
@@ -507,7 +515,8 @@ export function pipe<Input, E, R>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   R
 > {
   const name = recipes.map((r) => r.name).join(" >> ")
@@ -531,7 +540,7 @@ export function pipe<Input, E, R>(
             accumulatedDraft = yield* composeDrafts(snapshot, accumulatedDraft, nextDraft)
           } else {
             const nextDraft = yield* recipe.run(input)
-            accumulatedDraft = Draft.concat(accumulatedDraft, nextDraft)
+            accumulatedDraft = yield* Draft.concatEffect(accumulatedDraft, nextDraft)
           }
         }
         return accumulatedDraft
@@ -556,7 +565,8 @@ export function all<Input, E1, R1, E2, R2>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   R1 | R2
 >
 export function all<Input, E1, R1, E2, R2, E3, R3>(
@@ -572,7 +582,8 @@ export function all<Input, E1, R1, E2, R2, E3, R3>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   R1 | R2 | R3
 >
 export function all<Input, E, R>(
@@ -586,7 +597,8 @@ export function all<Input, E, R>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   R
 > {
   const name = `all(${recipes.map((r) => r.name).join(", ")})`
@@ -599,7 +611,7 @@ export function all<Input, E, R>(
     compiled,
     (input: Input) =>
       Effect.forEach(recipes, (r) => r.run(input), { concurrency: "unbounded" }).pipe(
-        Effect.map((drafts) => Draft.concat(...drafts)),
+        Effect.flatMap((drafts) => Draft.concatEffect(...drafts)),
       ),
     {
       schema: composedSchema(recipes),
@@ -863,7 +875,8 @@ export const run = <Input, E, R>(
   | PlanBuildError
   | NativeCompilerError
   | ProjectNotInSnapshot
-  | SnapshotExpired,
+  | SnapshotExpired
+  | DraftEvidenceConflict,
   Workspace | Exclude<R, WorkspaceSnapshot>
 > =>
   Effect.gen(function* () {

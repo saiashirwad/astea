@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { runCli } from "../src/Cli/Run.ts"
-import { Effect, Predicate } from "effect"
+import { CliMatchFoundError } from "../src/Cli/Audit.ts"
+import { Effect, Predicate, Schema } from "effect"
 
 const args = process.argv.slice(2)
 
@@ -19,18 +20,21 @@ Usage:
   safemods scan <recipe.ts> [options]
   safemods run <recipe.ts> [options]
   safemods tool <recipe.ts>
+  safemods <recipe.ts> [options]       Compatibility form for run
 
 Options:
-  --preview          Generate transformation preview without modifying disk (default for run)
+  --preview          Accepted compatibility no-op (run already defaults to preview)
   --verify           Run full snapshot verification and diagnostic delta analysis
   --apply            Apply verified changes atomically to disk
   --json             Output structured JSON report (for scan)
   --csv              Output CSV report (for scan)
   --format <fmt>     Output format: text, json, csv (for scan)
   --fail-on-match    Exit with non-zero code if any matches are found (for scan)
-  --input <json>     JSON string input for recipes with schemas
+  --input <json|text>  JSON when valid; otherwise the raw string. Hyphenated values: --input=-1
   --cwd <path>       Target workspace working directory (defaults to current dir)
   --no-color         Disable ANSI terminal colors
+  --scan             Compatibility alias for the scan command
+  --tool-schema      Compatibility alias for the tool command
   --help, -h         Show help message
 `)
 }
@@ -70,9 +74,21 @@ let i = 0
 while (i < args.length) {
   const arg = args[i]
   if (arg === undefined) break
+  const optionWithInlineValue = [...optionsWithValues].find((option) =>
+    arg.startsWith(`${option}=`),
+  )
+  if (optionWithInlineValue !== undefined) {
+    const value = arg.slice(optionWithInlineValue.length + 1)
+    if (value === "") {
+      failArg(`Missing value for ${optionWithInlineValue}`)
+    }
+    optionsMap[optionWithInlineValue] = value
+    i++
+    continue
+  }
   if (optionsWithValues.has(arg)) {
     const value = args[i + 1]
-    if (value === undefined || value.startsWith("-")) {
+    if (value === undefined || knownFlags.has(value) || commands.has(value)) {
       failArg(`Missing value for ${arg}`)
     }
     optionsMap[arg] = value
@@ -87,7 +103,7 @@ while (i < args.length) {
     i++
     continue
   }
-  if (command === undefined && commands.has(arg)) {
+  if (command === undefined && recipeArg === undefined && commands.has(arg)) {
     command = arg
     i++
     continue
@@ -97,7 +113,7 @@ while (i < args.length) {
     i++
     continue
   }
-  i++
+  failArg(`Unexpected positional argument ${arg}`)
 }
 
 if (!recipeArg) {
@@ -130,13 +146,13 @@ if (formatOption === "json" || flags.has("--json")) {
   format = "csv"
 }
 
+const JsonValue = Schema.fromJsonString(Schema.Unknown)
+
 let input: unknown = undefined
-if (optionsMap["--input"]) {
-  try {
-    input = JSON.parse(optionsMap["--input"])
-  } catch {
-    input = optionsMap["--input"]
-  }
+if (optionsMap["--input"] !== undefined) {
+  const raw = optionsMap["--input"]
+  const decoded = Schema.decodeExit(JsonValue)(raw)
+  input = decoded._tag === "Success" ? decoded.value : raw
 }
 
 const cwd = optionsMap["--cwd"]
@@ -161,10 +177,10 @@ Effect.runPromise(
     noColor,
   }),
 ).catch((cause: unknown) => {
-  const error = isErrorRecord(cause) ? cause : undefined
-  if (error?._tag === "CliMatchFoundError") {
+  if (cause instanceof CliMatchFoundError) {
     process.exit(1)
   }
+  const error = isErrorRecord(cause) ? cause : undefined
   const msg = Predicate.isString(error?.message) ? error.message : String(cause)
   console.error(`\n✖ ${msg}`)
   process.exit(1)

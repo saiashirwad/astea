@@ -8,14 +8,14 @@ import {
   type ProjectSnapshot,
   type ProjectSnapshotError,
 } from "../Workspace/index.ts"
-import { empty, replaceEach, type Draft } from "./Model.ts"
+import { DraftEvidenceConflict, empty, replaceEach, type Draft } from "./Model.ts"
 
 /** Rename a symbol across all its declarations, imports, and reference occurrences in the project. */
 export const renameSymbol = (
   project: ProjectSnapshot,
   symbol: NativeSymbol,
   newName: string,
-): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
+): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError | DraftEvidenceConflict> =>
   Effect.gen(function* () {
     const references = yield* Query.collect(Query.referencesTo(project, symbol))
     return yield* replaceEach(references, () => newName)
@@ -26,13 +26,13 @@ export interface RenameSymbolNamedFn {
     file: ProjectFile,
     oldName: string,
     newName: string,
-  ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError>
+  ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError | DraftEvidenceConflict>
   (
     project: ProjectSnapshot,
     oldName: string,
     newName: string,
     options: { readonly within: string },
-  ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError>
+  ): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError | DraftEvidenceConflict>
 }
 
 /**
@@ -44,7 +44,7 @@ export const renameSymbolNamed: RenameSymbolNamedFn = (
   oldName: string,
   newName: string,
   maybeOptions?: { readonly within: string },
-): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError> =>
+): Effect.Effect<Draft, ProjectSnapshotError | QueryContractError | DraftEvidenceConflict> =>
   Effect.gen(function* () {
     const isFile = isProjectFile(projectOrFile)
     const project = isFile ? projectOrFile.project : projectOrFile
