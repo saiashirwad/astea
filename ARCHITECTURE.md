@@ -7,7 +7,13 @@ Cli / AgentTool / bin
           |
        Node adapters
           |
-Recipe / Preview / Verification / Application
+       Execution
+          |
+     Application
+          |
+   Verification
+          |
+Recipe / Preview
           |
  Draft / Overlay / Precondition
           |
@@ -26,6 +32,12 @@ Within the semantic layer, `Query` may depend on `Pattern`, `Workspace`, and
 - A feature's `internal/` directory is private to that feature.
 - `Workspace` is read/compiler authority. It does not import Draft, Edit,
   Plan, Overlay, Preview, Verification, or Application.
+- `Recipe` creates plans. `Preview` materializes plan bytes without writes.
+  `Verification` checks plans and issues verified authority. `Application` is
+  the only write authority and consumes that verified authority. `Execution`
+  is the consumer workflow that orchestrates plan, preview, verify, and apply.
+  Recipe, Preview, and Verification must not import Application. Recipe and
+  Preview must not import Execution.
 - Preview and Verification are read-only. Only Application has write authority.
 - Filesystem and native compiler implementations are intended to move toward
   `Node`; that direction is not fully realized today. `Workspace` currently

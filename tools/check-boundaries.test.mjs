@@ -21,6 +21,15 @@ describe("architecture boundaries", () => {
     assert.equal(dependencyFailure("Edit", "Workspace"), "Edit imports higher layer Workspace")
     assert.equal(dependencyFailure("Pattern", "Query"), "Pattern must not depend on Query")
     assert.equal(dependencyFailure("Workspace", "Draft"), "Workspace must not depend on Draft")
+    assert.equal(
+      dependencyFailure("Recipe", "Application"),
+      "Recipe must not depend on Application",
+    )
+    assert.equal(dependencyFailure("Preview", "Execution"), "Preview must not depend on Execution")
+    assert.equal(
+      dependencyFailure("Verification", "Application"),
+      "Verification must not depend on Application",
+    )
   })
 
   it("checks static, dynamic, private, root, and package imports", async () => {
@@ -31,8 +40,12 @@ describe("architecture boundaries", () => {
         mkdir(join(root, "src", "Draft"), { recursive: true }),
         mkdir(join(root, "src", "Edit"), { recursive: true }),
         mkdir(join(root, "src", "Pattern"), { recursive: true }),
+        mkdir(join(root, "src", "Preview"), { recursive: true }),
         mkdir(join(root, "src", "Query", "internal"), { recursive: true }),
         mkdir(join(root, "src", "Recipe"), { recursive: true }),
+        mkdir(join(root, "src", "Application"), { recursive: true }),
+        mkdir(join(root, "src", "Execution"), { recursive: true }),
+        mkdir(join(root, "src", "Verification"), { recursive: true }),
         mkdir(join(root, "src", "Workspace"), { recursive: true }),
       ])
       await Promise.all([
@@ -50,8 +63,15 @@ describe("architecture boundaries", () => {
         ),
         writeFile(
           join(root, "src", "Recipe", "Bad.ts"),
-          'import("../Cli/index.ts")\nimport "../index.ts"\n',
+          'import("../Cli/index.ts")\nimport "../Application/index.ts"\nimport "../index.ts"\n',
         ),
+        writeFile(join(root, "src", "Preview", "Bad.ts"), 'import "../Execution/index.ts"\n'),
+        writeFile(
+          join(root, "src", "Verification", "Bad.ts"),
+          'import "../Application/index.ts"\n',
+        ),
+        writeFile(join(root, "src", "Application", "index.ts"), "export {}\n"),
+        writeFile(join(root, "src", "Execution", "index.ts"), "export {}\n"),
         writeFile(join(root, "src", "Draft", "Good.ts"), 'import "../Query/index.ts"\n'),
       ])
 
@@ -59,7 +79,16 @@ describe("architecture boundaries", () => {
       assert.ok(failures.some((failure) => failure.includes("Edit imports higher layer Workspace")))
       assert.ok(failures.some((failure) => failure.includes("package self-import safemods/Plan")))
       assert.ok(failures.some((failure) => failure.includes("imports private")))
-      assert.ok(failures.some((failure) => failure.includes("Recipe imports higher layer Cli")))
+      assert.ok(failures.some((failure) => failure.includes("Recipe must not depend on Cli")))
+      assert.ok(
+        failures.some((failure) => failure.includes("Recipe must not depend on Application")),
+      )
+      assert.ok(
+        failures.some((failure) => failure.includes("Preview must not depend on Execution")),
+      )
+      assert.ok(
+        failures.some((failure) => failure.includes("Verification must not depend on Application")),
+      )
       assert.ok(failures.some((failure) => failure.includes("imports the root façade")))
       assert.equal(
         failures.some((failure) => failure.includes("Draft/Good.ts")),

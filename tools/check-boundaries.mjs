@@ -49,8 +49,54 @@ export const temporaryAdapterImports = new Map([
 
 const exactDependencies = new Map([
   ["Pattern", new Set(["Compiler", "Evidence", "Workspace"])],
-  ["Query", new Set(["Compiler", "Evidence", "Pattern", "Workspace"])],
+  ["Query", new Set(["Compiler", "Evidence", "Pattern", "ProjectPath", "Workspace"])],
   ["Workspace", new Set(["Compiler", "Node", "ProjectPath", "VirtualFs", "platform"])],
+  [
+    "Recipe",
+    new Set([
+      "Compiler",
+      "Draft",
+      "Edit",
+      "Node",
+      "Overlay",
+      "Plan",
+      "Policy",
+      "ProjectPath",
+      "VirtualFs",
+      "Workspace",
+      "generated",
+      "platform",
+    ]),
+  ],
+  ["Preview", new Set(["Verification"])],
+  [
+    "Verification",
+    new Set([
+      "Compiler",
+      "Edit",
+      "Plan",
+      "Policy",
+      "ProjectPath",
+      "Recipe",
+      "VirtualFs",
+      "Workspace",
+      "platform",
+    ]),
+  ],
+  ["Application", new Set(["Verification"])],
+  [
+    "Execution",
+    new Set([
+      "Application",
+      "Compiler",
+      "Draft",
+      "Plan",
+      "Policy",
+      "Recipe",
+      "Verification",
+      "Workspace",
+    ]),
+  ],
   ["bin", new Set(["Cli"])],
 ])
 
