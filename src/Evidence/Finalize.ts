@@ -1,25 +1,14 @@
 /** Evidence identity, merging, and completion for draft operations. */
-import { Data, Effect, Predicate } from "effect"
-import type { EvidenceRecord, Json } from "./Core.ts"
+import { Data, Effect } from "effect"
+import type { EvidenceRecord } from "./Core.ts"
+import { canonicalJson } from "./Canonical.ts"
 
 export class DraftEvidenceConflict extends Data.TaggedError("DraftEvidenceConflict")<{
   readonly id: string
 }> {}
 
-const canonicalize = (value: Json): Json => {
-  if (Array.isArray(value)) return value.map(canonicalize)
-  if (Predicate.isObject(value)) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, child]) => [key, canonicalize(child)]),
-    )
-  }
-  return value
-}
-
 const evidenceIdentity = (record: EvidenceRecord): string =>
-  `${record.kind}\0${JSON.stringify(canonicalize(record.facts))}`
+  `${record.kind}\0${canonicalJson(record.facts)}`
 
 /** Keep identical records; reject the same ID with different kind or facts. */
 export const mergeEvidence = (

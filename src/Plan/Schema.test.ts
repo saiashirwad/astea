@@ -13,6 +13,7 @@ import {
   type PlanInput,
   type TransformationPlan,
 } from "./index.ts"
+import { canonicalJson as canonicalEvidenceJson } from "../Evidence/Canonical.ts"
 import { parseProjectRelativePath } from "../ProjectPath/index.ts"
 
 const richInput = {
@@ -347,6 +348,20 @@ const rehashPlan = (plan: TransformationPlan): TransformationPlan => {
 }
 
 describe("Plan schema", () => {
+  effect("uses the evidence canonical JSON operation for durable plan values", () =>
+    Effect.sync(() => {
+      const value: Json = {
+        outer: { zebra: [3, { beta: false, alpha: true }], alpha: null },
+        alpha: "first",
+      }
+
+      expect(canonicalJson(value)).toBe(
+        '{"alpha":"first","outer":{"alpha":null,"zebra":[3,{"alpha":true,"beta":false}]}}',
+      )
+      expect(canonicalJson(value)).toBe(canonicalEvidenceJson(value))
+    }),
+  )
+
   effect("round-trips the schema-version 1 canonical fixture without changing IDs", () =>
     Effect.gen(function* () {
       const plan = yield* finalizePlan(richInput)
