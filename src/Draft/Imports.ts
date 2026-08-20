@@ -8,7 +8,6 @@ import {
   isStringLiteral,
 } from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
-import { projectRelativePath } from "../Node/ProjectPath.ts"
 import {
   isProjectFile,
   type ProjectFile,
@@ -97,7 +96,7 @@ export const imports = {
                     return draftForEdit(
                       {
                         projectId: project.project.id,
-                        fileName: projectRelativePath(project.root, source.fileName),
+                        fileName: project.relativeFileName(source.fileName),
                         start: insertPos,
                         end: insertPos,
                         expectedTextHash: textHash(""),
@@ -118,7 +117,7 @@ export const imports = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, source.fileName),
+              fileName: project.relativeFileName(source.fileName),
               start: insertPos,
               end: insertPos,
               expectedTextHash: textHash(""),
@@ -162,7 +161,7 @@ export const imports = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              fileName: project.relativeFileName(sourceFile.fileName),
               start,
               end,
               expectedTextHash: textHash(sourceFile.text.slice(start, end)),
@@ -188,7 +187,7 @@ export const imports = {
         return draftForEdit(
           {
             projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            fileName: project.relativeFileName(sourceFile.fileName),
             start,
             end,
             expectedTextHash: textHash(sourceFile.text.slice(start, end)),
@@ -221,7 +220,7 @@ export const imports = {
         return draftForEdit(
           {
             projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            fileName: project.relativeFileName(sourceFile.fileName),
             start,
             end,
             expectedTextHash: textHash(sourceFile.text.slice(start, end)),
@@ -390,7 +389,7 @@ export const imports = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, source.fileName),
+              fileName: project.relativeFileName(source.fileName),
               start,
               end,
               expectedTextHash: textHash(currentImports),

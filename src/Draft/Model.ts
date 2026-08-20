@@ -21,7 +21,6 @@ import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
 import type { TextEdit } from "../Edit/Model.ts"
 import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
-import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { Selection } from "../Query/index.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
 
@@ -114,7 +113,7 @@ const editForNode = (
       const end = node.getEnd()
       return {
         projectId: project.project.id,
-        fileName: projectRelativePath(project.root, sourceFile.fileName),
+        fileName: project.relativeFileName(sourceFile.fileName),
         start,
         end,
         expectedTextHash: textHash(sourceFile.text.slice(start, end)),
@@ -169,7 +168,7 @@ const insertAtNode = (
       return draftForEdit(
         {
           projectId: project.project.id,
-          fileName: projectRelativePath(project.root, sourceFile.fileName),
+          fileName: project.relativeFileName(sourceFile.fileName),
           start: position,
           end: position,
           expectedTextHash: textHash(""),

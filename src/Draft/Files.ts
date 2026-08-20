@@ -1,4 +1,3 @@
-import { path as Path } from "../platform/node.ts"
 import { Effect } from "effect"
 import { SyntaxKind, type Node, type SourceFile, type StringLiteral } from "typescript/unstable/ast"
 import {
@@ -206,13 +205,43 @@ const specifierExtension = (specText: string): string => {
   return match?.[0] ?? ""
 }
 
-const asModuleSpecifier = (value: string): string => value.split(Path.sep).join("/")
-
 const isRelativeSpecifier = (specText: string): boolean =>
   specText.startsWith("./") || specText.startsWith("../")
 
+const pathSegments = (value: string): Array<string> => {
+  const segments: Array<string> = []
+  for (const part of value.split("/")) {
+    if (part === "" || part === ".") continue
+    if (part === "..") {
+      if (segments.at(-1) !== undefined && segments.at(-1) !== "..") {
+        segments.pop()
+      } else {
+        segments.push(part)
+      }
+      continue
+    }
+    segments.push(part)
+  }
+  return segments
+}
+
+const relativePath = (fromDir: string, toPath: string): string => {
+  const from = pathSegments(fromDir)
+  const to = pathSegments(toPath)
+  let common = 0
+  while (common < from.length && common < to.length && from[common] === to[common]) common += 1
+  return [...Array.from({ length: from.length - common }, () => ".."), ...to.slice(common)].join(
+    "/",
+  )
+}
+
+const directoryName = (value: string): string => {
+  const index = value.lastIndexOf("/")
+  return index === -1 ? "." : value.slice(0, index) || "."
+}
+
 const resolvedSpecifierPath = (fileDir: string, specText: string): string =>
-  Path.normalize(Path.join(fileDir, specText))
+  pathSegments(`${fileDir}/${specText}`).join("/")
 
 const refersToMovedModule = (resolved: string, fromBase: string, sourcePath: string): boolean => {
   const stripped = stripModuleExtension(resolved)
@@ -231,7 +260,7 @@ const rewriteRelativeSpecifier = (
   toDir: string,
 ): string | undefined => {
   if (!isRelativeSpecifier(specText) || fromDir === toDir) return undefined
-  const next = asModuleSpecifier(Path.relative(toDir, resolvedSpecifierPath(fromDir, specText)))
+  const next = relativePath(toDir, resolvedSpecifierPath(fromDir, specText))
   const withDot = next.startsWith(".") ? next : `./${next}`
   return withDot === specText ? undefined : withDot
 }
@@ -242,7 +271,7 @@ const rewriteMovedTargetSpecifier = (
   toBase: string,
 ): string | undefined => {
   if (!isRelativeSpecifier(specText)) return undefined
-  const next = `${asModuleSpecifier(Path.relative(fileDir, toBase))}${specifierExtension(specText)}`
+  const next = `${relativePath(fileDir, toBase)}${specifierExtension(specText)}`
   const withDot = next.startsWith(".") ? next : `./${next}`
   return withDot === specText ? undefined : withDot
 }
@@ -312,9 +341,9 @@ const specifierReplacements = (
   fromBase: string,
   toBase: string,
 ): Array<SpecifierReplacement> => {
-  const fileDir = Path.dirname(relFile)
-  const sourceDir = Path.dirname(sourcePath)
-  const targetDir = Path.dirname(targetPath)
+  const fileDir = directoryName(relFile)
+  const sourceDir = directoryName(sourcePath)
+  const targetDir = directoryName(targetPath)
   const replacements: Array<SpecifierReplacement> = []
   eachModuleSpecifier(file, (specifier) => {
     const specText = specifier.text

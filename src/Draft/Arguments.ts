@@ -1,7 +1,6 @@
 import { Effect } from "effect"
 import type { CallExpression, Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
-import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
 import { draftForEdit, empty, replace, type Draft, type EditRangeOptions } from "./Model.ts"
 
@@ -55,7 +54,7 @@ export const args = {
         return draftForEdit(
           {
             projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            fileName: project.relativeFileName(sourceFile.fileName),
             start,
             end,
             expectedTextHash: textHash(currentText),
@@ -102,7 +101,7 @@ export const args = {
         return draftForEdit(
           {
             projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            fileName: project.relativeFileName(sourceFile.fileName),
             start,
             end,
             expectedTextHash: textHash(originalSlice),
@@ -129,7 +128,7 @@ export const args = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              fileName: project.relativeFileName(sourceFile.fileName),
               start: insertPos,
               end: insertPos,
               expectedTextHash: textHash(""),
@@ -143,7 +142,7 @@ export const args = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              fileName: project.relativeFileName(sourceFile.fileName),
               start: insertPos,
               end: insertPos,
               expectedTextHash: textHash(""),

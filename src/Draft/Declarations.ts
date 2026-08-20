@@ -15,7 +15,6 @@ import {
   isStringLiteral,
 } from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
-import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
 import { draftForEdit, empty, type Draft } from "./Model.ts"
 
@@ -48,7 +47,7 @@ export const interfaces = {
         return draftForEdit(
           {
             projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            fileName: project.relativeFileName(sourceFile.fileName),
             start: insertPos,
             end: insertPos,
             expectedTextHash: textHash(""),
@@ -81,7 +80,7 @@ export const interfaces = {
               return draftForEdit(
                 {
                   projectId: project.project.id,
-                  fileName: projectRelativePath(project.root, sourceFile.fileName),
+                  fileName: project.relativeFileName(sourceFile.fileName),
                   start,
                   end: actualEnd,
                   expectedTextHash: textHash(sourceFile.text.slice(start, actualEnd)),
@@ -138,7 +137,7 @@ export const classes = {
         return draftForEdit(
           {
             projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            fileName: project.relativeFileName(sourceFile.fileName),
             start: insertPos,
             end: insertPos,
             expectedTextHash: textHash(""),
@@ -170,7 +169,7 @@ export const classes = {
         return draftForEdit(
           {
             projectId: project.project.id,
-            fileName: projectRelativePath(project.root, sourceFile.fileName),
+            fileName: project.relativeFileName(sourceFile.fileName),
             start: insertPos,
             end: insertPos,
             expectedTextHash: textHash(""),
@@ -238,7 +237,7 @@ export const functions = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              fileName: project.relativeFileName(sourceFile.fileName),
               start: insertPos,
               end: insertPos,
               expectedTextHash: textHash(""),
@@ -253,7 +252,7 @@ export const functions = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              fileName: project.relativeFileName(sourceFile.fileName),
               start: insertPos,
               end: insertPos,
               expectedTextHash: textHash(""),
@@ -282,7 +281,7 @@ export const functions = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              fileName: project.relativeFileName(sourceFile.fileName),
               start,
               end,
               expectedTextHash: textHash(sourceFile.text.slice(start, end)),
@@ -297,7 +296,7 @@ export const functions = {
           return draftForEdit(
             {
               projectId: project.project.id,
-              fileName: projectRelativePath(project.root, sourceFile.fileName),
+              fileName: project.relativeFileName(sourceFile.fileName),
               start: insertPos,
               end: insertPos,
               expectedTextHash: textHash(""),
