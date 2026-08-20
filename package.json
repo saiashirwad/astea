@@ -60,8 +60,8 @@
       "default": "./dist/src/Precondition/index.js"
     },
     "./Preview": {
-      "types": "./dist/src/Verification/index.d.ts",
-      "default": "./dist/src/Verification/index.js"
+      "types": "./dist/src/Preview/index.d.ts",
+      "default": "./dist/src/Preview/index.js"
     },
     "./Query": {
       "types": "./dist/src/Query/index.d.ts",

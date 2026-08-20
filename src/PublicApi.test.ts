@@ -3,7 +3,16 @@ import { fileURLToPath } from "node:url"
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Layer, type Stream } from "effect"
 import type { CallExpression, Node } from "typescript/unstable/ast"
-import { Application, Pattern, Plan, Recipe, Verification, Workspace, type Query } from "./index.ts"
+import {
+  Application,
+  Pattern,
+  Plan,
+  Preview,
+  Recipe,
+  Verification,
+  Workspace,
+  type Query,
+} from "./index.ts"
 import { applicationLayerNode } from "./Node/index.ts"
 import { wrapTargetInput, type WrapTargetInput } from "./test/wrap-target-input.ts"
 import { migrateImportSource, type MigrateImportSourceInput } from "./test/migrate-import-source.ts"
@@ -90,7 +99,7 @@ describe("candidate public API (@effect/vitest)", () => {
 
           const { plan, preview, receipt, verified } = yield* Effect.gen(function* () {
             const plan = yield* Recipe.run(wrapTargetInput, input)
-            const preview = yield* Verification.of(plan)
+            const preview = yield* Preview.of(plan)
             const verified = yield* Verification.verify(plan, wrapTargetInput, input)
             const receipt = yield* Application.apply(verified)
             return { plan, preview, verified, receipt }
