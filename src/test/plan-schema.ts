@@ -1,22 +1,16 @@
 import { createHash } from "node:crypto"
-import { describe, effect, expect } from "@effect/vitest"
-import { Effect, Exit } from "effect"
 import {
   asJson,
   canonicalJson,
   finalizePlan,
-  parsePlan,
   requireProjectRelativePath,
-  serializePlan,
   validatePlan,
   type Json,
   type PlanInput,
   type TransformationPlan,
-} from "./index.ts"
-import { canonicalJson as canonicalEvidenceJson } from "../Evidence/Canonical.ts"
-import { parseProjectRelativePath } from "../ProjectPath/index.ts"
+} from "../Plan/index.ts"
 
-const richInput = {
+export const richInput = {
   recipe: {
     name: "test",
     version: "1",
@@ -95,7 +89,7 @@ const withOperation = (input: PlanInput, index: number, operation: unknown): unk
   ),
 })
 
-const exactStructureMutations: ReadonlyArray<InputMutation> = [
+export const exactStructureMutations: ReadonlyArray<InputMutation> = [
   { name: "unknown plan input field", mutate: (value) => ({ ...value, unexpected: true }) },
   {
     name: "unknown recipe field",
@@ -207,7 +201,7 @@ const exactStructureMutations: ReadonlyArray<InputMutation> = [
   },
 ]
 
-const nonJsonMutations: ReadonlyArray<InputMutation> = [
+export const nonJsonMutations: ReadonlyArray<InputMutation> = [
   {
     name: "non-JSON recipe options",
     mutate: (value) => ({ ...value, recipe: { ...value.recipe, options: () => "invalid" } }),
@@ -224,7 +218,7 @@ const nonJsonMutations: ReadonlyArray<InputMutation> = [
   },
 ]
 
-const semanticMutations: ReadonlyArray<InputMutation> = [
+export const semanticMutations: ReadonlyArray<InputMutation> = [
   {
     name: "unsafe project path",
     mutate: (value) => ({
@@ -325,201 +319,24 @@ const semanticMutations: ReadonlyArray<InputMutation> = [
 ]
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- mutation cases are invalid payloads.
-const finalizeUnknown = (candidate: unknown) =>
+export const finalizeUnknown = (candidate: unknown) =>
   // SAFETY: mutation tests deliberately send untyped values through the public boundary.
   finalizePlan(candidate as PlanInput)
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- mutation cases are invalid payloads.
-const validateUnknown = (candidate: unknown) =>
+export const validateUnknown = (candidate: unknown) =>
   // SAFETY: mutation tests deliberately send untyped values through the public boundary.
   validatePlan(candidate as TransformationPlan)
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- exact-structure mutations remain JSON values.
-const encodeUnknown = (candidate: unknown): string =>
+export const encodeUnknown = (candidate: unknown): string =>
   // SAFETY: exact-structure mutations in this test remain JSON values.
   canonicalJson(candidate as Json)
 
-const digest = (value: Json): string =>
+export const digest = (value: Json): string =>
   createHash("sha256").update(canonicalJson(value)).digest("hex")
 
-const rehashPlan = (plan: TransformationPlan): TransformationPlan => {
+export const rehashPlan = (plan: TransformationPlan): TransformationPlan => {
   const { planId: _, ...payload } = plan
   return { ...plan, planId: digest(asJson(payload)) }
 }
-
-describe("Plan schema", () => {
-  effect("uses the evidence canonical JSON operation for durable plan values", () =>
-    Effect.sync(() => {
-      const value: Json = {
-        outer: { zebra: [3, { beta: false, alpha: true }], alpha: null },
-        alpha: "first",
-      }
-
-      expect(canonicalJson(value)).toBe(
-        '{"alpha":"first","outer":{"alpha":null,"zebra":[3,{"alpha":true,"beta":false}]}}',
-      )
-      expect(canonicalJson(value)).toBe(canonicalEvidenceJson(value))
-    }),
-  )
-
-  effect("round-trips the schema-version 1 canonical fixture without changing IDs", () =>
-    Effect.gen(function* () {
-      const plan = yield* finalizePlan(richInput)
-      const serialized = serializePlan(plan)
-      const parsed = yield* parsePlan(serialized)
-
-      expect(plan.schemaVersion).toBe(1)
-      expect(plan.planId).toBe("4c21f75c1188213ff7a7630678ea6b697789db924d4e4ddc0c987f13279cb768")
-      expect(plan.snapshotHash).toBe(
-        "b94070e67eb09e018c5bf1263bd3941d9f221d5d6d0afecf9fe39c0ea218d7d1",
-      )
-      expect(parsed.planId).toBe(plan.planId)
-      expect(parsed.snapshotHash).toBe(plan.snapshotHash)
-      expect(serializePlan(parsed)).toBe(serialized)
-      expect(parsed).toEqual(plan)
-
-      const helperStyleInput: PlanInput = {
-        ...richInput,
-        edits: [
-          {
-            ...richInput.edits[0]!,
-            evidenceIds: ["node:replace:app:src/index.ts:0-0", "selection:app:src/index.ts:0-1"],
-          },
-        ],
-        evidence: [
-          {
-            id: "node:replace:app:src/index.ts:0-0",
-            kind: "draft-operation",
-            facts: { operation: "node:replace", source: "concat" },
-          },
-          {
-            id: "selection:app:src/index.ts:0-1",
-            kind: "selection",
-            facts: { projectId: "app", fileName: "src/index.ts", start: 0, end: 1 },
-          },
-          ...richInput.evidence.filter((record) => record.id !== "edit"),
-        ],
-      }
-      const helperPlan = yield* finalizePlan(helperStyleInput)
-      const helperAgain = yield* finalizePlan(helperStyleInput)
-      expect(helperPlan.planId).toBe(helperAgain.planId)
-      expect((yield* parsePlan(serializePlan(helperPlan))).planId).toBe(helperPlan.planId)
-
-      const windowsStylePaths: PlanInput = {
-        ...richInput,
-        sources: richInput.sources.map((source) => ({
-          ...source,
-          fileName: source.fileName.replaceAll("/", "\\"),
-        })),
-        edits: richInput.edits.map((edit) => ({
-          ...edit,
-          fileName: edit.fileName.replaceAll("/", "\\"),
-        })),
-      }
-      const portablePlan = yield* finalizePlan(richInput)
-      const windowsStylePlan = yield* finalizePlan(windowsStylePaths)
-      expect(windowsStylePlan.planId).toBe(portablePlan.planId)
-      expect(windowsStylePlan.snapshotHash).toBe(portablePlan.snapshotHash)
-    }),
-  )
-
-  effect("uses one exact structural contract at finalize, validate, and parse boundaries", () =>
-    Effect.gen(function* () {
-      const plan = yield* finalizePlan(richInput)
-      for (const mutation of exactStructureMutations) {
-        const finalized = yield* finalizeUnknown(mutation.mutate(richInput)).pipe(Effect.result)
-        const mutatedPlan = mutation.mutate(plan)
-        const validated = yield* validateUnknown(mutatedPlan).pipe(Effect.result)
-        const parsed = yield* parsePlan(encodeUnknown(mutatedPlan)).pipe(Effect.result)
-
-        expect({ name: mutation.name, outcome: finalized._tag }).toEqual({
-          name: mutation.name,
-          outcome: "Failure",
-        })
-        expect({ name: mutation.name, outcome: validated._tag }).toEqual({
-          name: mutation.name,
-          outcome: "Failure",
-        })
-        expect({ name: mutation.name, outcome: parsed._tag }).toEqual({
-          name: mutation.name,
-          outcome: "Failure",
-        })
-        if (validated._tag === "Failure") expect(validated.failure.reason).toBe("schema")
-        if (parsed._tag === "Failure") expect(parsed.failure.reason).toBe("schema")
-      }
-    }),
-  )
-
-  effect("rejects non-JSON options and evidence at in-memory boundaries", () =>
-    Effect.gen(function* () {
-      const plan = yield* finalizePlan(richInput)
-      for (const mutation of nonJsonMutations) {
-        const finalized = yield* finalizeUnknown(mutation.mutate(richInput)).pipe(Effect.result)
-        const validated = yield* validateUnknown(mutation.mutate(plan)).pipe(Effect.result)
-        expect({ name: mutation.name, outcome: finalized._tag }).toEqual({
-          name: mutation.name,
-          outcome: "Failure",
-        })
-        expect({ name: mutation.name, outcome: validated._tag }).toEqual({
-          name: mutation.name,
-          outcome: "Failure",
-        })
-        if (validated._tag === "Failure") expect(validated.failure.reason).toBe("schema")
-      }
-    }),
-  )
-
-  effect("rejects semantic input mutations", () =>
-    Effect.gen(function* () {
-      for (const mutation of semanticMutations) {
-        const result = yield* Effect.exit(finalizeUnknown(mutation.mutate(richInput)))
-        expect({ name: mutation.name, rejected: Exit.isFailure(result) }).toEqual({
-          name: mutation.name,
-          rejected: true,
-        })
-      }
-    }),
-  )
-
-  effect("rejects non-canonical array ordering even when hashes are recomputed", () =>
-    Effect.gen(function* () {
-      const plan = yield* finalizePlan(richInput)
-      const sources = [...plan.sources].reverse()
-      const unorderedPlans = [
-        rehashPlan({ ...plan, evidence: [...plan.evidence].reverse() }),
-        rehashPlan({ ...plan, fileOperations: [...plan.fileOperations!].reverse() }),
-        rehashPlan({
-          ...plan,
-          sources,
-          snapshotHash: digest(asJson({ projects: plan.projects, sources })),
-        }),
-      ]
-
-      for (const unordered of unorderedPlans) {
-        const validated = yield* validatePlan(unordered).pipe(Effect.result)
-        const parsed = yield* parsePlan(serializePlan(unordered)).pipe(Effect.result)
-        expect(validated._tag).toBe("Failure")
-        expect(parsed._tag).toBe("Failure")
-        if (validated._tag === "Failure") expect(validated.failure.reason).toBe("schema")
-        if (parsed._tag === "Failure") expect(parsed.failure.reason).toBe("schema")
-      }
-    }),
-  )
-
-  effect("rejects unsafe project-relative path spellings", () =>
-    Effect.sync(() => {
-      for (const path of [
-        "../escape.ts",
-        "/tmp/file.ts",
-        "C:\\tmp\\file.ts",
-        "C:/tmp/file.ts",
-        "\\\\server\\share\\file.ts",
-        "//server/share/file.ts",
-        "bad\0name.ts",
-      ]) {
-        expect(parseProjectRelativePath(path)).toBeUndefined()
-      }
-      expect(parseProjectRelativePath("src/../src/index.ts")).toBe("src/index.ts")
-    }),
-  )
-})
