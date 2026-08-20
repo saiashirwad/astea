@@ -37,5 +37,9 @@ Within the semantic layer, `Query` may depend on `Pattern`, `Workspace`, and
   injected path services.
 - CLI code is imported only by CLI entry points and `bin`.
 
-Oxlint enforces cycles, self-imports, package self-imports, feature internals,
-and the key layer constraints. Add a boundary before adding an exception.
+Oxlint enforces cycles and self-imports. `tools/check-boundaries.mjs` classifies
+every production domain, enforces the layer direction, protects feature
+internals, and rejects package and root self-imports. Existing upward imports
+into `Node` and `platform` are listed as temporary adapter migrations in that
+checker. Remove an exception when its owner moves to injected services. Do not
+add an exception without updating this document.

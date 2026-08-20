@@ -99,7 +99,7 @@
     "lint": "oxlint && node tools/check-boundaries.mjs",
     "effect:check": "effect-tsgo diagnostics --project tsconfig.json",
     "prepare": "effect-tsgo patch --no-typescript --oxlint",
-    "test": "vitest run src",
+    "test": "vitest run src tools/check-boundaries.test.mjs",
     "test:package": "node tools/package-smoke.mjs"
   },
   "dependencies": {
