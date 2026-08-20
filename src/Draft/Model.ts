@@ -9,12 +9,16 @@
  * rejection, plan identity) belongs to the engine in `Recipe.run`.
  */
 import { Data, Effect, Predicate } from "effect"
-import { asJson, canonicalJson } from "../Plan/index.ts"
+import {
+  asJson,
+  canonicalJson,
+  type EvidenceRecord,
+  type PlannedFileOperation,
+} from "../Plan/index.ts"
 import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
 import type { TextEdit } from "../Edit/Model.ts"
 import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
-import type { EvidenceRecord, PlannedFileOperation } from "../Plan/index.ts"
 import { projectRelativePath } from "../Workspace/ProjectPath.ts"
 import type { Selection } from "../Query/index.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"

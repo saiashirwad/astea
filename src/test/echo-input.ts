@@ -1,3 +1,4 @@
+// oxlint-disable effecttsgo/global-console-in-effect anti-slop/no-unknown-parameters
 import { Effect } from "effect"
 import * as Draft from "../Draft/index.ts"
 import * as Recipe from "../Recipe/index.ts"
