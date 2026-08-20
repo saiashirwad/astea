@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { CallExpression, Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
-import { projectRelativePath } from "../Workspace/ProjectPath.ts"
+import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
 import { draftForEdit, empty, replace, type Draft, type EditRangeOptions } from "./Model.ts"
 

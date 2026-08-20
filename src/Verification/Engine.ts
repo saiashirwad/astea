@@ -21,7 +21,7 @@ import {
   type VirtualFsInitialFile,
   VirtualFsError,
 } from "../VirtualFs/index.ts"
-import { isProjectRelativePath, parseProjectRelativePath } from "../Workspace/ProjectPath.ts"
+import { isProjectRelativePath, parseProjectRelativePath } from "../ProjectPath/index.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{
   readonly planId: string

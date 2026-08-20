@@ -4,5 +4,5 @@ export {
   parseProjectRelativePath,
   requireProjectRelativePath,
   InvalidProjectRelativePath,
-} from "../Workspace/ProjectPath.ts"
-export type { ProjectRelativePath } from "../Workspace/ProjectPath.ts"
+} from "../ProjectPath/index.ts"
+export type { ProjectRelativePath } from "../ProjectPath/index.ts"

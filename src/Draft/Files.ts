@@ -19,7 +19,7 @@ import {
   InvalidProjectRelativePath,
   parseProjectRelativePath,
   type ProjectRelativePath,
-} from "../Workspace/ProjectPath.ts"
+} from "../ProjectPath/index.ts"
 import type {
   FileNotFound,
   ProjectSnapshot,

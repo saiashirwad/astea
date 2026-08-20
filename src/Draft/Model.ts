@@ -19,7 +19,7 @@ import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
 import type { TextEdit } from "../Edit/Model.ts"
 import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
-import { projectRelativePath } from "../Workspace/ProjectPath.ts"
+import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { Selection } from "../Query/index.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
 

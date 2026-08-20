@@ -31,7 +31,10 @@ Within the semantic layer, `Query` may depend on `Pattern`, `Workspace`, and
   `Node`; that direction is not fully realized today. `Workspace` currently
   uses Node filesystem operations directly as the fallback for isolated-overlay
   directory listings. Recipe fingerprinting currently uses Node filesystem
-  APIs (through the local `node:fs` adapter) and `node:crypto` directly.
+  APIs (through the local `node:fs` adapter) and `node:crypto` directly. Portable
+  project-path identity is independent of `Workspace`. Host path resolution is
+  owned by `Node`, but semantic domains still import it directly until they use
+  injected path services.
 - CLI code is imported only by CLI entry points and `bin`.
 
 Oxlint enforces cycles, self-imports, package self-imports, feature internals,

@@ -8,7 +8,7 @@ import {
   isStringLiteral,
 } from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
-import { projectRelativePath } from "../Workspace/ProjectPath.ts"
+import { projectRelativePath } from "../Node/ProjectPath.ts"
 import {
   isProjectFile,
   type ProjectFile,

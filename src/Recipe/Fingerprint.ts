@@ -4,11 +4,8 @@ import { Effect, Predicate } from "effect"
 import { NativeCompilerError } from "../Compiler/Service.ts"
 import { textHash } from "../Edit/index.ts"
 import type { Json, SourceFingerprint } from "../Plan/index.ts"
-import {
-  isWithinProject,
-  parseProjectRelativePath,
-  projectRelativePath,
-} from "../Workspace/ProjectPath.ts"
+import { isWithinProject, projectRelativePath } from "../Node/ProjectPath.ts"
+import { parseProjectRelativePath } from "../ProjectPath/index.ts"
 import {
   hashDirectoryListing,
   type ProjectNotInSnapshot,

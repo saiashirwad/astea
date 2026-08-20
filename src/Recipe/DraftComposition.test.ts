@@ -10,7 +10,7 @@ import {
   WorkspaceSnapshot,
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
-import { requireProjectRelativePath } from "../Workspace/ProjectPath.ts"
+import { requireProjectRelativePath } from "../ProjectPath/index.ts"
 import { composeDrafts } from "./DraftComposition.ts"
 
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { Data, Effect, Predicate, Schema } from "effect"
 import type { EvidenceRecord, Json } from "../Evidence/Core.ts"
 import { compareEdits, editsConflict, type TextEdit } from "../Edit/index.ts"
-import { parseProjectRelativePath, type ProjectRelativePath } from "../Workspace/ProjectPath.ts"
+import { parseProjectRelativePath, type ProjectRelativePath } from "../ProjectPath/index.ts"
 import { PlanInputSchema, strictPlanParseOptions, TransformationPlanSchema } from "./Structure.ts"
 
 export type { Json } from "../Evidence/Core.ts"

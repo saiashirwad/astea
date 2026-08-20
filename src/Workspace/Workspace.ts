@@ -32,12 +32,12 @@ import {
   type CompilerObservation,
 } from "./internal/ObservedInputs.ts"
 import {
-  InvalidProjectRelativePath,
   isWithinProject,
   projectRelativePath,
   resolveContainedSnapshotPath,
   resolveProjectRelativeFile,
-} from "./ProjectPath.ts"
+} from "../Node/ProjectPath.ts"
+import { InvalidProjectRelativePath } from "../ProjectPath/index.ts"
 import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
 
 export type { NativeCompilerError }

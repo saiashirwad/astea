@@ -16,7 +16,7 @@ import {
   type FilePreview,
   type VerifiedPlan,
 } from "../Verification/Engine.ts"
-import { isProjectRelativePath } from "../Workspace/ProjectPath.ts"
+import { isProjectRelativePath } from "../ProjectPath/index.ts"
 import { Workspace, type WorkspaceDefinition } from "../Workspace/index.ts"
 import { layer as nodeLayer } from "../platform/node.ts"
 

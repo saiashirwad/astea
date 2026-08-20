@@ -1,7 +1,7 @@
 import { Effect, Predicate } from "effect"
 import type { Node } from "typescript/unstable/ast"
 import type { Type as NativeType } from "typescript/unstable/async"
-import { projectRelativePath } from "../Workspace/ProjectPath.ts"
+import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { Pattern } from "./Core.ts"
 import { matchFailure, matchSuccess, matchesName } from "./Internal.ts"
 

@@ -13,7 +13,7 @@ import {
   type PlanInput,
   type TransformationPlan,
 } from "./index.ts"
-import { parseProjectRelativePath } from "../Workspace/ProjectPath.ts"
+import { parseProjectRelativePath } from "../ProjectPath/index.ts"
 
 const richInput = {
   recipe: {

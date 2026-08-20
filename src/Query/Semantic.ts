@@ -8,7 +8,7 @@ import {
   type Type as NativeType,
 } from "typescript/unstable/async"
 import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
-import { projectRelativePath } from "../Workspace/ProjectPath.ts"
+import { projectRelativePath } from "../Node/ProjectPath.ts"
 import {
   isProjectFile,
   type ProjectFile,

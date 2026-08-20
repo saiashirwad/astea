@@ -17,7 +17,7 @@ import {
   isPropertyAccessExpression,
 } from "typescript/unstable/ast/is"
 import { nativeRequest } from "../Compiler/Service.ts"
-import { isWithinProject, projectRelativePath } from "../Workspace/ProjectPath.ts"
+import { isWithinProject, projectRelativePath } from "../Node/ProjectPath.ts"
 import {
   isProjectFile,
   type ProjectFile,

@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import type { ObjectLiteralExpression } from "typescript/unstable/ast"
 import { isIdentifier, isPropertyAssignment, isStringLiteral } from "typescript/unstable/ast/is"
 import { textHash } from "../Edit/Hash.ts"
-import { projectRelativePath } from "../Workspace/ProjectPath.ts"
+import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
 import { draftForEdit, empty, type Draft } from "./Model.ts"
 

@@ -42,6 +42,9 @@ for (const file of await files(sourceRoot)) {
     if (owner === "Pattern" && targetOwner === "Query") {
       failures.push(`${relative(root, file)}: Pattern must not import Query`)
     }
+    if (owner === "Plan" && targetOwner === "Workspace") {
+      failures.push(`${relative(root, file)}: Plan must not import Workspace`)
+    }
     if (
       owner === "Workspace" &&
       ["Draft", "Edit", "Plan", "Overlay", "Verification", "Application"].includes(targetOwner)
