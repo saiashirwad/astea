@@ -1,9 +1,8 @@
 /** Compiler diagnostic collection and normalization. */
 import { Effect } from "effect"
 import { DiagnosticCategory, type Diagnostic } from "typescript/unstable/async"
-import { nativeRequest } from "../Compiler/Service.ts"
 import type { DiagnosticRecord } from "../Policy/index.ts"
-import { WorkspaceSnapshot } from "../Workspace/index.ts"
+import { nativeRequest, WorkspaceSnapshot } from "../Workspace/index.ts"
 
 const normalizeDiagnostic = (diagnostic: Diagnostic): DiagnosticRecord => ({
   code: diagnostic.code,

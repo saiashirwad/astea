@@ -1,6 +1,5 @@
 /** Durable workspace input fingerprinting. */
 import { Effect, FileSystem, Path, Predicate } from "effect"
-import type { NativeCompilerError } from "../Compiler/Service.ts"
 import { textHash } from "../Edit/index.ts"
 import type { Json, SourceFingerprint } from "../Plan/index.ts"
 import { parseProjectRelativePath, type ProjectRelativePath } from "../ProjectPath/index.ts"
@@ -8,6 +7,7 @@ import {
   hashDirectoryListing,
   type ProjectNotInSnapshot,
   type SnapshotExpired,
+  type WorkspaceCompilerError,
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 
@@ -134,7 +134,7 @@ export const fingerprintWorkspace = (
   snapshot: WorkspaceSnapshotService,
 ): Effect.Effect<
   ReadonlyArray<SourceFingerprint>,
-  NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired,
+  WorkspaceCompilerError | ProjectNotInSnapshot | SnapshotExpired,
   FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {

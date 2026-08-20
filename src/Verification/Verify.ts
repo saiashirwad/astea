@@ -1,6 +1,12 @@
 /** Complete verification orchestration and VerifiedPlan issuance. */
 import { Effect, type FileSystem, Path, Schema } from "effect"
-import type { NativeCompilerError } from "../Compiler/Service.ts"
+import {
+  Workspace,
+  type ProjectNotInSnapshot,
+  type SnapshotExpired,
+  type WorkspaceCompilerError,
+  type WorkspaceSnapshot,
+} from "../Workspace/index.ts"
 import {
   canonicalJson,
   type Json,
@@ -17,12 +23,6 @@ import {
 import { isProjectRelativePath } from "../ProjectPath/index.ts"
 import { TOOLCHAIN, type Recipe } from "../Recipe/index.ts"
 import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
-import {
-  Workspace,
-  type ProjectNotInSnapshot,
-  type SnapshotExpired,
-  type WorkspaceSnapshot,
-} from "../Workspace/index.ts"
 import { collectDiagnostics } from "./Diagnostics.ts"
 import {
   PolicyMismatch,
@@ -242,7 +242,7 @@ export const verify = <Input, E, R>(
   | ToolchainMismatch
   | PlanDecodeError
   | ProjectIdentityMismatch
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | SnapshotExpired,
   Workspace | FileSystem.FileSystem | Path.Path | Exclude<R, WorkspaceSnapshot>

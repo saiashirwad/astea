@@ -1,7 +1,7 @@
 /** Snapshot-region lifetime and service provisioning. */
 import { Context, Effect } from "effect"
 import type { FileChanges } from "typescript/unstable/proto"
-import type { NativeCompiler, NativeCompilerError } from "../Compiler/Service.ts"
+import type { NativeCompiler, WorkspaceCompilerError } from "./internal/NativeCompiler.ts"
 import {
   type ConfiguredProject,
   type ProjectSnapshot,
@@ -64,7 +64,7 @@ export interface OpenSnapshotRegionOptions {
 export const openSnapshotRegion = <A, E, R>(
   options: OpenSnapshotRegionOptions,
   program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
-): Effect.Effect<A, E | NativeCompilerError, Exclude<R, WorkspaceSnapshot>> =>
+): Effect.Effect<A, E | WorkspaceCompilerError, Exclude<R, WorkspaceSnapshot>> =>
   Effect.scoped(
     Effect.gen(function* () {
       const params: OpenSnapshotParams = {}

@@ -1,28 +1,31 @@
-/** Scoped compiler service around TypeScript 7's native async client. */
+/** Scoped native TypeScript compiler lifecycle and snapshot manager. */
 import { Context, Data, Effect, Layer, type Scope } from "effect"
 import { API, type APIOptions, type Snapshot, type TimingInfo } from "typescript/unstable/async"
 import type { UpdateSnapshotParams } from "typescript/unstable/proto"
 
-export class NativeCompilerError extends Data.TaggedError("NativeCompilerError")<{
+export class WorkspaceCompilerError extends Data.TaggedError("WorkspaceCompilerError")<{
   readonly operation: string
   readonly cause: unknown
 }> {}
 
+export type NativeCompilerError = WorkspaceCompilerError
+export const NativeCompilerError = WorkspaceCompilerError
+
 export const nativeRequest = <A>(
   operation: string,
   evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, NativeCompilerError> =>
+): Effect.Effect<A, WorkspaceCompilerError> =>
   Effect.tryPromise({
     try: evaluate,
-    catch: (cause) => new NativeCompilerError({ operation, cause }),
+    catch: (cause) => new WorkspaceCompilerError({ operation, cause }),
   })
 
 export interface NativeCompilerService {
   readonly openSnapshot: (
     params?: UpdateSnapshotParams,
-  ) => Effect.Effect<Snapshot, NativeCompilerError, Scope.Scope>
-  readonly getTiming: Effect.Effect<TimingInfo, NativeCompilerError>
-  readonly resetTiming: Effect.Effect<void, NativeCompilerError>
+  ) => Effect.Effect<Snapshot, WorkspaceCompilerError, Scope.Scope>
+  readonly getTiming: Effect.Effect<TimingInfo, WorkspaceCompilerError>
+  readonly resetTiming: Effect.Effect<void, WorkspaceCompilerError>
 }
 
 export class NativeCompiler extends Context.Service<NativeCompiler, NativeCompilerService>()(
@@ -46,12 +49,12 @@ export const make = (
       ),
     )
 
-    const getTiming: Effect.Effect<TimingInfo, NativeCompilerError> = nativeRequest(
+    const getTiming: Effect.Effect<TimingInfo, WorkspaceCompilerError> = nativeRequest(
       "getTimingInfo",
       () => api.getTimingInfo(),
     )
 
-    const resetTiming: Effect.Effect<void, NativeCompilerError> = nativeRequest(
+    const resetTiming: Effect.Effect<void, WorkspaceCompilerError> = nativeRequest(
       "resetTimingInfo",
       () => api.resetTimingInfo(),
     )

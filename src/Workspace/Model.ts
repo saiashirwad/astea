@@ -6,7 +6,7 @@ import type {
   Symbol as NativeSymbol,
   Type as NativeType,
 } from "typescript/unstable/async"
-import type { NativeCompilerError } from "../Compiler/Service.ts"
+import { WorkspaceCompilerError, type NativeCompilerError } from "./internal/NativeCompiler.ts"
 import type { InvalidProjectRelativePath, ProjectRelativePath } from "../ProjectPath/index.ts"
 
 const ConfiguredProjectTypeId: unique symbol = Symbol.for("@safemods/ConfiguredProject")
@@ -69,7 +69,9 @@ export class FileNotFound extends Data.TaggedError("FileNotFound")<{
   readonly projectId: string
 }> {}
 
-export type ProjectSnapshotError = NativeCompilerError | SnapshotExpired
+export { WorkspaceCompilerError }
+export type { NativeCompilerError }
+export type ProjectSnapshotError = WorkspaceCompilerError | SnapshotExpired
 
 export const ProjectFileTypeSymbol = Symbol.for("@safemods/ProjectFile")
 

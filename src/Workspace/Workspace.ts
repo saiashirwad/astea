@@ -25,6 +25,7 @@ export type { WorkspaceDirectoryEntries, WorkspaceRuntimeService } from "./Runti
 export { layer, layerWithoutDependencies, make, Workspace } from "./Service.ts"
 export type { WorkspaceService } from "./Service.ts"
 
-export type { NativeCompilerError } from "../Compiler/Service.ts"
+export { WorkspaceCompilerError, type NativeCompilerError } from "./Model.ts"
+export { nativeRequest } from "./internal/NativeCompiler.ts"
 export type { CompilerObservation, CompilerObservationKind } from "./internal/ObservedInputs.ts"
 export { hashDirectoryListing } from "./internal/ObservedInputs.ts"

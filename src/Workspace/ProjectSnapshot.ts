@@ -8,7 +8,7 @@ import {
   type Symbol as NativeSymbol,
   type Type as NativeType,
 } from "typescript/unstable/async"
-import { nativeRequest } from "../Compiler/Service.ts"
+import { nativeRequest } from "./internal/NativeCompiler.ts"
 import {
   InvalidProjectRelativePath,
   parseProjectRelativePath,

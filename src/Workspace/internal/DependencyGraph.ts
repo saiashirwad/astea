@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { SourceFile } from "typescript/unstable/ast"
 import type { Project as NativeProject } from "typescript/unstable/async"
-import { nativeRequest } from "../../Compiler/Service.ts"
+import { nativeRequest } from "./NativeCompiler.ts"
 import type { WorkspaceRuntimeService } from "../Runtime.ts"
 
 interface ProjectDependencyGraph {

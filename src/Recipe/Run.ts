@@ -1,6 +1,5 @@
 /** Recipe execution from input to a durable Plan. */
 import { Effect, type FileSystem, type Path } from "effect"
-import type { NativeCompilerError } from "../Compiler/Service.ts"
 import { finalizeDraftEvidenceEffect, type DraftEvidenceConflict } from "../Draft/index.ts"
 import { SYSTEM_VERSION } from "../generated/version.ts"
 import { finalizePlan, type PlanBuildError, type TransformationPlan } from "../Plan/index.ts"
@@ -10,6 +9,7 @@ import {
   type ProjectNotInSnapshot,
   type SnapshotExpired,
   type SnapshotTransition,
+  type WorkspaceCompilerError,
 } from "../Workspace/index.ts"
 import { fingerprintWorkspace } from "./Fingerprint.ts"
 import { validateRecipeInput, type RecipeInputError } from "./Input.ts"
@@ -32,7 +32,7 @@ export const run = <Input, E, R>(
   | E
   | RecipeInputError
   | PlanBuildError
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | SnapshotExpired
   | DraftEvidenceConflict,

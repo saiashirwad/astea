@@ -1,7 +1,6 @@
 /** Recipe composition and conditional execution. */
 import { createHash } from "node:crypto"
 import { Effect, type Schema } from "effect"
-import type { NativeCompilerError } from "../Compiler/Service.ts"
 import * as Draft from "../Draft/index.ts"
 import type { DraftEvidenceConflict } from "../Draft/index.ts"
 import type { EditConflict, InvalidEdit } from "../Edit/index.ts"
@@ -13,6 +12,7 @@ import {
   type FileNotFound,
   type ProjectNotInSnapshot,
   type SnapshotExpired,
+  type WorkspaceCompilerError,
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 import { fromCompiled } from "./Define.ts"
@@ -51,7 +51,7 @@ export function pipe<Input, E1, R1, E2, R2>(
   | EditConflict
   | InvalidEdit
   | FileNotFound
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
   | SnapshotExpired
@@ -70,7 +70,7 @@ export function pipe<Input, E1, R1, E2, R2, E3, R3>(
   | EditConflict
   | InvalidEdit
   | FileNotFound
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
   | SnapshotExpired
@@ -91,7 +91,7 @@ export function pipe<Input, E1, R1, E2, R2, E3, R3, E4, R4>(
   | EditConflict
   | InvalidEdit
   | FileNotFound
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
   | SnapshotExpired
@@ -106,7 +106,7 @@ export function pipe<Input, E, R>(
   | EditConflict
   | InvalidEdit
   | FileNotFound
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
   | SnapshotExpired
@@ -156,7 +156,7 @@ export function all<Input, E1, R1, E2, R2>(
   | EditConflict
   | InvalidEdit
   | FileNotFound
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
   | SnapshotExpired
@@ -173,7 +173,7 @@ export function all<Input, E1, R1, E2, R2, E3, R3>(
   | EditConflict
   | InvalidEdit
   | FileNotFound
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
   | SnapshotExpired
@@ -188,7 +188,7 @@ export function all<Input, E, R>(
   | EditConflict
   | InvalidEdit
   | FileNotFound
-  | NativeCompilerError
+  | WorkspaceCompilerError
   | ProjectNotInSnapshot
   | VirtualFsError
   | SnapshotExpired

@@ -4,8 +4,8 @@ import type { APIOptions } from "typescript/unstable/async"
 import {
   layer as nativeCompilerLayer,
   NativeCompiler,
-  type NativeCompilerError,
-} from "../Compiler/Service.ts"
+  type WorkspaceCompilerError,
+} from "./internal/NativeCompiler.ts"
 import { InvalidProjectRelativePath, parseProjectRelativePath } from "../ProjectPath/index.ts"
 import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
 import {
@@ -42,7 +42,7 @@ export interface WorkspaceService {
     program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
   ) => Effect.Effect<
     A,
-    E | NativeCompilerError | ProjectNotInSnapshot,
+    E | WorkspaceCompilerError | ProjectNotInSnapshot,
     Exclude<R, WorkspaceSnapshot>
   >
   /** Run a program against a fresh compiler over a read-only virtual filesystem. */
@@ -51,7 +51,7 @@ export interface WorkspaceService {
     program: Effect.Effect<A, E, R | WorkspaceSnapshot>,
   ) => Effect.Effect<
     A,
-    E | NativeCompilerError | ProjectNotInSnapshot,
+    E | WorkspaceCompilerError | ProjectNotInSnapshot,
     Exclude<R, WorkspaceSnapshot>
   >
   readonly compilerObservations: () => ReadonlyArray<CompilerObservation>

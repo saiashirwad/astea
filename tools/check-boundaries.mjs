@@ -7,7 +7,7 @@ const TYPESCRIPT_TEST = /\.test\.(?:[cm]?ts|tsx)$/
 
 export const architectureLayers = [
   ["Edit", "Evidence", "Plan", "Policy", "ProjectPath", "VirtualFs", "generated"],
-  ["Compiler", "Pattern", "Query", "Workspace"],
+  ["Pattern", "Query", "Workspace"],
   ["Draft", "Overlay", "Precondition"],
   ["Application", "Execution", "Recipe", "Verification"],
   ["Node", "platform"],
@@ -50,11 +50,10 @@ const compatibilityFacadeImports = new Map([["src/Workspace/ProjectPath.ts", new
 const exactDependencies = new Map([
   ["Pattern", new Set(["Evidence", "Workspace"])],
   ["Query", new Set(["Evidence", "Pattern", "ProjectPath", "Workspace"])],
-  ["Workspace", new Set(["Compiler", "ProjectPath", "VirtualFs"])],
+  ["Workspace", new Set(["ProjectPath", "VirtualFs"])],
   [
     "Recipe",
     new Set([
-      "Compiler",
       "Draft",
       "Edit",
       "Overlay",
@@ -68,30 +67,12 @@ const exactDependencies = new Map([
   ],
   [
     "Verification",
-    new Set([
-      "Compiler",
-      "Edit",
-      "Plan",
-      "Policy",
-      "ProjectPath",
-      "Recipe",
-      "VirtualFs",
-      "Workspace",
-    ]),
+    new Set(["Edit", "Plan", "Policy", "ProjectPath", "Recipe", "VirtualFs", "Workspace"]),
   ],
   ["Application", new Set(["Verification"])],
   [
     "Execution",
-    new Set([
-      "Application",
-      "Compiler",
-      "Draft",
-      "Plan",
-      "Policy",
-      "Recipe",
-      "Verification",
-      "Workspace",
-    ]),
+    new Set(["Application", "Draft", "Plan", "Policy", "Recipe", "Verification", "Workspace"]),
   ],
   ["bin", new Set(["Cli"])],
 ])
