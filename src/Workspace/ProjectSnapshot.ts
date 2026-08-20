@@ -1,5 +1,4 @@
 /** Project-scoped compiler operations for one active snapshot region. */
-import { path as Path } from "../platform/node.ts"
 import { Effect, Option } from "effect"
 import type { Node, SourceFile } from "typescript/unstable/ast"
 import { isIdentifier } from "typescript/unstable/ast/is"
@@ -11,13 +10,8 @@ import {
 } from "typescript/unstable/async"
 import { nativeRequest } from "../Compiler/Service.ts"
 import {
-  isWithinProject,
-  projectRelativePath,
-  resolveContainedSnapshotPath,
-  resolveProjectRelativeFile,
-} from "../Node/ProjectPath.ts"
-import {
   InvalidProjectRelativePath,
+  parseProjectRelativePath,
   requireProjectRelativePath,
   type ProjectRelativePath,
 } from "../ProjectPath/index.ts"
@@ -31,12 +25,14 @@ import {
   SymbolNotFound,
 } from "./Model.ts"
 import { dependencyGraphNavigation } from "./internal/DependencyGraph.ts"
+import type { WorkspaceRuntimeService } from "./Runtime.ts"
 
 export interface ProjectSnapshotOptions {
   readonly configured: ConfiguredProject
   readonly nativeProject: NativeProject
   readonly projectRoot: string
   readonly ensureActive: Effect.Effect<void, SnapshotExpired>
+  readonly runtime: WorkspaceRuntimeService
 }
 
 /** Build the checked project view for one native compiler project. */
@@ -45,17 +41,37 @@ export const projectSnapshotFor = ({
   nativeProject,
   projectRoot,
   ensureActive,
+  runtime,
 }: ProjectSnapshotOptions): ProjectSnapshot => {
-  const containsFileName = (fileName: string): boolean => isWithinProject(projectRoot, fileName)
-  const resolveFileName = (fileName: string): string => Path.resolve(projectRoot, fileName)
-  const relativeFileName = (fileName: string): string => projectRelativePath(projectRoot, fileName)
+  const isWithinProject = (fileName: string): boolean => {
+    const relative = runtime.relativePath(projectRoot, runtime.resolvePath(fileName))
+    return (
+      relative !== "" &&
+      relative !== ".." &&
+      !relative.startsWith(`..${runtime.pathSeparator}`) &&
+      !runtime.isAbsolutePath(relative)
+    )
+  }
+  const containsFileName = (fileName: string): boolean => isWithinProject(fileName)
+  const resolveFileName = (fileName: string): string => runtime.resolvePath(projectRoot, fileName)
+  const relativeFileName = (fileName: string): string =>
+    runtime.relativePath(projectRoot, runtime.resolvePath(fileName)).replaceAll("\\", "/")
 
   const requireContainedPath = (fileName: string): string | undefined =>
-    resolveContainedSnapshotPath(projectRoot, fileName)
+    (() => {
+      const relative = parseProjectRelativePath(fileName)
+      if (relative !== undefined) {
+        const absolute = runtime.resolvePath(projectRoot, relative)
+        return isWithinProject(absolute) ? absolute : undefined
+      }
+      if (!runtime.isAbsolutePath(fileName)) return undefined
+      const absolute = runtime.resolvePath(fileName)
+      return isWithinProject(absolute) ? absolute : undefined
+    })()
 
   const isOwnedSourceFile = (sf: SourceFile, observedName = sf.fileName) =>
     Effect.gen(function* () {
-      if (!isWithinProject(projectRoot, observedName)) return false
+      if (!isWithinProject(observedName)) return false
       const isDefault = yield* nativeRequest("isSourceFileDefaultLibrary", () =>
         nativeProject.program.isSourceFileDefaultLibrary(sf),
       )
@@ -71,14 +87,14 @@ export const projectSnapshotFor = ({
     )
     const owned: Array<{ relative: ProjectRelativePath; sourceFile: SourceFile }> = []
     for (const fileName of allFileNames) {
-      if (!isWithinProject(projectRoot, fileName)) continue
+      if (!isWithinProject(fileName)) continue
       const sourceFile = yield* nativeRequest("getSourceFile", () =>
         nativeProject.program.getSourceFile(fileName),
       )
       if (sourceFile === undefined) continue
       if (!(yield* isOwnedSourceFile(sourceFile, fileName))) continue
       owned.push({
-        relative: requireProjectRelativePath(projectRelativePath(projectRoot, fileName)),
+        relative: requireProjectRelativePath(relativeFileName(fileName)),
         sourceFile,
       })
     }
@@ -87,7 +103,7 @@ export const projectSnapshotFor = ({
 
   const sourceFileNames = Effect.gen(function* () {
     yield* ensureActive
-    return (yield* ownedSourceFiles).map((file) => Path.resolve(projectRoot, file.relative))
+    return (yield* ownedSourceFiles).map((file) => runtime.resolvePath(projectRoot, file.relative))
   })
 
   const sourceFile = Effect.fn("ProjectSnapshot.sourceFile")(function* (fileName: string) {
@@ -244,6 +260,7 @@ export const projectSnapshotFor = ({
     nativeProject,
     projectRoot,
     ensureActive,
+    runtime,
   })
 
   const makeProjectFile = (relativePath: ProjectRelativePath): ProjectFile => ({
@@ -280,7 +297,7 @@ export const projectSnapshotFor = ({
 
   const file = Effect.fn("ProjectSnapshot.file")(function* (fileName: string) {
     yield* ensureActive
-    if (resolveProjectRelativeFile(projectRoot, fileName) === undefined) {
+    if (parseProjectRelativePath(fileName) === undefined) {
       return yield* new InvalidProjectRelativePath({ path: fileName })
     }
     const found = yield* sourceFile(fileName)

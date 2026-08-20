@@ -3,7 +3,7 @@ import { describe, effect, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import * as Application from "../Application/index.ts"
 import * as Draft from "../Draft/index.ts"
-import { applicationLayerNode } from "../Node/index.ts"
+import { applicationLayerNode, workspaceLayerNode } from "../Node/index.ts"
 import * as Recipe from "../Recipe/index.ts"
 import * as Verification from "../Verification/index.ts"
 import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
@@ -30,7 +30,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 ),
               ),
             )
-            const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+            const workspaceLayer = workspaceLayerNode({ projects: [app] }, { cwd: root })
             const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
             const organizeRecipe = Recipe.define("organize-imports-recipe", {
@@ -60,7 +60,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
               'import { other, target as renamed } from "./library.js";',
             )
 
-            const rerunWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+            const rerunWorkspaceLayer = workspaceLayerNode({ projects: [app] }, { cwd: root })
             const secondPlan = yield* Recipe.run(organizeRecipe, undefined).pipe(
               Effect.provide(rerunWorkspaceLayer),
             )
@@ -110,7 +110,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 }),
             })
 
-            const cleanWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+            const cleanWorkspaceLayer = workspaceLayerNode({ projects: [app] }, { cwd: root })
             const cleanMainLayer = applicationLayerNode.pipe(
               Layer.provideMerge(cleanWorkspaceLayer),
             )

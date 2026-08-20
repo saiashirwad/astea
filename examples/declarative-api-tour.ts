@@ -14,14 +14,14 @@ import { isObjectLiteralExpression } from "typescript/unstable/ast/is"
 import { Effect, Layer, Schema } from "effect"
 import * as Application from "safemods/Application"
 import * as Draft from "safemods/Draft"
-import { applicationLayerNode } from "safemods/Node"
+import { applicationLayerNode, workspaceLayerNode } from "safemods/Node"
 import * as Policy from "safemods/Policy"
 import * as Preview from "safemods/Preview"
 import { Criterion } from "safemods/Query"
 import * as Query from "safemods/Query"
 import * as Recipe from "safemods/Recipe"
 import * as Verification from "safemods/Verification"
-import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "safemods/Workspace"
+import { ConfiguredProject, WorkspaceSnapshot } from "safemods/Workspace"
 
 const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
 
@@ -138,7 +138,7 @@ async function main() {
   const tmpRoot = await Fs.mkdtemp("/tmp/safemods-example-")
   await Fs.cp(fixtureSource, tmpRoot, { recursive: true })
 
-  const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: tmpRoot })
+  const workspaceLayer = workspaceLayerNode({ projects: [app] }, { cwd: tmpRoot })
   const appLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
   try {

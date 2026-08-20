@@ -13,7 +13,7 @@ import {
   Workspace,
   type Query,
 } from "./index.ts"
-import { applicationLayerNode, layer as nodeLayer } from "./Node/index.ts"
+import { applicationLayerNode, layer as nodeLayer, workspaceLayerNode } from "./Node/index.ts"
 import { wrapTargetInput, type WrapTargetInput } from "./test/wrap-target-input.ts"
 import { migrateImportSource, type MigrateImportSourceInput } from "./test/migrate-import-source.ts"
 
@@ -71,7 +71,10 @@ const withFixture = <A, E, R>(
 ): Effect.Effect<
   A,
   unknown,
-  Exclude<R, Workspace.Workspace | FileSystem.FileSystem | EffectPath.Path>
+  Exclude<
+    R,
+    Workspace.Workspace | Workspace.WorkspaceRuntime | FileSystem.FileSystem | EffectPath.Path
+  >
 > =>
   Effect.acquireUseRelease(
     Effect.tryPromise(async () => {
@@ -81,7 +84,7 @@ const withFixture = <A, E, R>(
     }),
     (root) => {
       const app = Workspace.ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
-      const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+      const workspaceLayer = workspaceLayerNode({ projects: [app] }, { cwd: root })
       return use(root, app, workspaceLayer).pipe(
         Effect.provide(Layer.merge(workspaceLayer, nodeLayer)),
       )
@@ -137,7 +140,7 @@ describe("candidate public API (@effect/vitest)", () => {
 
           // After application the recipe is a no-op: the reran plan has no edits.
           // Reopen the workspace so the compiler observes the newly written snapshot.
-          const freshWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
+          const freshWorkspaceLayer = workspaceLayerNode({ projects: [app] }, { cwd: root })
           const second = yield* Recipe.run(wrapTargetInput, input).pipe(
             Effect.provide(Layer.merge(freshWorkspaceLayer, nodeLayer)),
           )

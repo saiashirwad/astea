@@ -11,6 +11,7 @@ import {
   Workspace,
   WorkspaceSnapshot,
 } from "./index.ts"
+import { workspaceLayerNode } from "../Node/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 const stressFixture = fileURLToPath(new URL("../../fixtures/stress/", import.meta.url))
@@ -30,7 +31,7 @@ const withCopiedFixture = <A, E, R>(
       const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
       return use(root, app).pipe(
         Effect.provide(
-          Workspace.layer(
+          workspaceLayerNode(
             { projects: [app] },
             options?.fs === undefined ? { cwd: root } : { cwd: root, fs: options.fs },
           ),
@@ -52,7 +53,7 @@ describe("workspace path confinement, overlay FS, and symbol lookup", () => {
         ]) {
           const escaped = ConfiguredProject.make({ id: "escaped", config })
           const failure = yield* Effect.void.pipe(
-            Effect.provide(Workspace.layer({ projects: [escaped] }, { cwd: root })),
+            Effect.provide(workspaceLayerNode({ projects: [escaped] }, { cwd: root })),
             Effect.flip,
           )
           expect(failure).toBeInstanceOf(InvalidProjectRelativePath)

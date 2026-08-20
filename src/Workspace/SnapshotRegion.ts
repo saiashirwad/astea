@@ -1,5 +1,4 @@
 /** Snapshot-region lifetime and service provisioning. */
-import { path as Path } from "../platform/node.ts"
 import { Context, Effect } from "effect"
 import type { FileChanges } from "typescript/unstable/proto"
 import type { NativeCompiler, NativeCompilerError } from "../Compiler/Service.ts"
@@ -12,6 +11,7 @@ import {
   type WorkspaceChanges,
 } from "./Model.ts"
 import { projectSnapshotFor } from "./ProjectSnapshot.ts"
+import type { WorkspaceRuntimeService } from "./Runtime.ts"
 
 export interface WorkspaceSnapshotService {
   readonly generation: number
@@ -57,6 +57,7 @@ export interface OpenSnapshotRegionOptions {
   readonly openProjects: ReadonlyArray<string> | undefined
   readonly transition: SnapshotTransition
   readonly onOpened: () => void
+  readonly runtime: WorkspaceRuntimeService
 }
 
 /** Open one native snapshot and expire all its native values after the program. */
@@ -102,8 +103,9 @@ export const openSnapshotRegion = <A, E, R>(
         return projectSnapshotFor({
           configured,
           nativeProject,
-          projectRoot: Path.dirname(configFileName),
+          projectRoot: options.runtime.dirname(configFileName),
           ensureActive,
+          runtime: options.runtime,
         })
       })
 

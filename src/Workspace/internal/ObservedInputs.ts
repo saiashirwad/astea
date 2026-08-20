@@ -1,8 +1,8 @@
 /** Record compiler filesystem observations for the Snapshot Input Manifest. */
 import { createHash } from "node:crypto"
 import { Predicate } from "effect"
-import { nodeFs as Fs } from "../../platform/node.ts"
 import type { APIOptions } from "typescript/unstable/async"
+import type { WorkspaceRuntimeService } from "../Runtime.ts"
 
 export type CompilerObservationKind = "file" | "missing" | "directory" | "realpath"
 
@@ -34,6 +34,7 @@ const contentHash = (text: string): string => createHash("sha256").update(text).
 
 const observeFileSystem = (
   base: HostFileSystem | undefined,
+  runtime: WorkspaceRuntimeService,
   record: (observation: CompilerObservation) => void,
 ): HostFileSystem => ({
   ...base,
@@ -47,13 +48,12 @@ const observeFileSystem = (
       record({ kind: "file", path: fileName, hash: contentHash(delegated) })
       return delegated
     }
-    try {
-      const content = Fs.readFileSync(fileName, "utf8")
+    const content = runtime.readFileText(fileName)
+    if (content !== undefined) {
       record({ kind: "file", path: fileName, hash: contentHash(content) })
       return content
-    } catch {
-      return undefined
     }
+    return undefined
   },
   fileExists: (fileName) => {
     const delegated = base?.fileExists?.(fileName)
@@ -62,22 +62,14 @@ const observeFileSystem = (
       return false
     }
     if (delegated === true) return true
-    try {
-      const exists = Fs.existsSync(fileName) && Fs.statSync(fileName).isFile()
-      if (!exists) record({ kind: "missing", path: fileName, hash: "" })
-      return exists
-    } catch {
-      return undefined
-    }
+    const exists = runtime.fileExists(fileName)
+    if (exists === false) record({ kind: "missing", path: fileName, hash: "" })
+    return exists
   },
   directoryExists: (directoryName) => {
     const delegated = base?.directoryExists?.(directoryName)
     if (delegated !== undefined) return delegated
-    try {
-      return Fs.statSync(directoryName).isDirectory()
-    } catch {
-      return undefined
-    }
+    return runtime.directoryExists(directoryName)
   },
   getAccessibleEntries: (directoryName) => {
     const delegated = base?.getAccessibleEntries?.(directoryName)
@@ -89,19 +81,17 @@ const observeFileSystem = (
       })
       return delegated
     }
-    try {
-      const entries = Fs.readdirSync(directoryName, { withFileTypes: true })
-      const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name)
-      const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+    const entries = runtime.directoryEntries(directoryName)
+    if (entries !== undefined) {
+      const { files, directories } = entries
       record({
         kind: "directory",
         path: directoryName,
         hash: hashDirectoryListing([...files, ...directories]),
       })
-      return { files, directories }
-    } catch {
-      return undefined
+      return { files: [...files], directories: [...directories] }
     }
+    return undefined
   },
   realpath: (value) => {
     const delegated = base?.realpath?.(value)
@@ -109,17 +99,19 @@ const observeFileSystem = (
       record({ kind: "realpath", path: value, hash: contentHash(delegated) })
       return delegated
     }
-    try {
-      const resolved = Fs.realpathSync(value)
+    const resolved = runtime.realPath(value)
+    if (resolved !== undefined) {
       record({ kind: "realpath", path: value, hash: contentHash(resolved) })
       return resolved
-    } catch {
-      return undefined
     }
+    return undefined
   },
 })
 
-export const attachInputObserver = (options: APIOptions): APIOptions => {
+export const attachInputObserver = (
+  options: APIOptions,
+  runtime: WorkspaceRuntimeService,
+): APIOptions => {
   const observations = new Map<string, CompilerObservation>()
   const observer: InputObserver = {
     reset: () => {
@@ -133,7 +125,7 @@ export const attachInputObserver = (options: APIOptions): APIOptions => {
   const record = (observation: CompilerObservation) => {
     observations.set(`${observation.kind}\0${observation.path}`, observation)
   }
-  const fs = Object.assign(observeFileSystem(options.fs, record), {
+  const fs = Object.assign(observeFileSystem(options.fs, runtime, record), {
     [InputObserverId]: observer,
   })
   return { ...options, fs }

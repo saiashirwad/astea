@@ -1,8 +1,8 @@
 /** Native compiler filesystem options for an isolated virtual snapshot. */
-import { nodeFs as Fs, path as Path } from "../../platform/node.ts"
 import type { APIOptions } from "typescript/unstable/async"
 import type { VirtualFsSnapshot } from "../../VirtualFs/index.ts"
 import type { SnapshotTransition } from "../Model.ts"
+import type { WorkspaceRuntimeService } from "../Runtime.ts"
 
 export interface CompilerOverlay {
   readonly options: APIOptions
@@ -17,6 +17,7 @@ interface WorkspaceFileChanges {
 
 /** Build the compiler overlay without writing to the workspace. */
 export const compilerOverlayFor = (
+  runtime: WorkspaceRuntimeService,
   root: string,
   apiOptions: APIOptions,
   overlay: VirtualFsSnapshot,
@@ -25,12 +26,12 @@ export const compilerOverlayFor = (
   const created = overlay.created
   const matchesVirtualPath = (observed: string, planned: string): boolean => {
     if (observed === planned) return true
-    const relative = Path.relative(root, planned)
+    const relative = runtime.relativePath(root, planned)
     return (
       relative !== "" &&
       !relative.startsWith("..") &&
-      !Path.isAbsolute(relative) &&
-      observed.endsWith(`${Path.sep}${relative}`)
+      !runtime.isAbsolutePath(relative) &&
+      observed.endsWith(`${runtime.pathSeparator}${relative}`)
     )
   }
 
@@ -44,19 +45,13 @@ export const compilerOverlayFor = (
           delegated ??
           (() => {
             try {
-              const entries = Fs.readdirSync(directoryName, { withFileTypes: true })
-              return {
-                files: entries.filter((entry) => entry.isFile()).map((entry) => entry.name),
-                directories: entries
-                  .filter((entry) => entry.isDirectory())
-                  .map((entry) => entry.name),
-              }
+              return runtime.directoryEntries(directoryName)
             } catch {
               return undefined
             }
           })()
         const isDeleted = (entry: string) => {
-          const absolute = Path.resolve(directoryName, entry)
+          const absolute = runtime.resolvePath(directoryName, entry)
           return [...deleted].some((path) => matchesVirtualPath(absolute, path))
         }
         const files = new Set((existing?.files ?? []).filter((entry) => !isDeleted(entry)))
@@ -64,9 +59,10 @@ export const compilerOverlayFor = (
           (existing?.directories ?? []).filter((entry) => !isDeleted(entry)),
         )
         for (const plannedFileName of overlay.files.keys()) {
-          const relative = Path.relative(directoryName, plannedFileName)
-          if (relative === "" || relative.startsWith("..") || Path.isAbsolute(relative)) continue
-          const first = relative.split(Path.sep)[0]!
+          const relative = runtime.relativePath(directoryName, plannedFileName)
+          if (relative === "" || relative.startsWith("..") || runtime.isAbsolutePath(relative))
+            continue
+          const first = relative.split(runtime.pathSeparator)[0]!
           if (first === relative) files.add(first)
           else directories.add(first)
         }

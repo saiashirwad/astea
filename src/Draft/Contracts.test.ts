@@ -6,6 +6,7 @@ import { applyFileEdits } from "../Edit/index.ts"
 import { requireProjectRelativePath } from "../Plan/index.ts"
 import * as Query from "../Query/index.ts"
 import { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
+import { workspaceLayerNode } from "../Node/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 
 const expectCompleteEvidence = (draft: Draft.Draft): void => {
@@ -311,7 +312,7 @@ describe("Draft helper contracts", () => {
                 return yield* Draft.cleanUnused(project)
               }),
             )
-          }).pipe(Effect.provide(Workspace.layer({ projects: [app] }, { cwd: root })))
+          }).pipe(Effect.provide(workspaceLayerNode({ projects: [app] }, { cwd: root })))
           expect(
             second.edits.filter((edit) => edit.fileName === "src/default-consumer.ts"),
           ).toEqual([])

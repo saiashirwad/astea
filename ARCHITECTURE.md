@@ -39,20 +39,24 @@ Within the semantic layer, `Query` may depend on `Pattern`, `Workspace`, and
   Recipe, Preview, and Verification must not import Application. Recipe and
   Preview must not import Execution.
 - Preview and Verification are read-only. Only Application has write authority.
-- Filesystem and native compiler implementations are intended to move toward
-  `Node`; that direction is not fully realized today. `Workspace` currently
-  uses Node filesystem operations directly as the fallback for isolated-overlay
-  directory listings. Recipe fingerprinting uses injected `FileSystem` and
-  `Path` services. Direct `node:crypto` use is a small foundational exception:
-  recipe identity hashing is synchronous and deterministic, and it has no
-  filesystem or process authority. Portable project-path identity is independent
-  of `Workspace`. Host path resolution is owned by `Node`; semantic callers use
-  project-scoped path operations exposed by their active Workspace Snapshot.
+- `Workspace` owns the synchronous `WorkspaceRuntime` port for TypeScript
+  compiler-host callbacks. `Node` provides its concrete filesystem and path
+  implementation. This port is synchronous because TypeScript calls its host
+  callbacks synchronously; do not use Effect filesystem operations inside those
+  callbacks. Recipe fingerprinting uses injected `FileSystem` and `Path`
+  services. Direct `node:crypto` use in Recipe identity and Workspace observed
+  input hashing is a small foundational exception: deterministic hashing has no
+  filesystem or process authority. Portable
+  project-path identity is independent of `Workspace`. Host path resolution is
+  owned by `Node`; semantic callers use project-scoped path operations exposed
+  by their active Workspace Snapshot. `Workspace/ProjectPath.ts` is the one
+  compatibility façade that re-exports legacy Node path helpers. New Workspace
+  implementation files must use `WorkspaceRuntime`; the boundary checker allows
+  this exception only for that façade file.
 - CLI code is imported only by CLI entry points and `bin`.
 
 Oxlint enforces cycles and self-imports. `tools/check-boundaries.mjs` classifies
 every production domain, enforces the layer direction, protects feature
-internals, and rejects package and root self-imports. Existing upward imports
-into `Node` and `platform` are listed as temporary adapter migrations in that
-checker. Remove an exception when its owner moves to injected services. Do not
-add an exception without updating this document.
+internals, and rejects package and root self-imports. Temporary adapter imports
+are listed in that checker. Remove an exception when its owner moves to injected
+services. Do not add an exception without updating this document.

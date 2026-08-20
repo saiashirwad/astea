@@ -10,11 +10,11 @@ import {
 } from "./check-boundaries.mjs"
 
 describe("architecture boundaries", () => {
-  it("allows downward dependencies and named adapter migrations", () => {
+  it("allows downward dependencies and rejects removed adapter migrations", () => {
     assert.equal(dependencyFailure("Draft", "Query"), undefined)
     assert.equal(dependencyFailure("Verification", "Plan"), undefined)
-    assert.equal(dependencyFailure("Workspace", "Node"), undefined)
-    assert.equal(temporaryAdapterImports.get("Workspace")?.has("Node"), true)
+    assert.equal(dependencyFailure("Workspace", "Node"), "Workspace must not depend on Node")
+    assert.equal(temporaryAdapterImports.has("Workspace"), false)
   })
 
   it("rejects upward and restricted semantic dependencies", () => {
@@ -47,12 +47,19 @@ describe("architecture boundaries", () => {
         mkdir(join(root, "src", "Execution"), { recursive: true }),
         mkdir(join(root, "src", "Verification"), { recursive: true }),
         mkdir(join(root, "src", "Workspace"), { recursive: true }),
+        mkdir(join(root, "src", "Node"), { recursive: true }),
       ])
       await Promise.all([
         writeFile(join(root, "bin", "safemods.ts"), 'import "../src/Cli/index.ts"\n'),
         writeFile(join(root, "src", "index.ts"), 'export * as Query from "./Query/index.ts"\n'),
         writeFile(join(root, "src", "Query", "index.ts"), "export {}\n"),
         writeFile(join(root, "src", "Workspace", "index.ts"), "export {}\n"),
+        writeFile(
+          join(root, "src", "Workspace", "ProjectPath.ts"),
+          'export { projectRelativePath } from "../Node/ProjectPath.ts"\n',
+        ),
+        writeFile(join(root, "src", "Workspace", "Bad.ts"), 'import "../Node/ProjectPath.ts"\n'),
+        writeFile(join(root, "src", "Node", "ProjectPath.ts"), "export {}\n"),
         writeFile(
           join(root, "src", "Edit", "Bad.ts"),
           'import "../Workspace/index.ts"\nimport "safemods/Plan"\n',
@@ -93,6 +100,15 @@ describe("architecture boundaries", () => {
       assert.equal(
         failures.some((failure) => failure.includes("Draft/Good.ts")),
         false,
+      )
+      assert.equal(
+        failures.some((failure) => failure.includes("Workspace/ProjectPath.ts")),
+        false,
+      )
+      assert.ok(
+        failures.some((failure) =>
+          failure.includes("Workspace/Bad.ts: Workspace must not depend on Node"),
+        ),
       )
     } finally {
       await rm(root, { recursive: true, force: true })

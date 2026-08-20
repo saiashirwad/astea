@@ -12,6 +12,7 @@ import {
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 import { requireProjectRelativePath } from "../ProjectPath/index.ts"
+import { workspaceLayerNode } from "../Node/index.ts"
 import { composeDrafts } from "./DraftComposition.ts"
 
 const fixtureSource = fileURLToPath(new URL("../../fixtures/recipe/", import.meta.url))
@@ -27,7 +28,7 @@ const withSnapshot = <A, E>(
     }),
     (root) => {
       const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
-      const layer = Workspace.layer({ projects: [app] }, { cwd: root })
+      const layer = workspaceLayerNode({ projects: [app] }, { cwd: root })
       return Effect.gen(function* () {
         const workspace = yield* Workspace
         return yield* workspace.withSnapshot(

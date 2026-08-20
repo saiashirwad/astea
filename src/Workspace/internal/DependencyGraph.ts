@@ -1,9 +1,8 @@
-import { path as Path } from "../../platform/node.ts"
 import { Effect } from "effect"
 import type { SourceFile } from "typescript/unstable/ast"
 import type { Project as NativeProject } from "typescript/unstable/async"
 import { nativeRequest } from "../../Compiler/Service.ts"
-import { projectRelativePath } from "../../Node/ProjectPath.ts"
+import type { WorkspaceRuntimeService } from "../Runtime.ts"
 
 interface ProjectDependencyGraph {
   readonly forward: Map<string, Set<string>>
@@ -34,8 +33,9 @@ export const dependencyGraphNavigation = <E>(options: {
   readonly nativeProject: NativeProject
   readonly projectRoot: string
   readonly ensureActive: Effect.Effect<void, E>
+  readonly runtime: WorkspaceRuntimeService
 }) => {
-  const { nativeProject, projectRoot, ensureActive } = options
+  const { nativeProject, projectRoot, ensureActive, runtime } = options
   let memoizedGraph: ProjectDependencyGraph | undefined
 
   const getDependencyGraph = Effect.gen(function* () {
@@ -59,8 +59,8 @@ export const dependencyGraphNavigation = <E>(options: {
         nativeProject.program.isSourceFileFromExternalLibrary(sf),
       )
       if (!isDefault && !isExternal) {
-        const rel = projectRelativePath(projectRoot, fn)
-        canonicalMap.set(Path.resolve(fn).toLowerCase(), rel)
+        const rel = runtime.relativePath(projectRoot, runtime.resolvePath(fn)).replaceAll("\\", "/")
+        canonicalMap.set(runtime.resolvePath(fn).toLowerCase(), rel)
         projectFiles.push({ fn, rel, sf })
       }
     }
@@ -91,7 +91,7 @@ export const dependencyGraphNavigation = <E>(options: {
           )
           for (const declaration of declarations) {
             if (declaration.path !== undefined) {
-              addEdge(rel, canonicalMap.get(Path.resolve(declaration.path).toLowerCase()))
+              addEdge(rel, canonicalMap.get(runtime.resolvePath(declaration.path).toLowerCase()))
             }
           }
         }
@@ -100,7 +100,9 @@ export const dependencyGraphNavigation = <E>(options: {
         if (reference.fileName !== undefined) {
           addEdge(
             rel,
-            canonicalMap.get(Path.resolve(Path.dirname(fn), reference.fileName).toLowerCase()),
+            canonicalMap.get(
+              runtime.resolvePath(runtime.dirname(fn), reference.fileName).toLowerCase(),
+            ),
           )
         }
       }

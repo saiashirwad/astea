@@ -13,7 +13,8 @@ import * as Recipe from "../Recipe/index.ts"
 import * as Verification from "../Verification/index.ts"
 import type { TransformationPlan } from "../Plan/index.ts"
 import type { VerifiedPlan } from "../Verification/index.ts"
-import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
+import { ConfiguredProject, WorkspaceSnapshot } from "../Workspace/index.ts"
+import { workspaceLayerNode } from "./WorkspaceRuntime.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 import { wrapTargetInput, type WrapTargetInput } from "../test/wrap-target-input.ts"
 import { applicationLayer, makeApplicationLayerNode } from "./Application/Layer.ts"
@@ -359,7 +360,7 @@ describe("Node application transactions", () => {
         expect(file.fileName).toBe(originalFileName)
 
         const other = ConfiguredProject.make({ id: app.id, config: "other.json" })
-        const mismatchedWorkspace = Workspace.layer({ projects: [other] }, { cwd: root })
+        const mismatchedWorkspace = workspaceLayerNode({ projects: [other] }, { cwd: root })
         const mismatch = yield* Application.apply(verified).pipe(
           Effect.provide(makeApplicationLayerNode(root).pipe(Layer.provide(mismatchedWorkspace))),
           Effect.result,

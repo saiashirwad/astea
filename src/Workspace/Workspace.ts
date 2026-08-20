@@ -20,6 +20,8 @@ export type {
 } from "./Model.ts"
 export { WorkspaceSnapshot } from "./SnapshotRegion.ts"
 export type { WorkspaceSnapshotService } from "./SnapshotRegion.ts"
+export { WorkspaceRuntime } from "./Runtime.ts"
+export type { WorkspaceDirectoryEntries, WorkspaceRuntimeService } from "./Runtime.ts"
 export { layer, layerWithoutDependencies, make, Workspace } from "./Service.ts"
 export type { WorkspaceService } from "./Service.ts"
 

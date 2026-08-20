@@ -40,12 +40,18 @@ const rootFacadeDependencies = new Set([
  * Temporary imports that cross upward into Node adapters. Remove each edge
  * when its owner uses injected filesystem and path services.
  */
-export const temporaryAdapterImports = new Map([["Workspace", new Set(["Node", "platform"])]])
+export const temporaryAdapterImports = new Map()
+
+/**
+ * Historical public façades may retain one documented adapter re-export.
+ * This is deliberately file-scoped so other files in the owner stay strict.
+ */
+const compatibilityFacadeImports = new Map([["src/Workspace/ProjectPath.ts", new Set(["Node"])]])
 
 const exactDependencies = new Map([
   ["Pattern", new Set(["Compiler", "Evidence", "Workspace"])],
   ["Query", new Set(["Compiler", "Evidence", "Pattern", "ProjectPath", "Workspace"])],
-  ["Workspace", new Set(["Compiler", "Node", "ProjectPath", "VirtualFs", "platform"])],
+  ["Workspace", new Set(["Compiler", "ProjectPath", "VirtualFs"])],
   [
     "Recipe",
     new Set([
@@ -163,6 +169,11 @@ export const dependencyFailure = (owner, targetOwner) => {
   return targetLayer <= ownerLayer ? undefined : `${owner} imports higher layer ${targetOwner}`
 }
 
+const fileDependencyFailure = (displayFile, owner, targetOwner) =>
+  compatibilityFacadeImports.get(displayFile)?.has(targetOwner) === true
+    ? undefined
+    : dependencyFailure(owner, targetOwner)
+
 export const checkArchitectureBoundaries = async (repositoryRoot) => {
   const failures = []
   const sourceFiles = [
@@ -196,7 +207,7 @@ export const checkArchitectureBoundaries = async (repositoryRoot) => {
         failures.push(`${displayFile}: imports private ${specifier}`)
         continue
       }
-      const failure = dependencyFailure(owner, target.owner)
+      const failure = fileDependencyFailure(displayFile, owner, target.owner)
       if (failure !== undefined) failures.push(`${displayFile}: ${failure} (${specifier})`)
     }
   }
