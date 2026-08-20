@@ -4,7 +4,7 @@ import type {
   ProjectIdentityMismatch,
   StalePlanError,
   VerifiedPlan,
-} from "../Verification/Engine.ts"
+} from "../Verification/index.ts"
 
 export class ApplicationFailure extends Data.TaggedError("ApplicationFailure")<{
   readonly planId: string

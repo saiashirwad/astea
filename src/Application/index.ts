@@ -17,7 +17,7 @@ import type {
   ProjectIdentityMismatch,
   StalePlanError,
   VerifiedPlan,
-} from "../Verification/Engine.ts"
+} from "../Verification/index.ts"
 
 export { PlanApplication }
 export type { ApplicationReceipt, VerifiedPlan }

@@ -1,166 +1,51 @@
-/**
- * Verification domain — diagnostics, rules, and verified plans.
- *
- * Preview materializes a plan's exact proposed bytes without writing.
- * Verification evaluates the plan against fresh, isolated compiler
- * authorities — baseline and proposed — computes the diagnostic delta,
- * evaluates every Plan Policy, replays the recipe when idempotence is
- * declared, and returns the process-local Verified Plan: the only input
- * Application accepts. Neither stage writes project files.
- */
-import { path as Path, layer as nodeLayer } from "../platform/node.ts"
-import { Data, Effect, Schema } from "effect"
-import { DiagnosticCategory, type Diagnostic } from "typescript/unstable/async"
-import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
+/** Complete verification orchestration and VerifiedPlan issuance. */
+import { path as Path } from "../platform/node.ts"
+import { Effect, Schema } from "effect"
+import type { NativeCompilerError } from "../Compiler/Service.ts"
 import {
   canonicalJson,
+  type Json,
   type PlanDecodeError,
   validatePlan,
-  type Json,
   type TransformationPlan,
 } from "../Plan/index.ts"
-import {
-  type PlanPreview,
-  previewPlan,
-  type ProjectIdentityMismatch,
-  requireMatchingProjectIdentity,
-  type StalePlanError,
-  type VerificationObservation,
-  VerificationFailure,
-  type VerifiedPlan,
-  verifyPreview,
-} from "./Engine.ts"
 import {
   allowedErrorsFromRules,
   computeDiagnosticDiff,
   type DiagnosticDiff,
-  type DiagnosticRecord,
   type PolicyEvaluationContext,
 } from "../Policy/index.ts"
+import { isProjectRelativePath } from "../ProjectPath/index.ts"
 import { TOOLCHAIN, type Recipe } from "../Recipe/index.ts"
+import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
 import {
-  isProjectRelativePath,
   Workspace,
-  WorkspaceSnapshot,
   type ProjectNotInSnapshot,
   type SnapshotExpired,
+  type WorkspaceSnapshot,
 } from "../Workspace/index.ts"
-import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
-import { evaluateBuiltInPolicies, evaluateCustomRules } from "./PolicyEvaluation.ts"
-
-export { ProjectIdentityMismatch, StalePlanError, VerificationFailure } from "./Engine.ts"
+import { collectDiagnostics } from "./Diagnostics.ts"
+import {
+  PolicyMismatch,
+  type ProjectIdentityMismatch,
+  RecipeInputMismatch,
+  RecipeMismatch,
+  type StalePlanError,
+  ToolchainMismatch,
+  VerificationFailure,
+} from "./Errors.ts"
+import type { PlanPreview, VerificationObservation, VerificationReceipt } from "./Model.ts"
+import {
+  evaluateBuiltInPolicies,
+  evaluateCustomRules,
+  failureFromPolicyResults,
+  type PolicyFailure,
+} from "./PolicyEvaluation.ts"
+import { of } from "./Preview.ts"
+import { requireMatchingProjectIdentity } from "./SourceRevalidation.ts"
+import { issueVerifiedPlan, type VerifiedPlan } from "./VerifiedPlan.ts"
 
 const decodeJson = Schema.decodeUnknownSync(Schema.Json)
-
-/** The supplied recipe is not the recipe that authored the durable plan. */
-export class RecipeMismatch extends Data.TaggedError("RecipeMismatch")<{
-  readonly planId: string
-  readonly expected: {
-    readonly name: string
-    readonly version: string
-    readonly implementationHash: string
-  }
-  readonly actual: {
-    readonly name: string
-    readonly version: string
-    readonly implementationHash: string
-  }
-}> {}
-
-/** The supplied recipe input does not match the canonical input in the plan. */
-export class RecipeInputMismatch extends Data.TaggedError("RecipeInputMismatch")<{
-  readonly planId: string
-  readonly expected: Json
-  readonly actual: Json
-}> {}
-
-/** The running toolchain is not the one that authored the durable plan. */
-export class ToolchainMismatch extends Data.TaggedError("ToolchainMismatch")<{
-  readonly planId: string
-  readonly expected: TransformationPlan["toolchain"]
-  readonly actual: TransformationPlan["toolchain"]
-}> {}
-
-/** The supplied recipe's durable policies differ from those in the plan. */
-export class PolicyMismatch extends Data.TaggedError("PolicyMismatch")<{
-  readonly planId: string
-  readonly expected: TransformationPlan["policies"]
-  readonly actual: TransformationPlan["policies"]
-}> {}
-
-export type {
-  FilePreview,
-  FileState,
-  PlanPreview,
-  PolicyResult,
-  VerificationReceipt,
-  VerifiedPlan,
-} from "./Engine.ts"
-
-export type { DiagnosticDiff, DiagnosticRecord, PolicyEvaluationContext } from "../Policy/index.ts"
-
-const normalizeDiagnostic = (diagnostic: Diagnostic): DiagnosticRecord => ({
-  code: diagnostic.code,
-  message: diagnostic.text,
-  category:
-    diagnostic.category === DiagnosticCategory.Warning
-      ? "warning"
-      : diagnostic.category === DiagnosticCategory.Suggestion
-        ? "suggestion"
-        : diagnostic.category === DiagnosticCategory.Message
-          ? "message"
-          : "error",
-  fileName: diagnostic.fileName,
-  start: diagnostic.pos,
-  length: diagnostic.end - diagnostic.pos,
-})
-
-const diagnosticIdentity = (diagnostic: DiagnosticRecord): string =>
-  JSON.stringify([
-    diagnostic.category,
-    diagnostic.code,
-    diagnostic.fileName ?? null,
-    diagnostic.start ?? null,
-    diagnostic.length ?? null,
-    diagnostic.message,
-  ])
-
-const absoluteTarget = (
-  workspaceRoot: string,
-  plan: TransformationPlan,
-  projectId: string,
-  fileName: string,
-): string => {
-  const project = plan.projects.find((candidate) => candidate.id === projectId)
-  if (
-    project === undefined ||
-    !isProjectRelativePath(fileName) ||
-    !isProjectRelativePath(project.configFileName)
-  ) {
-    throw new Error(`Unsafe or unknown project path: ${projectId}:${fileName}`)
-  }
-  return Path.resolve(workspaceRoot, Path.dirname(project.configFileName), fileName)
-}
-
-/**
- * Materialize the plan's exact proposed bytes. Revalidates every fingerprint
- * and guarded range against the current workspace; a mismatch is a StalePlan.
- * Never writes.
- */
-export const of = (
-  plan: TransformationPlan,
-): Effect.Effect<
-  PlanPreview,
-  StalePlanError | VerificationFailure | PlanDecodeError | ProjectIdentityMismatch,
-  Workspace
-> =>
-  Workspace.use((workspace) =>
-    Effect.gen(function* () {
-      const validated = yield* validatePlan(plan)
-      yield* requireMatchingProjectIdentity(validated, workspace.definition.projects)
-      return yield* previewPlan(validated, workspace.root)
-    }).pipe(Effect.provide(nodeLayer)),
-  )
 
 const canonicalInput = <Input, E, R>(
   recipe: Recipe<Input, E, R>,
@@ -249,56 +134,88 @@ const validateRecipeForPlan = <Input, E, R>(
     return encoded.value
   })
 
-const collectProjectDiagnostics = (nativeProject: {
-  readonly program: {
-    readonly getSyntacticDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
-    readonly getBindDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
-    readonly getSemanticDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
-    readonly getProgramDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
-    readonly getGlobalDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
-    readonly getConfigFileParsingDiagnostics: () => PromiseLike<ReadonlyArray<Diagnostic>>
+const absoluteTarget = (
+  workspaceRoot: string,
+  plan: TransformationPlan,
+  projectId: string,
+  fileName: string,
+): string => {
+  const project = plan.projects.find((candidate) => candidate.id === projectId)
+  if (
+    project === undefined ||
+    !isProjectRelativePath(fileName) ||
+    !isProjectRelativePath(project.configFileName)
+  ) {
+    throw new Error(`Unsafe or unknown project path: ${projectId}:${fileName}`)
   }
-}) =>
-  Effect.all([
-    nativeRequest("getSyntacticDiagnostics", () => nativeProject.program.getSyntacticDiagnostics()),
-    nativeRequest("getBindDiagnostics", () => nativeProject.program.getBindDiagnostics()),
-    nativeRequest("getSemanticDiagnostics", () => nativeProject.program.getSemanticDiagnostics()),
-    nativeRequest("getProgramDiagnostics", () => nativeProject.program.getProgramDiagnostics()),
-    nativeRequest("getGlobalDiagnostics", () => nativeProject.program.getGlobalDiagnostics()),
-    nativeRequest("getConfigFileParsingDiagnostics", () =>
-      nativeProject.program.getConfigFileParsingDiagnostics(),
-    ),
-  ])
+  return Path.resolve(workspaceRoot, Path.dirname(project.configFileName), fileName)
+}
 
-const collectDiagnostics = Effect.gen(function* () {
-  const snapshot = yield* WorkspaceSnapshot
-  const allDiagnostics: Array<DiagnosticRecord> = []
-  const seen = new Set<string>()
+const verificationFailure = (planId: string, failure: PolicyFailure): VerificationFailure =>
+  failure.diagnostics === undefined
+    ? new VerificationFailure({
+        planId,
+        policy: failure.policy,
+        detail: failure.detail,
+      })
+    : new VerificationFailure({
+        planId,
+        policy: failure.policy,
+        detail: failure.detail,
+        diagnostics: failure.diagnostics,
+      })
 
-  for (const configured of snapshot.projects) {
-    const project = yield* snapshot.project(configured)
-    const lists = yield* project.unsafeNative((nativeProject) =>
-      collectProjectDiagnostics(nativeProject),
-    )
-    for (const list of lists) {
-      for (const diagnostic of list) {
-        const record = normalizeDiagnostic(diagnostic)
-        const key = diagnosticIdentity(record)
-        if (seen.has(key)) continue
-        seen.add(key)
-        allDiagnostics.push(record)
-      }
+export const verifyPreview = (
+  plan: TransformationPlan,
+  preview: PlanPreview,
+  observation: VerificationObservation,
+): Effect.Effect<
+  VerifiedPlan & { readonly diagnosticDiff: DiagnosticDiff },
+  VerificationFailure | PlanDecodeError
+> =>
+  Effect.gen(function* () {
+    const builtIn = evaluateBuiltInPolicies({
+      policies: plan.policies,
+      actualMatches: observation.actualMatches,
+      affectedFiles: preview.files.length,
+      baselineErrorCount: observation.baselineErrorCount,
+      proposedErrorCount: observation.proposedErrorCount,
+      diagnosticDiff: observation.diagnosticDiff,
+      secondPlanChangeCount: observation.secondPlanChangeCount,
+      allowedErrors: observation.allowedErrors,
+    })
+    if (builtIn.failure !== undefined) {
+      return yield* verificationFailure(plan.planId, builtIn.failure)
     }
-  }
-  return allDiagnostics
-})
+
+    // Do not mint a VerifiedPlan containing a failed policy result when a
+    // caller constructs an observation outside the complete verify flow.
+    const reportedFailure = failureFromPolicyResults(
+      observation.policyResults,
+      observation.diagnosticDiff,
+    )
+    if (reportedFailure !== undefined) {
+      return yield* verificationFailure(plan.planId, reportedFailure)
+    }
+
+    const receipt: VerificationReceipt = {
+      planId: plan.planId,
+      snapshotHash: plan.snapshotHash,
+      affectedFiles: preview.files.length,
+      actualMatches: observation.actualMatches,
+      baselineErrorCount: observation.baselineErrorCount,
+      proposedErrorCount: observation.proposedErrorCount,
+      diagnosticDelta: observation.proposedErrorCount - observation.baselineErrorCount,
+      idempotenceChecked: plan.policies.idempotence === "required",
+      policyResults: observation.policyResults ?? [],
+    }
+    const validated = yield* validatePlan(plan)
+    return issueVerifiedPlan(validated, preview, receipt, observation.diagnosticDiff)
+  })
 
 /**
- * Verify a plan against its snapshot and policies using fresh compiler
- * authorities: one over the real inputs (baseline diagnostics) and one over
- * the proposed virtual state (proposed diagnostics plus, when the plan
- * declares idempotence, a replay of the recipe that must yield zero edits).
- * Returns the process-local Verified Plan on success.
+ * Verify a plan with fresh baseline and proposed compiler snapshots. This
+ * operation evaluates policies and returns application authority on success.
  */
 export const verify = <Input, E, R>(
   plan: TransformationPlan,

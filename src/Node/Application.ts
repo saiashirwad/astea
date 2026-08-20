@@ -7,15 +7,14 @@ import {
 } from "../Application/Model.ts"
 import { textHash } from "../Edit/index.ts"
 import type { Json, TransformationPlan } from "../Plan/index.ts"
+import { issuedVerifiedPlan, type VerifiedPlan } from "../Verification/VerifiedPlan.ts"
+import type { FilePreview } from "../Verification/Model.ts"
+import { previewPlan } from "../Verification/Preview.ts"
 import {
-  issuedVerifiedPlan,
-  previewPlan,
   requireMatchingProjectIdentity,
   revalidatePlanSources,
-  StalePlanError,
-  type FilePreview,
-  type VerifiedPlan,
-} from "../Verification/Engine.ts"
+} from "../Verification/SourceRevalidation.ts"
+import { StalePlanError } from "../Verification/Errors.ts"
 import { isProjectRelativePath } from "../ProjectPath/index.ts"
 import { Workspace, type WorkspaceDefinition } from "../Workspace/index.ts"
 import { layer as nodeLayer } from "../platform/node.ts"

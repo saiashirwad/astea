@@ -1,6 +1,4 @@
 export {
-  of,
-  verify,
   StalePlanError,
   VerificationFailure,
   ProjectIdentityMismatch,
@@ -8,12 +6,10 @@ export {
   RecipeInputMismatch,
   PolicyMismatch,
   ToolchainMismatch,
-} from "./Core.ts"
-export type {
-  FilePreview,
-  FileState,
-  PlanPreview,
-  PolicyResult,
-  VerificationReceipt,
-  VerifiedPlan,
-} from "./Core.ts"
+} from "./Errors.ts"
+export { of } from "./Preview.ts"
+export { verify } from "./Verify.ts"
+export type { FilePreview, FileState, PlanPreview, VerificationReceipt } from "./Model.ts"
+export type { PolicyResult } from "./PolicyEvaluation.ts"
+export type { VerifiedPlan } from "./VerifiedPlan.ts"
+export type { DiagnosticDiff, DiagnosticRecord, PolicyEvaluationContext } from "../Policy/index.ts"
