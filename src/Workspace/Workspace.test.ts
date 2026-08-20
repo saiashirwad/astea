@@ -212,4 +212,42 @@ describe("workspace path confinement, overlay FS, and symbol lookup", () => {
       ),
     60_000,
   )
+
+  effect(
+    "prints AST nodes and resolves batched symbols directly on project snapshot",
+    () =>
+      withFixture((_, app) =>
+        Effect.gen(function* () {
+          const workspace = yield* Workspace
+          yield* workspace.withSnapshot(
+            {},
+            Effect.gen(function* () {
+              const snapshot = yield* WorkspaceSnapshot
+              const project = yield* snapshot.project(app)
+              const source = yield* project.sourceFile("src/library.ts")
+              expect(source).toBeDefined()
+              if (source === undefined) return
+
+              const printed = yield* project.printNode(source)
+              expect(printed).toContain("export function target")
+
+              const libraryPath = project.resolveFileName("src/library.ts")
+              const positions = [source.getStart(source)]
+              const symbols = yield* project.symbolsAt(libraryPath, positions)
+              expect(symbols).toHaveLength(1)
+
+              const aliasedSymbol = yield* project.symbolNamed("renamed", {
+                within: "src/consumer.ts",
+              })
+              const canonical = yield* project.canonicalSymbol(aliasedSymbol)
+              const original = yield* project.symbolNamed("target", {
+                within: "src/library.ts",
+              })
+              expect(canonical).toBe(original)
+            }),
+          )
+        }),
+      ),
+    60_000,
+  )
 })

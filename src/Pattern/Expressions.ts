@@ -24,8 +24,7 @@ import {
   isStringLiteral,
   isTemplateExpression,
 } from "typescript/unstable/ast/is"
-import { SymbolFlags, type Symbol as NativeSymbol } from "typescript/unstable/async"
-import { nativeRequest } from "../Compiler/Service.ts"
+import type { Symbol as NativeSymbol } from "typescript/unstable/async"
 import type { EvidenceFact } from "../Evidence/Core.ts"
 import { tuple, predicate, type AnyPattern, type Pattern } from "./Core.ts"
 import { matchFailure, matchSuccess, matchesName } from "./Internal.ts"
@@ -50,13 +49,7 @@ export const identifier = (options?: {
           node.getStart(node.getSourceFile()),
         )
         if (symbol === undefined) return matchFailure
-        const canonical = yield* project.unsafeNative((nativeProject) =>
-          (symbol.flags & SymbolFlags.Alias) === 0
-            ? Effect.succeed(symbol)
-            : nativeRequest("getAliasedSymbol", () =>
-                nativeProject.checker.getAliasedSymbol(symbol),
-              ),
-        )
+        const canonical = yield* project.canonicalSymbol(symbol)
         if (canonical !== options.resolvesTo) return matchFailure
       }
       return matchSuccess(node, { identifier: node.text })
@@ -74,40 +67,46 @@ const isPattern = <Out>(
 export const callExpression = <EOut = Node, AOut = ReadonlyArray<Node>>(options?: {
   readonly expression?: Pattern<Node, EOut>
   readonly arguments?: Pattern<Node, AOut> | ReadonlyArray<AnyPattern>
-}): Pattern<CallExpression, CallExpressionMatch<EOut, AOut>> => ({
-  mode: "node",
-  kind: "callExpression",
-  syntaxKind: SyntaxKind.CallExpression,
-  match: (node, project) =>
-    Effect.gen(function* () {
-      if (!isCallExpression(node)) return matchFailure
-      const facts = { kind: SyntaxKind[node.kind] ?? node.kind } satisfies Record<
-        string,
-        EvidenceFact
-      >
-      // SAFETY: the caller's expression pattern constrains this output type.
-      let expression = node.expression as EOut
-      if (options?.expression !== undefined) {
-        const result = yield* options.expression.match(node.expression, project)
-        if (!result.matched) return matchFailure
-        expression = result.value
-        if (result.facts !== undefined) Object.assign(facts, result.facts)
-      }
-      // SAFETY: the caller's argument pattern constrains this output type.
-      let args = node.arguments as AOut
-      if (options?.arguments !== undefined) {
-        const argumentPattern = isPattern(options.arguments)
-          ? options.arguments
-          : tuple(options.arguments)
-        const result = yield* argumentPattern.match(node, project)
-        if (!result.matched) return matchFailure
-        // SAFETY: argumentPattern was constructed from the caller's AOut pattern.
-        args = result.value as AOut
-        if (result.facts !== undefined) Object.assign(facts, result.facts)
-      }
-      return matchSuccess({ call: node, expression, args }, facts)
-    }),
-})
+}): Pattern<CallExpression, CallExpressionMatch<EOut, AOut>> => {
+  const argumentPattern =
+    options?.arguments === undefined
+      ? undefined
+      : isPattern(options.arguments)
+        ? options.arguments
+        : tuple(options.arguments)
+
+  return {
+    mode: "node",
+    kind: "callExpression",
+    syntaxKind: SyntaxKind.CallExpression,
+    match: (node, project) =>
+      Effect.gen(function* () {
+        if (!isCallExpression(node)) return matchFailure
+        const facts = { kind: SyntaxKind[node.kind] ?? node.kind } satisfies Record<
+          string,
+          EvidenceFact
+        >
+        // SAFETY: the caller's expression pattern constrains this output type.
+        let expression = node.expression as EOut
+        if (options?.expression !== undefined) {
+          const result = yield* options.expression.match(node.expression, project)
+          if (!result.matched) return matchFailure
+          expression = result.value
+          if (result.facts !== undefined) Object.assign(facts, result.facts)
+        }
+        // SAFETY: the caller's argument pattern constrains this output type.
+        let args = node.arguments as AOut
+        if (argumentPattern !== undefined) {
+          const result = yield* argumentPattern.match(node, project)
+          if (!result.matched) return matchFailure
+          // SAFETY: argumentPattern was constructed from the caller's AOut pattern.
+          args = result.value as AOut
+          if (result.facts !== undefined) Object.assign(facts, result.facts)
+        }
+        return matchSuccess({ call: node, expression, args }, facts)
+      }),
+  }
+}
 
 export const propertyAccess = (options?: {
   readonly expression?: Pattern<Node, unknown>
@@ -169,14 +168,17 @@ export const objectLiteral = (options?: {
   match: (node) =>
     Effect.sync(() => {
       if (!isObjectLiteralExpression(node)) return matchFailure
-      const names = new Set(
-        node.properties
-          .filter(isPropertyAssignment)
-          .map((p) => (isIdentifier(p.name) || isStringLiteral(p.name) ? p.name.text : "")),
-      )
-      return options?.hasProperties?.every((name) => names.has(name)) === false
-        ? matchFailure
-        : matchSuccess(node, { propertyCount: node.properties.length })
+      if (options?.hasProperties !== undefined) {
+        const names = new Set(
+          node.properties
+            .filter(isPropertyAssignment)
+            .map((p) => (isIdentifier(p.name) || isStringLiteral(p.name) ? p.name.text : "")),
+        )
+        if (!options.hasProperties.every((name) => names.has(name))) {
+          return matchFailure
+        }
+      }
+      return matchSuccess(node, { propertyCount: node.properties.length })
     }),
 })
 
@@ -189,11 +191,11 @@ export const stringLike = (): Pattern<Node, StringLike> =>
     SyntaxKind.NoSubstitutionTemplateLiteral,
     SyntaxKind.TemplateExpression,
   ])
-export interface AwaitExpressionPatternOptions<EOut = Node> {
-  readonly expression?: Pattern<Node, EOut>
+export interface AwaitExpressionPatternOptions {
+  readonly expression?: Pattern<Node, unknown>
 }
-export const awaitExpression = <EOut = Node>(
-  options?: AwaitExpressionPatternOptions<EOut>,
+export const awaitExpression = (
+  options?: AwaitExpressionPatternOptions,
 ): Pattern<AwaitExpression, AwaitExpression> => ({
   mode: "node",
   kind: "awaitExpression",

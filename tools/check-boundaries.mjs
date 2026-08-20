@@ -48,8 +48,8 @@ export const temporaryAdapterImports = new Map()
 const compatibilityFacadeImports = new Map([["src/Workspace/ProjectPath.ts", new Set(["Node"])]])
 
 const exactDependencies = new Map([
-  ["Pattern", new Set(["Compiler", "Evidence", "Workspace"])],
-  ["Query", new Set(["Compiler", "Evidence", "Pattern", "ProjectPath", "Workspace"])],
+  ["Pattern", new Set(["Evidence", "Workspace"])],
+  ["Query", new Set(["Evidence", "Pattern", "ProjectPath", "Workspace"])],
   ["Workspace", new Set(["Compiler", "ProjectPath", "VirtualFs"])],
   [
     "Recipe",

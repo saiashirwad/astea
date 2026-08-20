@@ -52,22 +52,21 @@ export const projectSnapshotFor = ({
       !runtime.isAbsolutePath(relative)
     )
   }
-  const containsFileName = (fileName: string): boolean => isWithinProject(fileName)
+  const containsFileName = isWithinProject
   const resolveFileName = (fileName: string): string => runtime.resolvePath(projectRoot, fileName)
   const relativeFileName = (fileName: string): string =>
     runtime.relativePath(projectRoot, runtime.resolvePath(fileName)).replaceAll("\\", "/")
 
-  const requireContainedPath = (fileName: string): string | undefined =>
-    (() => {
-      const relative = parseProjectRelativePath(fileName)
-      if (relative !== undefined) {
-        const absolute = runtime.resolvePath(projectRoot, relative)
-        return isWithinProject(absolute) ? absolute : undefined
-      }
-      if (!runtime.isAbsolutePath(fileName)) return undefined
-      const absolute = runtime.resolvePath(fileName)
+  const requireContainedPath = (fileName: string): string | undefined => {
+    const relative = parseProjectRelativePath(fileName)
+    if (relative !== undefined) {
+      const absolute = runtime.resolvePath(projectRoot, relative)
       return isWithinProject(absolute) ? absolute : undefined
-    })()
+    }
+    if (!runtime.isAbsolutePath(fileName)) return undefined
+    const absolute = runtime.resolvePath(fileName)
+    return isWithinProject(absolute) ? absolute : undefined
+  }
 
   const isOwnedSourceFile = (sf: SourceFile, observedName = sf.fileName) =>
     Effect.gen(function* () {
@@ -146,10 +145,35 @@ export const projectSnapshotFor = ({
     )
   })
 
-  const canonicalSymbol = (symbol: NativeSymbol) =>
-    (symbol.flags & SymbolFlags.Alias) === 0
-      ? Effect.succeed(symbol)
-      : nativeRequest("getAliasedSymbol", () => nativeProject.checker.getAliasedSymbol(symbol))
+  const symbolsAt = Effect.fn("ProjectSnapshot.symbolsAt")(function* (
+    fileName: string,
+    positions: ReadonlyArray<number>,
+  ) {
+    yield* ensureActive
+    if (positions.length === 0) return []
+    const absolute = requireContainedPath(fileName)
+    if (absolute === undefined) return positions.map(() => undefined)
+    return yield* nativeRequest("getSymbolsAtPositions", () =>
+      nativeProject.checker.getSymbolAtPosition(absolute, positions),
+    )
+  })
+
+  const canonicalSymbol = Effect.fn("ProjectSnapshot.canonicalSymbol")(function* (
+    symbol: NativeSymbol,
+  ) {
+    yield* ensureActive
+    if ((symbol.flags & SymbolFlags.Alias) === 0) {
+      return symbol
+    }
+    return yield* nativeRequest("getAliasedSymbol", () =>
+      nativeProject.checker.getAliasedSymbol(symbol),
+    )
+  })
+
+  const printNode = Effect.fn("ProjectSnapshot.printNode")(function* (node: Node) {
+    yield* ensureActive
+    return yield* nativeRequest("printNode", () => nativeProject.emitter.printNode(node))
+  })
 
   const symbolNamed = Effect.fn("ProjectSnapshot.symbolNamed")(function* (
     name: string,
@@ -169,10 +193,7 @@ export const projectSnapshotFor = ({
     const identifiers: Array<Node> = []
     const visit = (node: Node): void => {
       if (isIdentifier(node) && node.text === name) identifiers.push(node)
-      node.forEachChild((child) => {
-        visit(child)
-        return undefined
-      })
+      node.forEachChild(visit)
     }
     visit(source)
     if (identifiers.length === 0) {
@@ -188,15 +209,13 @@ export const projectSnapshotFor = ({
     return yield* new SymbolNotFound({ name, fileName: options.within })
   })
 
-  const findSymbolNamed = Effect.fn("ProjectSnapshot.findSymbolNamed")(function* (
-    name: string,
-    options: { readonly within: string },
-  ) {
-    return yield* symbolNamed(name, options).pipe(
-      Effect.map(Option.some),
-      Effect.catchTag("SymbolNotFound", () => Effect.succeed(Option.none())),
-    )
-  })
+  const findSymbolNamed = Effect.fn("ProjectSnapshot.findSymbolNamed")(
+    (name: string, options: { readonly within: string }) =>
+      symbolNamed(name, options).pipe(
+        Effect.map(Option.some),
+        Effect.catchTag("SymbolNotFound", () => Effect.succeed(Option.none())),
+      ),
+  )
 
   const typeAt = Effect.fn("ProjectSnapshot.typeAt")(function* (
     fileName: string,
@@ -307,12 +326,12 @@ export const projectSnapshotFor = ({
     return makeProjectFile(requireProjectRelativePath(relativeFileName(found.fileName)))
   })
 
-  const findFile = Effect.fn("ProjectSnapshot.findFile")(function* (fileName: string) {
-    return yield* file(fileName).pipe(
+  const findFile = Effect.fn("ProjectSnapshot.findFile")((fileName: string) =>
+    file(fileName).pipe(
       Effect.map(Option.some),
       Effect.catchTag("FileNotFound", () => Effect.succeed(Option.none())),
-    )
-  })
+    ),
+  )
 
   const files: ProjectSnapshot["files"] = Effect.gen(function* () {
     yield* ensureActive
@@ -334,12 +353,15 @@ export const projectSnapshotFor = ({
     files,
     semanticDiagnosticCount,
     symbolAt,
+    symbolsAt,
+    canonicalSymbol,
     symbolNamed,
     findSymbolNamed,
     typeAt,
     typeToString,
     isTypeAssignableTo,
     intrinsicType,
+    printNode,
     unsafeNative,
   }
 

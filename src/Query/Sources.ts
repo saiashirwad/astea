@@ -15,7 +15,6 @@ import {
   isImportDeclaration,
   isPropertyAccessExpression,
 } from "typescript/unstable/ast/is"
-import { nativeRequest } from "../Compiler/Service.ts"
 import { requireProjectRelativePath } from "../ProjectPath/index.ts"
 import {
   isProjectFile,
@@ -75,16 +74,11 @@ const resolveScope = (
 const collectNodes = <A extends Node>(
   project: ProjectSnapshot,
   sourceFile: SourceFile,
-  requestedFileName: string,
   guard: (node: Node) => node is A,
   syntaxKind?: SyntaxKindFilter,
 ): Array<Selection<A>> => {
   const selections: Array<Selection<A>> = []
-  const fileName = requireProjectRelativePath(
-    project.containsFileName(sourceFile.fileName)
-      ? project.relativeFileName(sourceFile.fileName)
-      : project.relativeFileName(requestedFileName),
-  )
+  const fileName = requireProjectRelativePath(project.relativeFileName(sourceFile.fileName))
 
   const visit = (node: Node): void => {
     const kindMatches =
@@ -105,10 +99,7 @@ const collectNodes = <A extends Node>(
         ],
       })
     }
-    node.forEachChild((child) => {
-      visit(child)
-      return undefined
-    })
+    node.forEachChild(visit)
   }
 
   visit(sourceFile)
@@ -123,15 +114,11 @@ export const nodes = <A extends Node>(
 ): Query<A, ProjectSnapshotError> =>
   resolveScope(target).pipe(
     Stream.flatMap(({ project, fileName }) =>
-      Stream.fromEffect(
-        project.unsafeNative((nativeProject) =>
-          nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName)),
-        ),
-      ).pipe(
+      Stream.fromEffect(project.sourceFile(fileName)).pipe(
         Stream.flatMap((sourceFile) =>
           sourceFile === undefined
             ? Stream.empty
-            : Stream.fromIterable(collectNodes(project, sourceFile, fileName, guard, syntaxKind)),
+            : Stream.fromIterable(collectNodes(project, sourceFile, guard, syntaxKind)),
         ),
       ),
     ),
@@ -158,30 +145,21 @@ export const match = <Out>(
 ): Query<Out, ProjectSnapshotError> =>
   resolveScope(target).pipe(
     Stream.flatMap(({ project, fileName }) =>
-      Stream.fromEffect(
-        project.unsafeNative((nativeProject) =>
-          nativeRequest("getSourceFile", () => nativeProject.program.getSourceFile(fileName)),
-        ),
-      ).pipe(
+      Stream.fromEffect(project.sourceFile(fileName)).pipe(
         Stream.flatMap((sourceFile) => {
           if (sourceFile === undefined) return Stream.empty
           const relFileName = requireProjectRelativePath(
-            project.containsFileName(sourceFile.fileName)
-              ? project.relativeFileName(sourceFile.fileName)
-              : project.relativeFileName(fileName),
+            project.relativeFileName(sourceFile.fileName),
           )
           const candidateNodes: Array<Node> = []
-          const visit = (node: Node) => {
+          const visit = (node: Node): void => {
             const kindMatches =
               pattern.syntaxKind === undefined ||
               (Array.isArray(pattern.syntaxKind)
                 ? pattern.syntaxKind.includes(node.kind)
                 : node.kind === pattern.syntaxKind)
             if (kindMatches) candidateNodes.push(node)
-            node.forEachChild((child) => {
-              visit(child)
-              return undefined
-            })
+            node.forEachChild(visit)
           }
           visit(sourceFile)
 

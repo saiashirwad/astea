@@ -1,6 +1,6 @@
 /** Public Workspace values, errors, and snapshot contracts. */
 import { Data, Predicate, type Effect, type Option } from "effect"
-import type { SourceFile } from "typescript/unstable/ast"
+import type { Node, SourceFile } from "typescript/unstable/ast"
 import type {
   Project as NativeProject,
   Symbol as NativeSymbol,
@@ -139,6 +139,13 @@ export interface ProjectSnapshot {
     fileName: string,
     position: number,
   ) => Effect.Effect<NativeSymbol | undefined, ProjectSnapshotError>
+  readonly symbolsAt: (
+    fileName: string,
+    positions: ReadonlyArray<number>,
+  ) => Effect.Effect<ReadonlyArray<NativeSymbol | undefined>, ProjectSnapshotError>
+  readonly canonicalSymbol: (
+    symbol: NativeSymbol,
+  ) => Effect.Effect<NativeSymbol, ProjectSnapshotError>
   readonly symbolNamed: (
     name: string,
     options: { readonly within: string },
@@ -159,6 +166,8 @@ export interface ProjectSnapshot {
   readonly intrinsicType: (
     kind: "string" | "number" | "boolean" | "any" | "unknown" | "never" | "void",
   ) => Effect.Effect<NativeType, ProjectSnapshotError>
+  /** Print an AST node using the snapshot emitter. */
+  readonly printNode: (node: Node) => Effect.Effect<string, ProjectSnapshotError>
   /** Native values remain valid only during the snapshot region. */
   readonly unsafeNative: <A, E, R>(
     use: (project: NativeProject) => Effect.Effect<A, E, R>,

@@ -1,18 +1,12 @@
 /** TypeScript semantic and declaration criteria. */
 import { Effect, Predicate } from "effect"
 import { getJSDocTags, SyntaxKind, type Identifier, type Node } from "typescript/unstable/ast"
-import {
-  SymbolFlags,
-  type Symbol as NativeSymbol,
-  type Type as NativeType,
-} from "typescript/unstable/async"
-import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
+import type { Symbol as NativeSymbol, Type as NativeType } from "typescript/unstable/async"
 import {
   isProjectFile,
   type ProjectFile,
   type ProjectSnapshot,
   type ProjectSnapshotError,
-  type SnapshotExpired,
 } from "../Workspace/index.ts"
 import type { EvidenceFact } from "../Evidence/Core.ts"
 import {
@@ -32,14 +26,14 @@ import { where } from "./Operators.ts"
 export const resolvesTo = <A extends Node>(
   symbol: NativeSymbol,
   options?: { readonly location?: (candidate: A) => Node },
-): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
+): Criterion<A, ProjectSnapshotError> => ({
   mode: "selection",
   id: "resolves-to-symbol",
   select: (selections) =>
     Effect.gen(function* () {
       const byProjectFile = Map.groupBy(
         selections.map((selection, index) => ({ selection, index })),
-        ({ selection }) => `${selection.project.project.id}${selection.fileName}`,
+        ({ selection }) => `${selection.project.project.id}:${selection.fileName}`,
       )
       const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
         length: selections.length,
@@ -54,31 +48,20 @@ export const resolvesTo = <A extends Node>(
               return node.getStart(node.getSourceFile())
             })
             const fileName = project.resolveFileName(group[0]!.selection.fileName)
-            const symbols = yield* project.unsafeNative((nativeProject) =>
-              nativeRequest("getSymbolsAtPositions", () =>
-                nativeProject.checker.getSymbolAtPosition(fileName, positions),
-              ),
-            )
+            const symbols = yield* project.symbolsAt(fileName, positions)
+            const declarationFile = symbol.valueDeclaration?.path ?? symbol.declarations?.[0]?.path
+            const declarationPath =
+              declarationFile === undefined
+                ? "unknown"
+                : project.containsFileName(String(declarationFile))
+                  ? project.relativeFileName(String(declarationFile))
+                  : "external"
             yield* Effect.forEach(symbols, (candidate, index) =>
               candidate === undefined
                 ? Effect.void
                 : Effect.gen(function* () {
-                    const canonical = yield* project.unsafeNative((nativeProject) =>
-                      (candidate.flags & SymbolFlags.Alias) === 0
-                        ? Effect.succeed(candidate)
-                        : nativeRequest("getAliasedSymbol", () =>
-                            nativeProject.checker.getAliasedSymbol(candidate),
-                          ),
-                    )
+                    const canonical = yield* project.canonicalSymbol(candidate)
                     if (canonical === symbol) {
-                      const declarationFile =
-                        symbol.valueDeclaration?.path ?? symbol.declarations[0]?.path
-                      const declarationPath =
-                        declarationFile === undefined
-                          ? "unknown"
-                          : project.containsFileName(String(declarationFile))
-                            ? project.relativeFileName(String(declarationFile))
-                            : "external"
                       facts[group[index]!.index] = {
                         symbol: symbol.name,
                         declarationFile: declarationPath,
@@ -109,10 +92,8 @@ interface NodeWithModifiers extends Node {
 
 const hasModifiers = (node: Node): node is NodeWithModifiers => "modifiers" in node
 
-const readModifiers = (node: Node): ReadonlyArray<{ readonly kind: SyntaxKind }> | undefined => {
-  if (!hasModifiers(node) || node.modifiers === undefined) return undefined
-  return node.modifiers
-}
+const readModifiers = (node: Node): ReadonlyArray<{ readonly kind: SyntaxKind }> | undefined =>
+  hasModifiers(node) ? node.modifiers : undefined
 
 /** Admit nodes that have an export modifier. */
 export const isExported = <A extends Node>(): Criterion<A> =>
@@ -157,7 +138,7 @@ const isIntrinsicTypeName = (value: NativeType | IntrinsicTypeName): value is In
 /** Admit nodes whose computed type is assignable to `target`. */
 export const typeAssignableTo = <A extends Node>(
   target: NativeType | IntrinsicTypeName,
-): Criterion<A, NativeCompilerError | SnapshotExpired> => {
+): Criterion<A, ProjectSnapshotError> => {
   const targetLabel = isIntrinsicTypeName(target) ? target : "custom-type"
   return {
     mode: "selection",
@@ -197,7 +178,7 @@ export const typeAssignableTo = <A extends Node>(
 export const typeSatisfies = <A extends Node>(
   id: string,
   predicate: (type: NativeType, typeString: string) => boolean,
-): Criterion<A, NativeCompilerError | SnapshotExpired> => ({
+): Criterion<A, ProjectSnapshotError> => ({
   mode: "selection",
   id: `type-satisfies:${id}`,
   select: (selections) =>

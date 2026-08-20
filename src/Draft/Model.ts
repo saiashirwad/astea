@@ -10,7 +10,7 @@
  */
 import { Effect, Predicate } from "effect"
 import {
-  DraftEvidenceConflict,
+  type DraftEvidenceConflict,
   finalizeDraftEvidence,
   finalizeDraftEvidenceEffect,
   mergeEvidence,
@@ -20,9 +20,8 @@ import type { PlannedFileOperation } from "../Plan/index.ts"
 import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
 import type { TextEdit } from "../Edit/Model.ts"
-import { nativeRequest, type NativeCompilerError } from "../Compiler/Service.ts"
 import type { Selection } from "../Query/index.ts"
-import type { ProjectSnapshot, SnapshotExpired } from "../Workspace/index.ts"
+import type { ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "../Workspace/index.ts"
 
 /** An edit in pre-finalization form; identical in shape to its durable counterpart. */
 export type ProposedEdit = TextEdit
@@ -41,30 +40,27 @@ export const empty: Draft = { edits: [], fileOperations: [], evidence: [], match
 export const concatEffect = (
   ...drafts: ReadonlyArray<Draft>
 ): Effect.Effect<Draft, DraftEvidenceConflict> =>
-  Effect.suspend(() => {
-    try {
-      return Effect.succeed(concat(...drafts))
-    } catch (cause) {
-      return cause instanceof DraftEvidenceConflict ? Effect.fail(cause) : Effect.die(cause)
-    }
-  })
-
-/** Combine drafts built from disjoint selections. Conflicting overlaps are rejected at finalization. */
-export const concat = (...drafts: ReadonlyArray<Draft>): Draft => {
-  const edits = drafts.flatMap((draft) => [...draft.edits])
-  const fileOperations = drafts.flatMap((draft) =>
-    draft.fileOperations ? [...draft.fileOperations] : [],
-  )
-  return finalizeDraftEvidence(
+  finalizeDraftEvidenceEffect(
     {
-      edits,
-      fileOperations,
+      edits: drafts.flatMap((draft) => draft.edits),
+      fileOperations: drafts.flatMap((draft) => draft.fileOperations ?? []),
       evidence: drafts.flatMap((draft) => draft.evidence),
       matches: drafts.reduce((total, draft) => total + draft.matches, 0),
     },
     { facts: { source: "concat" } },
   )
-}
+
+/** Combine drafts built from disjoint selections. Conflicting overlaps are rejected at finalization. */
+export const concat = (...drafts: ReadonlyArray<Draft>): Draft =>
+  finalizeDraftEvidence(
+    {
+      edits: drafts.flatMap((draft) => draft.edits),
+      fileOperations: drafts.flatMap((draft) => draft.fileOperations ?? []),
+      evidence: drafts.flatMap((draft) => draft.evidence),
+      matches: drafts.reduce((total, draft) => total + draft.matches, 0),
+    },
+    { facts: { source: "concat" } },
+  )
 
 type DraftEdit = Omit<ProposedEdit, "evidenceIds">
 
@@ -183,10 +179,7 @@ const insertAtNode = (
 export const print = (
   project: ProjectSnapshot,
   node: Node,
-): Effect.Effect<string, NativeCompilerError | SnapshotExpired> =>
-  project.unsafeNative((nativeProject) =>
-    nativeRequest("print native fragment", () => nativeProject.emitter.printNode(node)),
-  )
+): Effect.Effect<string, ProjectSnapshotError> => project.printNode(node)
 
 /** Replace a node with a printed native fragment (e.g. built with the native factory API). */
 export const replaceWith = (
@@ -194,7 +187,7 @@ export const replaceWith = (
   node: Node,
   fragment: Node,
   options?: EditRangeOptions,
-): Effect.Effect<Draft, NativeCompilerError | SnapshotExpired> =>
+): Effect.Effect<Draft, ProjectSnapshotError> =>
   print(project, fragment).pipe(Effect.flatMap((text) => replace(project, node, text, options)))
 
 /** The replacement a selection maps to: text only (replace the selected node) or an explicit target node. */
@@ -225,8 +218,8 @@ export const replaceEach = <A extends Node, E = never, R = never>(
     return effect.pipe(
       Effect.flatMap(
         (proposed): Effect.Effect<Draft, E | SnapshotExpired | DraftEvidenceConflict, R> => {
+          const evidenceId = selectionEvidenceId(selection)
           if (isDraft(proposed)) {
-            const evidenceId = `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
             // A returned Draft.empty is still one selected occurrence. Match
             // policies and scan audits count the selection, not whether an edit
             // was produced.
@@ -261,7 +254,6 @@ export const replaceEach = <A extends Node, E = never, R = never>(
           }
           const node = isTextReplacement(proposed) ? selection.value : proposed.node
           const text = isTextReplacement(proposed) ? proposed : proposed.text
-          const evidenceId = `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
           return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
             Effect.map((edit): Draft => ({
               edits: [edit],
@@ -274,9 +266,12 @@ export const replaceEach = <A extends Node, E = never, R = never>(
     )
   }).pipe(Effect.flatMap((drafts) => concatEffect(...drafts)))
 
+const selectionEvidenceId = <A extends Node>(selection: Selection<A>): string =>
+  `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
+
 const selectionEvidence = <A extends Node>(
   selection: Selection<A>,
-  evidenceId: string,
+  evidenceId = selectionEvidenceId(selection),
 ): EvidenceRecord => ({
   id: evidenceId,
   kind: "selection",
@@ -301,12 +296,7 @@ const selectionEvidence = <A extends Node>(
  * Enables read-only codebase audits, inventorying, and migration sizing.
  */
 export const audit = <A extends Node>(selections: ReadonlyArray<Selection<A>>): Draft => {
-  const evidence = mergeEvidence(
-    selections.map((selection) => {
-      const evidenceId = `selection:${selection.project.project.id}:${selection.fileName}:${selection.start}-${selection.end}`
-      return selectionEvidence(selection, evidenceId)
-    }),
-  )
+  const evidence = mergeEvidence(selections.map((selection) => selectionEvidence(selection)))
   return {
     edits: [],
     evidence,
