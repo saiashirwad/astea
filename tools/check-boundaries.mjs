@@ -40,10 +40,7 @@ const rootFacadeDependencies = new Set([
  * Temporary imports that cross upward into Node adapters. Remove each edge
  * when its owner uses injected filesystem and path services.
  */
-export const temporaryAdapterImports = new Map([
-  ["Recipe", new Set(["Node", "platform"])],
-  ["Workspace", new Set(["Node", "platform"])],
-])
+export const temporaryAdapterImports = new Map([["Workspace", new Set(["Node", "platform"])]])
 
 const exactDependencies = new Map([
   ["Pattern", new Set(["Compiler", "Evidence", "Workspace"])],
@@ -55,7 +52,6 @@ const exactDependencies = new Map([
       "Compiler",
       "Draft",
       "Edit",
-      "Node",
       "Overlay",
       "Plan",
       "Policy",
@@ -63,7 +59,6 @@ const exactDependencies = new Map([
       "VirtualFs",
       "Workspace",
       "generated",
-      "platform",
     ]),
   ],
   ["Preview", new Set(["Verification"])],

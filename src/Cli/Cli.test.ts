@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { describe, effect, expect, it } from "@effect/vitest"
-import { Effect, Predicate } from "effect"
+import { Effect, Layer, Predicate, type FileSystem, type Path } from "effect"
 import {
   buildAuditReport,
   CliMatchFoundError,
@@ -16,6 +16,7 @@ import * as Draft from "../Draft/index.ts"
 import * as Query from "../Query/index.ts"
 import * as Recipe from "../Recipe/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
+import { layer as nodeLayer } from "../Node/index.ts"
 import { runCli } from "./Run.ts"
 
 interface ExecResult {
@@ -31,7 +32,7 @@ const echoRecipePath = fileURLToPath(new URL("../test/echo-input.ts", import.met
 
 const withFixture = <A, E, R>(
   use: (root: string, app: ConfiguredProject) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, unknown, Exclude<R, Workspace>> =>
+): Effect.Effect<A, unknown, Exclude<R, Workspace | FileSystem.FileSystem | Path.Path>> =>
   Effect.acquireUseRelease(
     Effect.tryPromise(async () => {
       const root = await Fs.mkdtemp("/tmp/safemods-cli-")
@@ -41,7 +42,7 @@ const withFixture = <A, E, R>(
     (root) => {
       const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
       const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
-      return use(root, app).pipe(Effect.provide(workspaceLayer))
+      return use(root, app).pipe(Effect.provide(Layer.merge(workspaceLayer, nodeLayer)))
     },
     (root) =>
       Effect.tryPromise(() => Fs.rm(root, { recursive: true, force: true })).pipe(Effect.ignore),

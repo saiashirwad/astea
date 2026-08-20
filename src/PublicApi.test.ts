@@ -1,7 +1,7 @@
 import { path as Path, nodeFsPromises as Fs } from "./platform/node.ts"
 import { fileURLToPath } from "node:url"
 import { describe, effect, expect } from "@effect/vitest"
-import { Effect, Layer, type Stream } from "effect"
+import { Effect, Layer, type FileSystem, type Path as EffectPath, type Stream } from "effect"
 import type { CallExpression, Node } from "typescript/unstable/ast"
 import {
   Application,
@@ -13,7 +13,7 @@ import {
   Workspace,
   type Query,
 } from "./index.ts"
-import { applicationLayerNode } from "./Node/index.ts"
+import { applicationLayerNode, layer as nodeLayer } from "./Node/index.ts"
 import { wrapTargetInput, type WrapTargetInput } from "./test/wrap-target-input.ts"
 import { migrateImportSource, type MigrateImportSourceInput } from "./test/migrate-import-source.ts"
 
@@ -68,7 +68,11 @@ const withFixture = <A, E, R>(
     app: Workspace.ConfiguredProject,
     workspaceLayer: Layer.Layer<Workspace.Workspace, any>,
   ) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, unknown, Exclude<R, Workspace.Workspace>> =>
+): Effect.Effect<
+  A,
+  unknown,
+  Exclude<R, Workspace.Workspace | FileSystem.FileSystem | EffectPath.Path>
+> =>
   Effect.acquireUseRelease(
     Effect.tryPromise(async () => {
       const root = await Fs.mkdtemp("/tmp/safemods-api-")
@@ -78,7 +82,9 @@ const withFixture = <A, E, R>(
     (root) => {
       const app = Workspace.ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
       const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
-      return use(root, app, workspaceLayer).pipe(Effect.provide(workspaceLayer))
+      return use(root, app, workspaceLayer).pipe(
+        Effect.provide(Layer.merge(workspaceLayer, nodeLayer)),
+      )
     },
     (root) =>
       Effect.tryPromise(() => Fs.rm(root, { recursive: true, force: true })).pipe(Effect.ignore),
@@ -133,7 +139,7 @@ describe("candidate public API (@effect/vitest)", () => {
           // Reopen the workspace so the compiler observes the newly written snapshot.
           const freshWorkspaceLayer = Workspace.layer({ projects: [app] }, { cwd: root })
           const second = yield* Recipe.run(wrapTargetInput, input).pipe(
-            Effect.provide(freshWorkspaceLayer),
+            Effect.provide(Layer.merge(freshWorkspaceLayer, nodeLayer)),
           )
           expect(second.edits).toHaveLength(0)
           expect(second.measurements?.matches).toBe(0)

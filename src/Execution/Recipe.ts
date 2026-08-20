@@ -120,8 +120,12 @@ type RecipeExecutionOptions =
   | VerifyExecutionOptions
   | ApplyExecutionOptions
 
-type RecipeRequirements<R> = Workspace | Exclude<R, WorkspaceSnapshot>
-type VerificationRequirements<R> = RecipeRequirements<R> | FileSystem.FileSystem | Path.Path
+type RecipeRequirements<R> =
+  | Workspace
+  | FileSystem.FileSystem
+  | Path.Path
+  | Exclude<R, WorkspaceSnapshot>
+type VerificationRequirements<R> = RecipeRequirements<R>
 type ApplyRequirements<R> = VerificationRequirements<R> | PlanApplication
 
 export function executeRecipe<Input, E, R>(

@@ -1,11 +1,9 @@
 /** Durable workspace input fingerprinting. */
-import { path as Path, nodeFs as NodeFs, nodeFsPromises as Fs } from "../platform/node.ts"
-import { Effect, Predicate } from "effect"
-import { NativeCompilerError } from "../Compiler/Service.ts"
+import { Effect, FileSystem, Path, Predicate } from "effect"
+import type { NativeCompilerError } from "../Compiler/Service.ts"
 import { textHash } from "../Edit/index.ts"
 import type { Json, SourceFingerprint } from "../Plan/index.ts"
-import { isWithinProject, projectRelativePath } from "../Node/ProjectPath.ts"
-import { parseProjectRelativePath } from "../ProjectPath/index.ts"
+import { parseProjectRelativePath, type ProjectRelativePath } from "../ProjectPath/index.ts"
 import {
   hashDirectoryListing,
   type ProjectNotInSnapshot,
@@ -13,33 +11,30 @@ import {
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 
-const readText = (fileName: string): Effect.Effect<string, NativeCompilerError> =>
-  Effect.tryPromise({
-    try: () => Fs.readFile(fileName, "utf8"),
-    catch: (cause) => new NativeCompilerError({ operation: "read workspace input", cause }),
-  })
+const relativePath = (
+  path: Path.Path,
+  projectRoot: string,
+  absolute: string,
+): ProjectRelativePath | undefined =>
+  parseProjectRelativePath(
+    path.relative(path.resolve(projectRoot), path.resolve(absolute)).split(path.sep).join("/"),
+  )
 
-const observationRelativePath = (projectRoot: string, absolute: string): string | undefined => {
-  const direct = parseProjectRelativePath(projectRelativePath(projectRoot, absolute))
-  if (direct !== undefined) return direct
-  try {
-    const realRoot = NodeFs.realpathSync(projectRoot)
-    let realAbsolute = absolute
-    try {
-      realAbsolute = NodeFs.realpathSync(absolute)
-    } catch {
-      if (realAbsolute.startsWith(`${realRoot}${Path.sep}`) || realAbsolute === realRoot) {
-        return parseProjectRelativePath(projectRelativePath(realRoot, realAbsolute))
-      }
-    }
-    if (realAbsolute === realRoot || realAbsolute.startsWith(`${realRoot}${Path.sep}`)) {
-      return parseProjectRelativePath(projectRelativePath(realRoot, realAbsolute))
-    }
-  } catch {
-    return undefined
-  }
-  return undefined
-}
+const observationRelativePath = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  projectRoot: string,
+  absolute: string,
+): Effect.Effect<ProjectRelativePath | undefined> =>
+  Effect.gen(function* () {
+    const direct = relativePath(path, projectRoot, absolute)
+    if (direct !== undefined) return direct
+
+    const realRoot = yield* fs.realPath(projectRoot).pipe(Effect.orElseSucceed(() => undefined))
+    if (realRoot === undefined) return undefined
+    const realAbsolute = yield* fs.realPath(absolute).pipe(Effect.orElseSucceed(() => absolute))
+    return relativePath(path, realRoot, realAbsolute)
+  })
 
 const parseExtendsSpecifiers = (text: string): ReadonlyArray<string> => {
   try {
@@ -55,38 +50,50 @@ const parseExtendsSpecifiers = (text: string): ReadonlyArray<string> => {
   }
 }
 
-const resolveExtendsPath = (fromDir: string, specifier: string): string | undefined => {
-  if (!(specifier.startsWith("./") || specifier.startsWith("../"))) return undefined
-  const resolved = Path.resolve(fromDir, specifier)
-  if (NodeFs.existsSync(resolved)) return resolved
-  if (!resolved.endsWith(".json") && NodeFs.existsSync(`${resolved}.json`)) {
-    return `${resolved}.json`
-  }
-  return resolved
-}
+const resolveExtendsPath = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  fromDir: string,
+  specifier: string,
+): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    if (!(specifier.startsWith("./") || specifier.startsWith("../"))) return undefined
+    const resolved = path.resolve(fromDir, specifier)
+    if (yield* fs.exists(resolved).pipe(Effect.orElseSucceed(() => false))) return resolved
+    if (
+      !resolved.endsWith(".json") &&
+      (yield* fs.exists(`${resolved}.json`).pipe(Effect.orElseSucceed(() => false)))
+    ) {
+      return `${resolved}.json`
+    }
+    return resolved
+  })
 
-const collectExtendsParents = (configFileName: string): Array<string> => {
-  const parents: Array<string> = []
-  const seen = new Set<string>([configFileName])
-  const queue = [configFileName]
-  while (queue.length > 0) {
-    const current = queue.shift()!
-    let text: string
-    try {
-      text = NodeFs.readFileSync(current, "utf8")
-    } catch {
-      continue
+const collectExtendsParents = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  configFileName: string,
+): Effect.Effect<Array<string>> =>
+  Effect.gen(function* () {
+    const parents: Array<string> = []
+    const seen = new Set<string>([configFileName])
+    const queue = [configFileName]
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      const text = yield* fs
+        .readFileString(current, "utf8")
+        .pipe(Effect.orElseSucceed(() => undefined))
+      if (text === undefined) continue
+      for (const specifier of parseExtendsSpecifiers(text)) {
+        const next = yield* resolveExtendsPath(fs, path, path.dirname(current), specifier)
+        if (next === undefined || seen.has(next)) continue
+        seen.add(next)
+        parents.push(next)
+        queue.push(next)
+      }
     }
-    for (const specifier of parseExtendsSpecifiers(text)) {
-      const next = resolveExtendsPath(Path.dirname(current), specifier)
-      if (next === undefined || seen.has(next)) continue
-      seen.add(next)
-      parents.push(next)
-      queue.push(next)
-    }
-  }
-  return parents
-}
+    return parents
+  })
 
 const fingerprintKey = (source: SourceFingerprint): string =>
   `${source.projectId}\0${source.kind ?? "file"}\0${source.fileName}`
@@ -101,21 +108,25 @@ const addFingerprint = (
   sources.set(fingerprintKey(next), next)
 }
 
-const resolvedProjectRelative = (projectRoot: string, absolute: string): string | undefined => {
-  try {
-    return observationRelativePath(projectRoot, NodeFs.realpathSync(absolute))
-  } catch {
-    return undefined
-  }
-}
+const resolvedProjectRelative = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  projectRoot: string,
+  absolute: string,
+): Effect.Effect<ProjectRelativePath | undefined> =>
+  fs.realPath(absolute).pipe(
+    Effect.flatMap((resolved) => observationRelativePath(fs, path, projectRoot, resolved)),
+    Effect.orElseSucceed(() => undefined),
+  )
 
-const directoryListingHash = (directory: string): string | undefined => {
-  try {
-    return hashDirectoryListing(NodeFs.readdirSync(directory))
-  } catch {
-    return undefined
-  }
-}
+const directoryListingHash = (
+  fs: FileSystem.FileSystem,
+  directory: string,
+): Effect.Effect<string | undefined> =>
+  fs.readDirectory(directory).pipe(
+    Effect.map(hashDirectoryListing),
+    Effect.orElseSucceed(() => undefined),
+  )
 
 /** Record compiler inputs that verification can revalidate. */
 export const fingerprintWorkspace = (
@@ -123,23 +134,32 @@ export const fingerprintWorkspace = (
   snapshot: WorkspaceSnapshotService,
 ): Effect.Effect<
   ReadonlyArray<SourceFingerprint>,
-  NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired
+  NativeCompilerError | ProjectNotInSnapshot | SnapshotExpired,
+  FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
     const sources = new Map<string, SourceFingerprint>()
     for (const configured of snapshot.projects) {
       const project = yield* snapshot.project(configured)
-      const owned = (yield* project.sourceFileNames).filter((fileName) =>
-        isWithinProject(project.root, fileName),
+      const owned = (yield* project.sourceFileNames).filter(
+        (fileName) => relativePath(path, project.root, fileName) !== undefined,
       )
       const files = [...new Set(owned)].sort()
-      const configFileName = Path.resolve(workspaceRoot, configured.config)
-      const contentFiles = [configFileName, ...files, ...collectExtendsParents(configFileName)]
+      const configFileName = path.resolve(workspaceRoot, configured.config)
+      const contentFiles = [
+        configFileName,
+        ...files,
+        ...(yield* collectExtendsParents(fs, path, configFileName)),
+      ]
       const directories = new Set<string>()
       for (const absolute of contentFiles) {
-        const relative = observationRelativePath(project.root, absolute)
+        const relative = yield* observationRelativePath(fs, path, project.root, absolute)
         if (relative === undefined) continue
-        const content = yield* readText(absolute).pipe(Effect.orElseSucceed(() => undefined))
+        const content = yield* fs
+          .readFileString(absolute, "utf8")
+          .pipe(Effect.orElseSucceed(() => undefined))
         if (content === undefined) {
           addFingerprint(sources, {
             projectId: configured.id,
@@ -153,11 +173,11 @@ export const fingerprintWorkspace = (
             fileName: relative,
             hash: textHash(content),
           })
-          const directory = Path.dirname(absolute)
-          if (observationRelativePath(project.root, directory) !== undefined) {
+          const directory = path.dirname(absolute)
+          if ((yield* observationRelativePath(fs, path, project.root, directory)) !== undefined) {
             directories.add(directory)
           }
-          const resolvedRelative = resolvedProjectRelative(project.root, absolute)
+          const resolvedRelative = yield* resolvedProjectRelative(fs, path, project.root, absolute)
           if (resolvedRelative !== undefined && resolvedRelative !== relative) {
             addFingerprint(sources, {
               projectId: configured.id,
@@ -169,9 +189,9 @@ export const fingerprintWorkspace = (
         }
       }
       for (const directory of [...directories].sort()) {
-        const relative = observationRelativePath(project.root, directory)
+        const relative = yield* observationRelativePath(fs, path, project.root, directory)
         if (relative === undefined) continue
-        const listing = directoryListingHash(directory)
+        const listing = yield* directoryListingHash(fs, directory)
         addFingerprint(sources, {
           projectId: configured.id,
           fileName: relative,

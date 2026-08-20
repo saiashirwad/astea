@@ -1,5 +1,5 @@
 /** Recipe execution from input to a durable Plan. */
-import { Effect } from "effect"
+import { Effect, type FileSystem, type Path } from "effect"
 import type { NativeCompilerError } from "../Compiler/Service.ts"
 import { finalizeDraftEvidenceEffect, type DraftEvidenceConflict } from "../Draft/index.ts"
 import { SYSTEM_VERSION } from "../generated/version.ts"
@@ -36,7 +36,7 @@ export const run = <Input, E, R>(
   | ProjectNotInSnapshot
   | SnapshotExpired
   | DraftEvidenceConflict,
-  Workspace | Exclude<R, WorkspaceSnapshot>
+  Workspace | FileSystem.FileSystem | Path.Path | Exclude<R, WorkspaceSnapshot>
 > =>
   Effect.gen(function* () {
     const validatedInput = yield* validateRecipeInput(recipe, input)
