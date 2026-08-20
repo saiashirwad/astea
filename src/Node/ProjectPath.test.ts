@@ -16,7 +16,10 @@ describe("Node project paths", () => {
     expect(isWithinProject(root, inside)).toBe(true)
     expect(isWithinProject(root, root)).toBe(false)
     expect(isWithinProject(root, outside)).toBe(false)
-    expect(projectRelativePath(root, inside)).toBe(Path.join("src", "index.ts"))
+    expect(projectRelativePath(root, inside)).toBe("src/index.ts")
+    expect(projectRelativePath(root, Path.join(root, "src", "nested", "value.ts"))).toBe(
+      "src/nested/value.ts",
+    )
   })
 
   it("resolves only portable project-relative files", () => {

@@ -21,8 +21,14 @@ export const isWithinProject = (projectRoot: string, fileName: string): boolean 
   return file !== root && isContained(root, file)
 }
 
+/**
+ * Convert a host-relative path to slash-separated form.
+ *
+ * This value can still escape the project. Callers that need a durable path
+ * must also validate it with `parseProjectRelativePath`.
+ */
 export const projectRelativePath = (projectRoot: string, fileName: string): string =>
-  Path.relative(Path.resolve(projectRoot), Path.resolve(fileName))
+  Path.relative(Path.resolve(projectRoot), Path.resolve(fileName)).replaceAll("\\", "/")
 
 /** Resolve a project-relative path that stays inside `projectRoot`. */
 export const resolveProjectRelativeFile = (

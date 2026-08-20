@@ -389,6 +389,22 @@ describe("Plan schema", () => {
       const helperAgain = yield* finalizePlan(helperStyleInput)
       expect(helperPlan.planId).toBe(helperAgain.planId)
       expect((yield* parsePlan(serializePlan(helperPlan))).planId).toBe(helperPlan.planId)
+
+      const windowsStylePaths: PlanInput = {
+        ...richInput,
+        sources: richInput.sources.map((source) => ({
+          ...source,
+          fileName: source.fileName.replaceAll("/", "\\"),
+        })),
+        edits: richInput.edits.map((edit) => ({
+          ...edit,
+          fileName: edit.fileName.replaceAll("/", "\\"),
+        })),
+      }
+      const portablePlan = yield* finalizePlan(richInput)
+      const windowsStylePlan = yield* finalizePlan(windowsStylePaths)
+      expect(windowsStylePlan.planId).toBe(portablePlan.planId)
+      expect(windowsStylePlan.snapshotHash).toBe(portablePlan.snapshotHash)
     }),
   )
 

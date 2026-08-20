@@ -16,7 +16,11 @@ import {
   resolveContainedSnapshotPath,
   resolveProjectRelativeFile,
 } from "../Node/ProjectPath.ts"
-import { InvalidProjectRelativePath } from "../ProjectPath/index.ts"
+import {
+  InvalidProjectRelativePath,
+  requireProjectRelativePath,
+  type ProjectRelativePath,
+} from "../ProjectPath/index.ts"
 import {
   FileNotFound,
   type ConfiguredProject,
@@ -65,7 +69,7 @@ export const projectSnapshotFor = ({
     const allFileNames = yield* nativeRequest("getSourceFileNames", () =>
       nativeProject.program.getSourceFileNames(),
     )
-    const owned: Array<{ relative: string; sourceFile: SourceFile }> = []
+    const owned: Array<{ relative: ProjectRelativePath; sourceFile: SourceFile }> = []
     for (const fileName of allFileNames) {
       if (!isWithinProject(projectRoot, fileName)) continue
       const sourceFile = yield* nativeRequest("getSourceFile", () =>
@@ -74,7 +78,7 @@ export const projectSnapshotFor = ({
       if (sourceFile === undefined) continue
       if (!(yield* isOwnedSourceFile(sourceFile, fileName))) continue
       owned.push({
-        relative: projectRelativePath(projectRoot, fileName),
+        relative: requireProjectRelativePath(projectRelativePath(projectRoot, fileName)),
         sourceFile,
       })
     }
@@ -242,7 +246,7 @@ export const projectSnapshotFor = ({
     ensureActive,
   })
 
-  const makeProjectFile = (relativePath: string): ProjectFile => ({
+  const makeProjectFile = (relativePath: ProjectRelativePath): ProjectFile => ({
     [ProjectFileTypeSymbol]: true,
     project: snapshotView,
     path: relativePath,
@@ -262,11 +266,15 @@ export const projectSnapshotFor = ({
     typeAt: (position) => snapshotView.typeAt(relativePath, position),
     referencingFiles: (options) =>
       navigateDependencyGraph(relativePath, "reverse", options?.transitive ?? false).pipe(
-        Effect.map((paths) => paths.map(makeProjectFile)),
+        Effect.map((paths) =>
+          paths.map((path) => makeProjectFile(requireProjectRelativePath(path))),
+        ),
       ),
     referencedFiles: (options) =>
       navigateDependencyGraph(relativePath, "forward", options?.transitive ?? false).pipe(
-        Effect.map((paths) => paths.map(makeProjectFile)),
+        Effect.map((paths) =>
+          paths.map((path) => makeProjectFile(requireProjectRelativePath(path))),
+        ),
       ),
   })
 
@@ -279,7 +287,7 @@ export const projectSnapshotFor = ({
     if (found === undefined) {
       return yield* new FileNotFound({ projectId: configured.id, fileName })
     }
-    return makeProjectFile(projectRelativePath(projectRoot, found.fileName))
+    return makeProjectFile(requireProjectRelativePath(relativeFileName(found.fileName)))
   })
 
   const findFile = Effect.fn("ProjectSnapshot.findFile")(function* (fileName: string) {

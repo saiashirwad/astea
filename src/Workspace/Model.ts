@@ -7,7 +7,7 @@ import type {
   Type as NativeType,
 } from "typescript/unstable/async"
 import type { NativeCompilerError } from "../Compiler/Service.ts"
-import type { InvalidProjectRelativePath } from "../ProjectPath/index.ts"
+import type { InvalidProjectRelativePath, ProjectRelativePath } from "../ProjectPath/index.ts"
 
 const ConfiguredProjectTypeId: unique symbol = Symbol.for("@safemods/ConfiguredProject")
 
@@ -82,7 +82,8 @@ export interface DependencyGraphOptions {
 export interface ProjectFile {
   readonly [ProjectFileTypeSymbol]: true
   readonly project: ProjectSnapshot
-  readonly path: string
+  /** Canonical portable path for this checked project file. */
+  readonly path: ProjectRelativePath
   readonly sourceFile: Effect.Effect<SourceFile, FileNotFound | ProjectSnapshotError>
   readonly sourceText: Effect.Effect<string, FileNotFound | ProjectSnapshotError>
   readonly symbolNamed: (
@@ -116,7 +117,7 @@ export interface ProjectSnapshot {
   readonly containsFileName: (fileName: string) => boolean
   /** Resolve a project-relative file name against this project root. */
   readonly resolveFileName: (fileName: string) => string
-  /** Convert an absolute file name to its project-relative representation. */
+  /** Convert an absolute file name to slash-separated relative form. External paths can escape. */
   readonly relativeFileName: (fileName: string) => string
   readonly rootFiles: ReadonlyArray<string>
   readonly sourceFileNames: Effect.Effect<ReadonlyArray<string>, ProjectSnapshotError>

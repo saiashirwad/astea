@@ -2,6 +2,7 @@
 import { Data, Effect, type Stream } from "effect"
 import type { SyntaxKind } from "typescript/unstable/ast"
 import type { EvidenceFact, QueryEvidence } from "../Evidence/Core.ts"
+import type { ProjectRelativePath } from "../ProjectPath/index.ts"
 import type { ProjectFile, ProjectSnapshot } from "../Workspace/index.ts"
 
 export type { EvidenceFact, QueryEvidence } from "../Evidence/Core.ts"
@@ -21,7 +22,7 @@ export interface Selection<A> {
   readonly value: A
   readonly project: ProjectSnapshot
   /** Project-relative, case-preserving path. Safe for durable evidence. */
-  readonly fileName: string
+  readonly fileName: ProjectRelativePath
   readonly start: number
   readonly end: number
   readonly evidence: ReadonlyArray<QueryEvidence>

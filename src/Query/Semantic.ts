@@ -73,12 +73,15 @@ export const resolvesTo = <A extends Node>(
                     if (canonical === symbol) {
                       const declarationFile =
                         symbol.valueDeclaration?.path ?? symbol.declarations[0]?.path
+                      const declarationPath =
+                        declarationFile === undefined
+                          ? "unknown"
+                          : project.containsFileName(String(declarationFile))
+                            ? project.relativeFileName(String(declarationFile))
+                            : "external"
                       facts[group[index]!.index] = {
                         symbol: symbol.name,
-                        declarationFile:
-                          declarationFile === undefined
-                            ? "unknown"
-                            : project.relativeFileName(String(declarationFile)),
+                        declarationFile: declarationPath,
                       }
                     }
                   }),

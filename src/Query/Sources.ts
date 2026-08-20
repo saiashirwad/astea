@@ -16,6 +16,7 @@ import {
   isPropertyAccessExpression,
 } from "typescript/unstable/ast/is"
 import { nativeRequest } from "../Compiler/Service.ts"
+import { requireProjectRelativePath } from "../ProjectPath/index.ts"
 import {
   isProjectFile,
   type ProjectFile,
@@ -79,9 +80,11 @@ const collectNodes = <A extends Node>(
   syntaxKind?: SyntaxKindFilter,
 ): Array<Selection<A>> => {
   const selections: Array<Selection<A>> = []
-  const fileName = project.containsFileName(sourceFile.fileName)
-    ? project.relativeFileName(sourceFile.fileName)
-    : project.relativeFileName(requestedFileName)
+  const fileName = requireProjectRelativePath(
+    project.containsFileName(sourceFile.fileName)
+      ? project.relativeFileName(sourceFile.fileName)
+      : project.relativeFileName(requestedFileName),
+  )
 
   const visit = (node: Node): void => {
     const kindMatches =
@@ -162,9 +165,11 @@ export const match = <Out>(
       ).pipe(
         Stream.flatMap((sourceFile) => {
           if (sourceFile === undefined) return Stream.empty
-          const relFileName = project.containsFileName(sourceFile.fileName)
-            ? project.relativeFileName(sourceFile.fileName)
-            : project.relativeFileName(fileName)
+          const relFileName = requireProjectRelativePath(
+            project.containsFileName(sourceFile.fileName)
+              ? project.relativeFileName(sourceFile.fileName)
+              : project.relativeFileName(fileName),
+          )
           const candidateNodes: Array<Node> = []
           const visit = (node: Node) => {
             const kindMatches =
