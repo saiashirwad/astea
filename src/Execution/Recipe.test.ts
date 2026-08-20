@@ -3,7 +3,9 @@ import { describe, effect, expect } from "@effect/vitest"
 import { Effect } from "effect"
 import * as Draft from "../Draft/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
+import type { TransformationPlan } from "../Plan/index.ts"
 import * as Recipe from "../Recipe/index.ts"
+import type { PlanPreview } from "../Verification/index.ts"
 import { WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 import { executeRecipe } from "./Recipe.ts"
@@ -17,8 +19,13 @@ describe("recipe execution workflow", () => {
           run: () => Effect.succeed(Draft.empty),
         })
         const stages: Array<string> = []
+        const previews: Array<PlanPreview> = []
         const hooks = {
-          onPreview: () => Effect.sync(() => stages.push("preview")),
+          onPreview: (_plan: TransformationPlan, preview: PlanPreview) =>
+            Effect.sync(() => {
+              stages.push("preview")
+              previews.push(preview)
+            }),
           onVerified: () => Effect.sync(() => stages.push("verify")),
         }
 
@@ -31,9 +38,13 @@ describe("recipe execution workflow", () => {
         expect(stages).toEqual(["preview"])
 
         stages.length = 0
+        previews.length = 0
         const verified = yield* executeRecipe(recipe, undefined, { mode: "verify", hooks })
         expect(verified.mode).toBe("verify")
         expect(stages).toEqual(["preview", "verify"])
+        expect(previews).toHaveLength(1)
+        expect(previews[0]).toEqual(verified.verified.preview)
+        expect(verified.preview).toEqual(verified.verified.preview)
       }),
     ),
   )

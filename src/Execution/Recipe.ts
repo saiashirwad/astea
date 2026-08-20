@@ -163,6 +163,9 @@ export function executeRecipe<Input, E, R>(
     }
     if (options.mode === "preview") return { mode: "preview" as const, plan, preview }
 
+    // Keep this verification independent from the early preview. Consumers use
+    // the early preview hook before verification starts; verify rematerializes
+    // the plan so it can revalidate the current workspace authoritatively.
     const verified = yield* verify(plan, recipe, input)
     if (options.hooks?.onVerified !== undefined) {
       yield* options.hooks.onVerified(plan, preview, verified)
