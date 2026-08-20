@@ -1,5 +1,4 @@
 /** Read-only materialization of a plan's exact proposed bytes. */
-import { layer as nodeLayer } from "../platform/node.ts"
 import { Effect, type FileSystem, Path } from "effect"
 import { textHash } from "../Edit/index.ts"
 import {
@@ -151,12 +150,12 @@ export const of = (
 ): Effect.Effect<
   PlanPreview,
   StalePlanError | VerificationFailure | PlanDecodeError | ProjectIdentityMismatch,
-  Workspace
+  Workspace | FileSystem.FileSystem | Path.Path
 > =>
   Workspace.use((workspace) =>
     Effect.gen(function* () {
       const validated = yield* validatePlan(plan)
       yield* requireMatchingProjectIdentity(validated, workspace.definition.projects)
       return yield* previewPlan(validated, workspace.root)
-    }).pipe(Effect.provide(nodeLayer)),
+    }),
   )

@@ -6,7 +6,7 @@
  */
 import { Data, Effect, Predicate, Schema, SchemaIssue } from "effect"
 import { executeRecipe } from "../Execution/index.ts"
-import { applicationLayerNode } from "../Node/index.ts"
+import { applicationLayerNode, layer as nodeLayer } from "../Node/index.ts"
 import { type Recipe as RecipeModel, RecipeInputError } from "../Recipe/index.ts"
 import { StalePlanError, VerificationFailure, type PolicyResult } from "../Verification/index.ts"
 import type { DiagnosticDiff, DiagnosticRecord } from "../Policy/index.ts"
@@ -153,6 +153,7 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
                 Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
               )
             : yield* executeRecipe(recipe, typedInput, { mode: "verify" }).pipe(
+                Effect.provide(nodeLayer),
                 Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
               )
 

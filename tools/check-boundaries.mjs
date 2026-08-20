@@ -42,7 +42,6 @@ const rootFacadeDependencies = new Set([
  */
 export const temporaryAdapterImports = new Map([
   ["Recipe", new Set(["Node", "platform"])],
-  ["Verification", new Set(["platform"])],
   ["Workspace", new Set(["Node", "platform"])],
 ])
 
@@ -79,7 +78,6 @@ const exactDependencies = new Map([
       "Recipe",
       "VirtualFs",
       "Workspace",
-      "platform",
     ]),
   ],
   ["Application", new Set(["Verification"])],

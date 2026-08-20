@@ -121,11 +121,8 @@ type RecipeExecutionOptions =
   | ApplyExecutionOptions
 
 type RecipeRequirements<R> = Workspace | Exclude<R, WorkspaceSnapshot>
-type ApplyRequirements<R> =
-  | RecipeRequirements<R>
-  | PlanApplication
-  | FileSystem.FileSystem
-  | Path.Path
+type VerificationRequirements<R> = RecipeRequirements<R> | FileSystem.FileSystem | Path.Path
+type ApplyRequirements<R> = VerificationRequirements<R> | PlanApplication
 
 export function executeRecipe<Input, E, R>(
   recipe: Recipe<Input, E, R>,
@@ -136,12 +133,12 @@ export function executeRecipe<Input, E, R>(
   recipe: Recipe<Input, E, R>,
   input: Input,
   options: PreviewExecutionOptions,
-): Effect.Effect<PreviewExecution, RecipeExecutionError<E>, RecipeRequirements<R>>
+): Effect.Effect<PreviewExecution, RecipeExecutionError<E>, VerificationRequirements<R>>
 export function executeRecipe<Input, E, R>(
   recipe: Recipe<Input, E, R>,
   input: Input,
   options: VerifyExecutionOptions,
-): Effect.Effect<VerifiedExecution, RecipeExecutionError<E>, RecipeRequirements<R>>
+): Effect.Effect<VerifiedExecution, RecipeExecutionError<E>, VerificationRequirements<R>>
 export function executeRecipe<Input, E, R>(
   recipe: Recipe<Input, E, R>,
   input: Input,

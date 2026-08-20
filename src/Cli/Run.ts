@@ -2,10 +2,10 @@
  * Safemods CLI — interactive runner and inspection tool.
  */
 import { path as Path } from "../platform/node.ts"
-import { Config, Console, Data, Effect, Match, Option, Predicate, Schema } from "effect"
+import { Config, Console, Data, Effect, Layer, Match, Option, Predicate, Schema } from "effect"
 import { EditConflict, InvalidEdit } from "../Edit/index.ts"
 import { executeRecipe, type RecipeExecutionHooks } from "../Execution/index.ts"
-import { applicationLayerNode } from "../Node/index.ts"
+import { applicationLayerNode, layer as nodeLayer } from "../Node/index.ts"
 import { RecipeInputError, type Recipe } from "../Recipe/index.ts"
 import { StalePlanError, VerificationFailure } from "../Verification/index.ts"
 import {
@@ -149,6 +149,7 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
 
     const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
     const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: targetCwd })
+    const runtimeLayer = Layer.merge(workspaceLayer, nodeLayer)
 
     const noColorConfig = yield* Config.string("NO_COLOR").pipe(Config.option, Effect.orDie)
     const useColor = options.noColor !== true && Option.isNone(noColorConfig)
@@ -206,7 +207,7 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
 
       yield* executeRecipe(recipe, options.input, { mode: "preview", hooks })
     }).pipe(
-      Effect.provide(workspaceLayer),
+      Effect.provide(runtimeLayer),
       Effect.mapError((cause) => {
         if (cause instanceof CliMatchFoundError) return cause
         return new CliError({ message: formatCliError(cause) })

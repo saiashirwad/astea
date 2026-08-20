@@ -1,6 +1,5 @@
 /** Complete verification orchestration and VerifiedPlan issuance. */
-import { path as Path } from "../platform/node.ts"
-import { Effect, Schema } from "effect"
+import { Effect, type FileSystem, Path, Schema } from "effect"
 import type { NativeCompilerError } from "../Compiler/Service.ts"
 import {
   canonicalJson,
@@ -139,17 +138,23 @@ const absoluteTarget = (
   plan: TransformationPlan,
   projectId: string,
   fileName: string,
-): string => {
-  const project = plan.projects.find((candidate) => candidate.id === projectId)
-  if (
-    project === undefined ||
-    !isProjectRelativePath(fileName) ||
-    !isProjectRelativePath(project.configFileName)
-  ) {
-    throw new Error(`Unsafe or unknown project path: ${projectId}:${fileName}`)
-  }
-  return Path.resolve(workspaceRoot, Path.dirname(project.configFileName), fileName)
-}
+): Effect.Effect<string, VerificationFailure, Path.Path> =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path
+    const project = plan.projects.find((candidate) => candidate.id === projectId)
+    if (
+      project === undefined ||
+      !isProjectRelativePath(fileName) ||
+      !isProjectRelativePath(project.configFileName)
+    ) {
+      return yield* new VerificationFailure({
+        planId: plan.planId,
+        policy: "edits",
+        detail: `Unsafe or unknown project path: ${projectId}:${fileName}`,
+      })
+    }
+    return path.resolve(workspaceRoot, path.dirname(project.configFileName), fileName)
+  })
 
 const verificationFailure = (planId: string, failure: PolicyFailure): VerificationFailure =>
   failure.diagnostics === undefined
@@ -235,7 +240,7 @@ export const verify = <Input, E, R>(
   | NativeCompilerError
   | ProjectNotInSnapshot
   | SnapshotExpired,
-  Workspace | Exclude<R, WorkspaceSnapshot>
+  Workspace | FileSystem.FileSystem | Path.Path | Exclude<R, WorkspaceSnapshot>
 > =>
   Effect.gen(function* () {
     const workspace = yield* Workspace
@@ -248,7 +253,12 @@ export const verify = <Input, E, R>(
     const created = new Set<string>()
     const deleted = new Set<string>()
     for (const file of proposed.files) {
-      const target = absoluteTarget(workspace.root, validatedPlan, file.projectId, file.fileName)
+      const target = yield* absoluteTarget(
+        workspace.root,
+        validatedPlan,
+        file.projectId,
+        file.fileName,
+      )
       if (file.after.exists) {
         files.set(target, file.after.text)
         if (!file.before.exists) created.add(target)
