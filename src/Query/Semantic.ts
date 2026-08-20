@@ -1,5 +1,4 @@
 /** TypeScript semantic and declaration criteria. */
-import { path as Path } from "../platform/node.ts"
 import { Effect, Predicate } from "effect"
 import { getJSDocTags, SyntaxKind, type Identifier, type Node } from "typescript/unstable/ast"
 import {
@@ -8,7 +7,6 @@ import {
   type Type as NativeType,
 } from "typescript/unstable/async"
 import { type NativeCompilerError, nativeRequest } from "../Compiler/Service.ts"
-import { projectRelativePath } from "../Node/ProjectPath.ts"
 import {
   isProjectFile,
   type ProjectFile,
@@ -55,7 +53,7 @@ export const resolvesTo = <A extends Node>(
               const node = location(selection.value)
               return node.getStart(node.getSourceFile())
             })
-            const fileName = Path.resolve(project.root, group[0]!.selection.fileName)
+            const fileName = project.resolveFileName(group[0]!.selection.fileName)
             const symbols = yield* project.unsafeNative((nativeProject) =>
               nativeRequest("getSymbolsAtPositions", () =>
                 nativeProject.checker.getSymbolAtPosition(fileName, positions),
@@ -80,7 +78,7 @@ export const resolvesTo = <A extends Node>(
                         declarationFile:
                           declarationFile === undefined
                             ? "unknown"
-                            : projectRelativePath(project.root, String(declarationFile)),
+                            : project.relativeFileName(String(declarationFile)),
                       }
                     }
                   }),
@@ -136,7 +134,7 @@ export const typeOf = (
 ): Effect.Effect<NativeType | undefined, ProjectSnapshotError> => {
   const project = isProjectFile(target) ? target.project : target
   const sourceFile = node.getSourceFile()
-  const fileName = projectRelativePath(project.root, sourceFile.fileName)
+  const fileName = project.relativeFileName(sourceFile.fileName)
   const pos = node.getStart(sourceFile)
   return project.typeAt(fileName, pos)
 }

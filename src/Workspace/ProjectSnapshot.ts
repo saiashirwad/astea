@@ -42,6 +42,10 @@ export const projectSnapshotFor = ({
   projectRoot,
   ensureActive,
 }: ProjectSnapshotOptions): ProjectSnapshot => {
+  const containsFileName = (fileName: string): boolean => isWithinProject(projectRoot, fileName)
+  const resolveFileName = (fileName: string): string => Path.resolve(projectRoot, fileName)
+  const relativeFileName = (fileName: string): string => projectRelativePath(projectRoot, fileName)
+
   const requireContainedPath = (fileName: string): string | undefined =>
     resolveContainedSnapshotPath(projectRoot, fileName)
 
@@ -293,6 +297,9 @@ export const projectSnapshotFor = ({
   const snapshotView: ProjectSnapshot = {
     project: configured,
     root: projectRoot,
+    containsFileName,
+    resolveFileName,
+    relativeFileName,
     rootFiles: nativeProject.rootFiles,
     sourceFileNames,
     sourceFile,

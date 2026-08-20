@@ -1,5 +1,4 @@
 /** Query sources over workspace snapshots and structural patterns. */
-import { path as Path } from "../platform/node.ts"
 import { Effect, Stream } from "effect"
 import {
   SyntaxKind,
@@ -17,7 +16,6 @@ import {
   isPropertyAccessExpression,
 } from "typescript/unstable/ast/is"
 import { nativeRequest } from "../Compiler/Service.ts"
-import { isWithinProject, projectRelativePath } from "../Node/ProjectPath.ts"
 import {
   isProjectFile,
   type ProjectFile,
@@ -41,8 +39,8 @@ const resolveScope = (
     const uniqueFiles: Array<TargetFileScope> = []
     for (const f of scope) {
       const key = `${f.project.project.id}:${f.path}`
-      const fileName = Path.resolve(f.project.root, f.path)
-      if (!seen.has(key) && isWithinProject(f.project.root, fileName)) {
+      const fileName = f.project.resolveFileName(f.path)
+      if (!seen.has(key) && f.project.containsFileName(fileName)) {
         seen.add(key)
         uniqueFiles.push({
           project: f.project,
@@ -53,8 +51,8 @@ const resolveScope = (
     return Stream.fromIterable(uniqueFiles)
   }
   if (isProjectFile(scope)) {
-    const fileName = Path.resolve(scope.project.root, scope.path)
-    return isWithinProject(scope.project.root, fileName)
+    const fileName = scope.project.resolveFileName(scope.path)
+    return scope.project.containsFileName(fileName)
       ? Stream.make({
           project: scope.project,
           fileName,
@@ -65,8 +63,8 @@ const resolveScope = (
     scope.files.pipe(
       Effect.map((projectFiles) =>
         projectFiles.flatMap((file) => {
-          const fileName = Path.resolve(file.project.root, file.path)
-          return isWithinProject(file.project.root, fileName) ? [{ project: scope, fileName }] : []
+          const fileName = file.project.resolveFileName(file.path)
+          return file.project.containsFileName(fileName) ? [{ project: scope, fileName }] : []
         }),
       ),
     ),
@@ -81,9 +79,9 @@ const collectNodes = <A extends Node>(
   syntaxKind?: SyntaxKindFilter,
 ): Array<Selection<A>> => {
   const selections: Array<Selection<A>> = []
-  const fileName = isWithinProject(project.root, sourceFile.fileName)
-    ? projectRelativePath(project.root, sourceFile.fileName)
-    : projectRelativePath(project.root, requestedFileName)
+  const fileName = project.containsFileName(sourceFile.fileName)
+    ? project.relativeFileName(sourceFile.fileName)
+    : project.relativeFileName(requestedFileName)
 
   const visit = (node: Node): void => {
     const kindMatches =
@@ -164,9 +162,9 @@ export const match = <Out>(
       ).pipe(
         Stream.flatMap((sourceFile) => {
           if (sourceFile === undefined) return Stream.empty
-          const relFileName = isWithinProject(project.root, sourceFile.fileName)
-            ? projectRelativePath(project.root, sourceFile.fileName)
-            : projectRelativePath(project.root, fileName)
+          const relFileName = project.containsFileName(sourceFile.fileName)
+            ? project.relativeFileName(sourceFile.fileName)
+            : project.relativeFileName(fileName)
           const candidateNodes: Array<Node> = []
           const visit = (node: Node) => {
             const kindMatches =

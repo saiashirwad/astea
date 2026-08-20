@@ -43,16 +43,14 @@ const rootFacadeDependencies = new Set([
 export const temporaryAdapterImports = new Map([
   ["Draft", new Set(["Node", "platform"])],
   ["Overlay", new Set(["platform"])],
-  ["Pattern", new Set(["Node"])],
-  ["Query", new Set(["Node", "platform"])],
   ["Recipe", new Set(["Node", "platform"])],
   ["Verification", new Set(["platform"])],
   ["Workspace", new Set(["Node", "platform"])],
 ])
 
 const exactDependencies = new Map([
-  ["Pattern", new Set(["Compiler", "Evidence", "Node", "Workspace"])],
-  ["Query", new Set(["Compiler", "Evidence", "Node", "Pattern", "Workspace", "platform"])],
+  ["Pattern", new Set(["Compiler", "Evidence", "Workspace"])],
+  ["Query", new Set(["Compiler", "Evidence", "Pattern", "Workspace"])],
   ["Workspace", new Set(["Compiler", "Node", "ProjectPath", "VirtualFs", "platform"])],
   ["bin", new Set(["Cli"])],
 ])

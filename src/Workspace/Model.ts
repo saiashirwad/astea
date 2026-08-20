@@ -112,6 +112,12 @@ export interface ProjectSnapshot {
   readonly project: ConfiguredProject
   /** Absolute directory containing the project configuration. */
   readonly root: string
+  /** True when an absolute file name is a descendant of this project root. */
+  readonly containsFileName: (fileName: string) => boolean
+  /** Resolve a project-relative file name against this project root. */
+  readonly resolveFileName: (fileName: string) => string
+  /** Convert an absolute file name to its project-relative representation. */
+  readonly relativeFileName: (fileName: string) => string
   readonly rootFiles: ReadonlyArray<string>
   readonly sourceFileNames: Effect.Effect<ReadonlyArray<string>, ProjectSnapshotError>
   readonly sourceFile: (

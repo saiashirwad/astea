@@ -72,6 +72,13 @@ describe("workspace path confinement, overlay FS, and symbol lookup", () => {
             Effect.gen(function* () {
               const snapshot = yield* WorkspaceSnapshot
               const project = yield* snapshot.project(app)
+              const library = Path.join(project.root, "src/library.ts")
+              expect(project.resolveFileName("src/library.ts")).toBe(library)
+              expect(project.relativeFileName(library)).toBe(Path.join("src", "library.ts"))
+              expect(project.containsFileName(library)).toBe(true)
+              expect(project.containsFileName(Path.resolve(project.root, "../outside.ts"))).toBe(
+                false,
+              )
               const escaped = ["../secret.ts", "/tmp/secret.ts"]
               for (const path of escaped) {
                 expect(yield* project.file(path).pipe(Effect.flip)).toBeInstanceOf(

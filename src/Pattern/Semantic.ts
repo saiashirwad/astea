@@ -1,7 +1,6 @@
 import { Effect, Predicate } from "effect"
 import type { Node } from "typescript/unstable/ast"
 import type { Type as NativeType } from "typescript/unstable/async"
-import { projectRelativePath } from "../Node/ProjectPath.ts"
 import type { Pattern } from "./Core.ts"
 import { matchFailure, matchSuccess, matchesName } from "./Internal.ts"
 
@@ -25,7 +24,7 @@ export const typed = (options?: {
     Effect.gen(function* () {
       const source = node.getSourceFile()
       const type = yield* project.typeAt(
-        projectRelativePath(project.root, source.fileName),
+        project.relativeFileName(source.fileName),
         node.getStart(source),
       )
       if (type === undefined) return matchFailure
