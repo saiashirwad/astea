@@ -8,13 +8,15 @@
  * the durable guard data from the snapshot. Finalization (ordering, conflict
  * rejection, plan identity) belongs to the engine in `Recipe.run`.
  */
-import { Data, Effect, Predicate } from "effect"
+import { Effect, Predicate } from "effect"
 import {
-  asJson,
-  canonicalJson,
+  DraftEvidenceConflict,
+  finalizeDraftEvidence,
+  finalizeDraftEvidenceEffect,
+  mergeEvidence,
   type EvidenceRecord,
-  type PlannedFileOperation,
-} from "../Plan/index.ts"
+} from "../Evidence/index.ts"
+import type { PlannedFileOperation } from "../Plan/index.ts"
 import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
 import type { TextEdit } from "../Edit/Model.ts"
@@ -36,43 +38,6 @@ export interface Draft {
 
 export const empty: Draft = { edits: [], fileOperations: [], evidence: [], matches: 0 }
 
-export class DraftEvidenceConflict extends Data.TaggedError("DraftEvidenceConflict")<{
-  readonly id: string
-}> {}
-
-const evidenceIdentity = (record: EvidenceRecord): string =>
-  `${record.kind}\0${canonicalJson(asJson(record.facts))}`
-
-/** Keep identical records; reject the same ID with different kind or facts. */
-export const mergeEvidence = (
-  records: ReadonlyArray<EvidenceRecord>,
-): ReadonlyArray<EvidenceRecord> => {
-  const evidence = new Map<string, EvidenceRecord>()
-  for (const record of records) {
-    const existing = evidence.get(record.id)
-    if (existing === undefined) {
-      evidence.set(record.id, record)
-      continue
-    }
-    if (evidenceIdentity(existing) !== evidenceIdentity(record)) {
-      throw new DraftEvidenceConflict({ id: record.id })
-    }
-  }
-  return [...evidence.values()]
-}
-
-/** Effect form of `mergeEvidence` so Recipe composition can fail typed, not as a defect. */
-export const mergeEvidenceEffect = (
-  records: ReadonlyArray<EvidenceRecord>,
-): Effect.Effect<ReadonlyArray<EvidenceRecord>, DraftEvidenceConflict> =>
-  Effect.suspend(() => {
-    try {
-      return Effect.succeed(mergeEvidence(records))
-    } catch (cause) {
-      return cause instanceof DraftEvidenceConflict ? Effect.fail(cause) : Effect.die(cause)
-    }
-  })
-
 /** Effect form of `concat` for Recipe.pipe / Recipe.all. */
 export const concatEffect = (
   ...drafts: ReadonlyArray<Draft>
@@ -91,30 +56,15 @@ export const concat = (...drafts: ReadonlyArray<Draft>): Draft => {
   const fileOperations = drafts.flatMap((draft) =>
     draft.fileOperations ? [...draft.fileOperations] : [],
   )
-  const evidence = new Map(
-    mergeEvidence(drafts.flatMap((draft) => draft.evidence)).map((record) => [record.id, record]),
+  return finalizeDraftEvidence(
+    {
+      edits,
+      fileOperations,
+      evidence: drafts.flatMap((draft) => draft.evidence),
+      matches: drafts.reduce((total, draft) => total + draft.matches, 0),
+    },
+    { facts: { source: "concat" } },
   )
-  const referencedIds = [
-    ...edits.flatMap((edit) => edit.evidenceIds),
-    ...fileOperations.flatMap((operation) => operation.evidenceIds ?? []),
-  ]
-  for (const id of referencedIds) {
-    if (!evidence.has(id)) {
-      // Synthesize rather than reject: Recipe.run already backfills the same
-      // kind so a helper that only recorded evidenceIds stays a valid plan.
-      evidence.set(id, {
-        id,
-        kind: "draft-operation",
-        facts: { source: "concat" },
-      })
-    }
-  }
-  return {
-    edits,
-    fileOperations,
-    evidence: [...evidence.values()],
-    matches: drafts.reduce((total, draft) => total + draft.matches, 0),
-  }
 }
 
 type DraftEdit = Omit<ProposedEdit, "evidenceIds">
@@ -294,40 +244,20 @@ export const replaceEach = <A extends Node, E = never, R = never>(
                 matches: 1,
               })
             }
-            return mergeEvidenceEffect([
-              ...proposed.evidence,
-              selectionEvidence(selection, evidenceId),
-            ]).pipe(
-              Effect.map((evidence) => {
-                const evidenceById = new Map(evidence.map((record) => [record.id, record]))
-                const referencedIds = [
-                  ...proposed.edits.flatMap((edit) => edit.evidenceIds),
-                  ...(proposed.fileOperations ?? []).flatMap(
-                    (operation) => operation.evidenceIds ?? [],
-                  ),
-                ]
-                for (const id of referencedIds) {
-                  if (!evidenceById.has(id)) {
-                    evidenceById.set(id, {
-                      id,
-                      kind: "draft-operation",
-                      facts: { source: "replaceEach" },
-                    })
-                  }
-                }
-                return {
-                  edits: proposed.edits.map((edit) => ({
-                    ...edit,
-                    evidenceIds: [...new Set([...edit.evidenceIds, evidenceId])],
-                  })),
-                  fileOperations: (proposed.fileOperations ?? []).map((operation) => ({
-                    ...operation,
-                    evidenceIds: [...new Set([...(operation.evidenceIds ?? []), evidenceId])],
-                  })),
-                  evidence: [...evidenceById.values()],
-                  matches: 1,
-                }
-              }),
+            return finalizeDraftEvidenceEffect(
+              {
+                edits: proposed.edits.map((edit) => ({
+                  ...edit,
+                  evidenceIds: [...new Set([...edit.evidenceIds, evidenceId])],
+                })),
+                fileOperations: (proposed.fileOperations ?? []).map((operation) => ({
+                  ...operation,
+                  evidenceIds: [...new Set([...(operation.evidenceIds ?? []), evidenceId])],
+                })),
+                evidence: [...proposed.evidence, selectionEvidence(selection, evidenceId)],
+                matches: 1,
+              },
+              { facts: { source: "replaceEach" } },
             )
           }
           const node = isTextReplacement(proposed) ? selection.value : proposed.node

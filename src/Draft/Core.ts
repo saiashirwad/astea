@@ -3,10 +3,7 @@ export {
   audit,
   concat,
   concatEffect,
-  DraftEvidenceConflict,
   empty,
-  mergeEvidence,
-  mergeEvidenceEffect,
   insertAfter,
   insertBefore,
   isDraft,
@@ -16,6 +13,13 @@ export {
   replaceEach,
   replaceWith,
 } from "./Model.ts"
+export {
+  DraftEvidenceConflict,
+  finalizeDraftEvidence,
+  finalizeDraftEvidenceEffect,
+  mergeEvidence,
+  mergeEvidenceEffect,
+} from "../Evidence/index.ts"
 export type { Draft, EditRangeOptions, ProposedEdit, Replacement } from "./Model.ts"
 export { forProject } from "./Scoped.ts"
 export * from "./Files.ts"
