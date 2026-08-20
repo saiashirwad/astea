@@ -88,6 +88,10 @@ _Avoid_: Dry-run application, validation during writing
 The deterministic, read-only materialization of a Transformation Plan's exact proposed file bytes after all source fingerprints and guarded edits match. A Preview may be rendered as diffs but never writes.
 _Avoid_: Dry-run write, approximate patch
 
+**Overlay**:
+An isolated Workspace Snapshot of a Draft Plan's proposed files, used to query and author further Drafts without Application. Sequential composition rebases the later Draft onto the original snapshot rather than concatenating Drafts authored against different source states.
+_Avoid_: Dry-run write, in-memory mutation, preview on disk
+
 **Verified Plan**:
 A process-local capability pairing a Transformation Plan with successful Verification against an exact snapshot. It is the only input accepted by Application; its durable counterpart is the Verification Receipt.
 _Avoid_: Boolean valid flag, self-asserted plan

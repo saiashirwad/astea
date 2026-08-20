@@ -1,5 +1,6 @@
-/** Sequential Draft composition. */
+/** Collapse two sequential Drafts into one Draft against the original snapshot. */
 import { Effect } from "effect"
+import type { Draft as DraftModel } from "../Draft/index.ts"
 import {
   applyFileEdits,
   textHash,
@@ -7,8 +8,7 @@ import {
   type InvalidEdit,
   type TextEdit,
 } from "../Edit/index.ts"
-import * as Draft from "../Draft/index.ts"
-import type { Draft as DraftModel, DraftEvidenceConflict } from "../Draft/index.ts"
+import { mergeEvidenceEffect, type DraftEvidenceConflict } from "../Evidence/index.ts"
 import type { PlannedFileOperation } from "../Plan/index.ts"
 import {
   ProjectNotInSnapshot,
@@ -17,8 +17,27 @@ import {
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 
+export const requireDraftProjects = (
+  snapshot: WorkspaceSnapshotService,
+  ...drafts: ReadonlyArray<DraftModel>
+): Effect.Effect<void, ProjectNotInSnapshot> =>
+  Effect.gen(function* () {
+    const configured = new Map(snapshot.projects.map((project) => [project.id, project]))
+    const projectIds = new Set(
+      drafts.flatMap((draft) => [
+        ...draft.edits.map((edit) => edit.projectId),
+        ...(draft.fileOperations ?? []).map((operation) => operation.projectId),
+      ]),
+    )
+    for (const projectId of projectIds) {
+      if (!configured.has(projectId)) {
+        return yield* new ProjectNotInSnapshot({ projectId, generation: snapshot.generation })
+      }
+    }
+  })
+
 /** Collapse two sequential Drafts into one Draft against the original snapshot. */
-export const composeDrafts = (
+export const rebaseDrafts = (
   snapshot: WorkspaceSnapshotService,
   accumulated: DraftModel,
   next: DraftModel,
@@ -32,6 +51,7 @@ export const composeDrafts = (
   | DraftEvidenceConflict
 > =>
   Effect.gen(function* () {
+    yield* requireDraftProjects(snapshot, accumulated, next)
     const configuredProjects = new Map(snapshot.projects.map((project) => [project.id, project]))
     const configuredProject = (projectId: string) => {
       const project = configuredProjects.get(projectId)
@@ -39,21 +59,12 @@ export const composeDrafts = (
         ? Effect.fail(new ProjectNotInSnapshot({ projectId, generation: snapshot.generation }))
         : Effect.succeed(project)
     }
-    const projectIds = new Set(
-      [accumulated, next].flatMap((draft) => [
-        ...draft.edits.map((edit) => edit.projectId),
-        ...(draft.fileOperations ?? []).map((operation) => operation.projectId),
-      ]),
-    )
-    for (const projectId of projectIds) {
-      yield* configuredProject(projectId)
-    }
 
     const accumulatedChanged =
       accumulated.edits.length > 0 || (accumulated.fileOperations?.length ?? 0) > 0
     const nextChanged = next.edits.length > 0 || (next.fileOperations?.length ?? 0) > 0
     const retained = {
-      evidence: yield* Draft.mergeEvidenceEffect([...accumulated.evidence, ...next.evidence]),
+      evidence: yield* mergeEvidenceEffect([...accumulated.evidence, ...next.evidence]),
       matches: accumulated.matches + next.matches,
     }
     if (!accumulatedChanged) return { ...next, ...retained }
@@ -147,7 +158,23 @@ export const composeDrafts = (
           ]
           consumed.add(sourceKey)
           if (operation.kind === "delete") {
-            normalizedOperations.splice(producerIndex, 1)
+            if (producer.kind === "create") {
+              normalizedOperations.splice(producerIndex, 1)
+            } else {
+              normalizedOperations[producerIndex] = {
+                kind: "delete",
+                projectId: producer.projectId,
+                path: producer.path,
+                initialHash: producer.initialHash,
+                evidenceIds,
+              }
+              // The destination never remains, so specifier rewrites that
+              // retargeted it must not stay as Text Edits.
+              consumed.add(`${producer.projectId}\0${producer.toPath}`)
+              for (const edit of accumulated.edits) {
+                consumed.add(`${edit.projectId}\0${edit.fileName}`)
+              }
+            }
           } else if (producer.kind === "create") {
             normalizedOperations[producerIndex] = {
               kind: "create",
@@ -191,7 +218,7 @@ export const composeDrafts = (
     return {
       edits: combinedEdits.filter((edit) => !consumed.has(`${edit.projectId}\0${edit.fileName}`)),
       fileOperations: normalizedOperations,
-      evidence: yield* Draft.mergeEvidenceEffect([...accumulated.evidence, ...next.evidence]),
+      evidence: yield* mergeEvidenceEffect([...accumulated.evidence, ...next.evidence]),
       matches: accumulated.matches + next.matches,
     }
   })

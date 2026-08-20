@@ -172,15 +172,19 @@ otherwise invalid edits are rejected while the plan is built.
 ## Composing recipes
 
 - `Recipe.pipe(a, b)` runs stages in order. Later stages query an in-memory
-  overlay containing earlier changes.
+  overlay containing earlier changes, then Overlay rebases their Drafts onto
+  the original snapshot.
 - `Recipe.all([a, b])` runs independent recipes concurrently and merges their
   drafts.
 - `Recipe.branch(...)` and `Recipe.when(...)` choose work from the current
   snapshot.
 - `Recipe.scanning(...)` separates a workspace-wide analysis pass from the
   transformation pass.
+- `Overlay.composeDraft(draft, effect)` runs a later Draft against an overlay
+  of an earlier one and returns one Draft against the original snapshot.
 - `Overlay.run(draft, effect)` exposes any draft as a new in-memory compiler
-  snapshot without writing it.
+  snapshot without writing it. Use it to inspect an overlay or return
+  something other than a Draft.
 
 Recipes may declare an Effect `Schema` for typed input. Pass input through the
 CLI as JSON:

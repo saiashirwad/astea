@@ -36,7 +36,7 @@ export interface Draft {
 
 export const empty: Draft = { edits: [], fileOperations: [], evidence: [], matches: 0 }
 
-/** Effect form of `concat` for Recipe.pipe / Recipe.all. */
+/** Effect form of `concat` for Recipe.all. */
 export const concatEffect = (
   ...drafts: ReadonlyArray<Draft>
 ): Effect.Effect<Draft, DraftEvidenceConflict> =>

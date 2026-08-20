@@ -4,7 +4,7 @@ import { Effect, type Schema } from "effect"
 import * as Draft from "../Draft/index.ts"
 import type { DraftEvidenceConflict } from "../Draft/index.ts"
 import type { EditConflict, InvalidEdit } from "../Edit/index.ts"
-import { run as runOverlay } from "../Overlay/index.ts"
+import { composeDraft } from "../Overlay/index.ts"
 import * as Policy from "../Policy/index.ts"
 import type { VirtualFsError } from "../VirtualFs/index.ts"
 import {
@@ -16,7 +16,6 @@ import {
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 import { fromCompiled } from "./Define.ts"
-import { composeDrafts } from "./DraftComposition.ts"
 import type { Recipe } from "./Model.ts"
 import { compileChildren } from "./PolicyComposition.ts"
 
@@ -123,19 +122,9 @@ export function pipe<Input, E, R>(
     compiled,
     (input: Input) =>
       Effect.gen(function* () {
-        const snapshot = yield* WorkspaceSnapshot
         let accumulatedDraft = Draft.empty
         for (const recipe of recipes) {
-          if (
-            accumulatedDraft.edits.length > 0 ||
-            (accumulatedDraft.fileOperations?.length ?? 0) > 0
-          ) {
-            const nextDraft = yield* runOverlay(accumulatedDraft, recipe.run(input))
-            accumulatedDraft = yield* composeDrafts(snapshot, accumulatedDraft, nextDraft)
-          } else {
-            const nextDraft = yield* recipe.run(input)
-            accumulatedDraft = yield* Draft.concatEffect(accumulatedDraft, nextDraft)
-          }
+          accumulatedDraft = yield* composeDraft(accumulatedDraft, recipe.run(input))
         }
         return accumulatedDraft
       }),

@@ -38,6 +38,10 @@ Within the semantic layer, `Query` may depend on `Pattern`, `Workspace`, and
   consumer workflow that orchestrates plan, preview, verify, and apply.
   Recipe and Verification must not import Application. Recipe and Verification
   must not import Execution.
+- Overlay materializes a Draft Plan as an isolated Workspace Snapshot and
+  rebases a later Draft onto the original snapshot. Recipe.pipe sequences
+  Overlay.composeDraft; it does not own sequential rebase. Overlay.run remains
+  the inspect path for programs that are not sequential Draft composition.
 - Verification is read-only. Only Application has write authority.
 - `Workspace` owns the synchronous `WorkspaceRuntime` port for TypeScript
   compiler-host callbacks. `Node` provides its concrete filesystem and path

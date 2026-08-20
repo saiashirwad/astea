@@ -4,7 +4,7 @@ This directory provides concrete examples and guides explaining how `safemods` d
 
 ---
 
-## 1. In-Memory Snapshot Transitions (`Overlay.run`)
+## 1. In-Memory Snapshot Transitions (`Overlay.composeDraft`)
 
 ### What it solves
 
@@ -12,9 +12,9 @@ Multi-phase transformations (e.g. migrating an exported function signature in a 
 
 ### How `safemods` does it
 
-`safemods` uses TypeScript 7's in-memory file overrides to project proposed edits into a new generation `WorkspaceSnapshot` without touching the filesystem:
+`safemods` uses TypeScript 7's in-memory file overrides to project proposed edits into a new generation `WorkspaceSnapshot` without touching the filesystem. `Overlay.composeDraft` rebases the later Draft onto the original snapshot so the result is one Draft, not two concatenated against different source states:
 
-Snapshot 0 --Recipe 1--> Draft 1 --overlay--> Snapshot 1 --Recipe 2--> Draft 2 => Final Plan
+Snapshot 0 --Draft 1--> Overlay --Draft 2--> rebase onto Snapshot 0 => one Draft
 
 ```ts
 import { Effect } from "effect"
@@ -32,21 +32,22 @@ const twoPhaseMigration = Effect.gen(function* () {
     name: "NewConfig",
   })
 
-  // Stage 2: Build a downstream edit against the updated state
-  return yield* Overlay.run(
+  // Stage 2: Author the next Draft against the overlay; Overlay rebases it.
+  return yield* Overlay.composeDraft(
     draft1,
     Effect.gen(function* () {
       const overlaySnapshot = yield* WorkspaceSnapshot
       const overlayProject = yield* overlaySnapshot.project(app)
-      const draft2 = yield* Draft.imports.addNamed(overlayProject, "src/consumer.ts", {
+      return yield* Draft.imports.addNamed(overlayProject, "src/consumer.ts", {
         module: "./library.js",
         name: "NewConfig",
       })
-      return Draft.concat(draft1, draft2)
     }),
   )
 })
 ```
+
+Use `Overlay.run` when the program only inspects the overlay or returns something other than a Draft.
 
 ---
 
@@ -117,7 +118,7 @@ yield *
 
 Recipes are first-class, composable algebraic values:
 
-- **`Recipe.pipe(...recipes)`**: Runs recipes in sequence, passing intermediate states via virtual in-memory overlays and merging drafts into a unified plan.
+- **`Recipe.pipe(...recipes)`**: Runs recipes in sequence. Later stages query an Overlay of earlier Drafts; Overlay rebases each later Draft onto the original snapshot.
 - **`Recipe.all(recipes)`**: Evaluates independent recipes concurrently and merges drafts, failing deterministically if edit ranges conflict.
 - **`Recipe.branch(predicate, ifTrue, ifFalse)`**: Branches transformation logic based on compiler settings or file structure.
 - **`schema: Schema.Schema<Input>`**: Enforces input validation using `Schema` from `effect` before recipe execution.

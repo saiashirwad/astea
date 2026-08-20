@@ -20,7 +20,7 @@ export default Recipe.define("rename-config-import", {
       alias: "RuntimeConfig",
     })
 
-    const downstream = yield* Overlay.run(
+    return yield* Overlay.composeDraft(
       staged,
       Effect.gen(function* () {
         const overlaySnapshot = yield* WorkspaceSnapshot
@@ -36,7 +36,5 @@ export default Recipe.define("rename-config-import", {
         }))
       }),
     )
-
-    return Draft.concat(staged, downstream)
   }),
 })
