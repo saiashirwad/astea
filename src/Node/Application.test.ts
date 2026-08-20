@@ -16,7 +16,7 @@ import type { VerifiedPlan } from "../Verification/index.ts"
 import { ConfiguredProject, Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
 import { wrapTargetInput, type WrapTargetInput } from "../test/wrap-target-input.ts"
-import { applicationLayer, makeApplicationLayerNode } from "./Application.ts"
+import { applicationLayer, makeApplicationLayerNode } from "./Application/Layer.ts"
 
 type ForgedPlanValue =
   | symbol
