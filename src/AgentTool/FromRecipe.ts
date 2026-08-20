@@ -4,19 +4,13 @@
  * Turns any `Recipe` into a typed, validated agent tool conforming
  * to standard LLM function-calling protocols (OpenAI / MCP / Anthropic).
  */
-import { Data, Effect, Layer, Predicate, Schema, SchemaIssue } from "effect"
-import { apply } from "../Application/index.ts"
+import { Data, Effect, Predicate, Schema, SchemaIssue } from "effect"
+import { executeRecipe } from "../Execution/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
-import { type Recipe as RecipeModel, RecipeInputError, run as runRecipe } from "../Recipe/index.ts"
-import {
-  of as previewOf,
-  StalePlanError,
-  VerificationFailure,
-  verify,
-  type PolicyResult,
-} from "../Verification/index.ts"
+import { type Recipe as RecipeModel, RecipeInputError } from "../Recipe/index.ts"
+import { StalePlanError, VerificationFailure, type PolicyResult } from "../Verification/index.ts"
 import type { DiagnosticDiff, DiagnosticRecord } from "../Policy/index.ts"
-import { Workspace, type WorkspaceSnapshot } from "../Workspace/index.ts"
+import type { Workspace, WorkspaceSnapshot } from "../Workspace/index.ts"
 
 export type ToolAction = "create" | "delete" | "modify" | "move"
 
@@ -151,43 +145,31 @@ export const recipeToAgentTool = <Input = undefined, E = never, R = never>(
     schema: jsonSchema,
     execute: (rawInput, options = {}) =>
       Effect.gen(function* () {
-        const workspace = yield* Workspace
-        const mainLayer = applicationLayerNode.pipe(
-          Layer.provideMerge(Layer.succeed(Workspace, workspace)),
-        )
-
         const typedInput = yield* decodeToolInput(recipe, rawInput)
-        const plan = yield* runRecipe(recipe, typedInput).pipe(
-          Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
-        )
-        const preview = yield* previewOf(plan).pipe(
-          Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
-        )
-        const verified = yield* verify(plan, recipe, typedInput).pipe(
-          Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
-        )
+        const execution =
+          options.apply === true
+            ? yield* executeRecipe(recipe, typedInput, { mode: "apply" }).pipe(
+                Effect.provide(applicationLayerNode),
+                Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
+              )
+            : yield* executeRecipe(recipe, typedInput, { mode: "verify" }).pipe(
+                Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
+              )
 
-        if (options.apply === true) {
-          yield* apply(verified).pipe(
-            Effect.provide(mainLayer),
-            Effect.mapError((cause) => makeToolExecutionError(recipe.name, cause)),
-          )
-        }
-
-        const files: ReadonlyArray<ToolFileResult> = preview.files.map((file) => ({
+        const files: ReadonlyArray<ToolFileResult> = execution.preview.files.map((file) => ({
           fileName: file.fileName,
           action: file.action,
         }))
 
         return {
-          planId: plan.planId,
+          planId: execution.plan.planId,
           status: options.apply === true ? ("applied" as const) : ("preview" as const),
-          affectedFiles: preview.files.length,
-          diagnosticDelta: verified.receipt.diagnosticDelta,
-          idempotenceChecked: verified.receipt.idempotenceChecked,
+          affectedFiles: execution.preview.files.length,
+          diagnosticDelta: execution.verified.receipt.diagnosticDelta,
+          idempotenceChecked: execution.verified.receipt.idempotenceChecked,
           files,
-          diagnostics: toDiagnosticReport(verified.diagnosticDiff),
-          policyResults: verified.receipt.policyResults.map(toToolPolicyResult),
+          diagnostics: toDiagnosticReport(execution.verified.diagnosticDiff),
+          policyResults: execution.verified.receipt.policyResults.map(toToolPolicyResult),
         }
       }),
   }

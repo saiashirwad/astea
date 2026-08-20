@@ -60,6 +60,9 @@ describe("declarative transformations API (@effect/vitest)", () => {
             expect(result.planId).toBeDefined()
             expect(result.diagnostics.introduced).toEqual([])
             expect(result.policyResults.length).toBeGreaterThan(0)
+
+            const applied = yield* tool.execute({ multiplier: 10 }, { apply: true })
+            expect(applied.status).toBe("applied")
           }),
         ),
       60_000,

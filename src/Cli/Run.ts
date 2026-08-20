@@ -2,17 +2,12 @@
  * Safemods CLI — interactive runner and inspection tool.
  */
 import { path as Path } from "../platform/node.ts"
-import { Config, Console, Data, Effect, Layer, Match, Option, Predicate, Schema } from "effect"
-import { apply } from "../Application/index.ts"
+import { Config, Console, Data, Effect, Match, Option, Predicate, Schema } from "effect"
 import { EditConflict, InvalidEdit } from "../Edit/index.ts"
+import { executeRecipe, type RecipeExecutionHooks } from "../Execution/index.ts"
 import { applicationLayerNode } from "../Node/index.ts"
-import { RecipeInputError, type Recipe, run as runRecipe } from "../Recipe/index.ts"
-import {
-  of as previewOf,
-  StalePlanError,
-  VerificationFailure,
-  verify,
-} from "../Verification/index.ts"
+import { RecipeInputError, type Recipe } from "../Recipe/index.ts"
+import { StalePlanError, VerificationFailure } from "../Verification/index.ts"
 import {
   ConfiguredProject,
   FileNotFound,
@@ -154,16 +149,20 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
 
     const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
     const workspaceLayer = Workspace.layer({ projects: [app] }, { cwd: targetCwd })
-    const mainLayer = applicationLayerNode.pipe(Layer.provideMerge(workspaceLayer))
 
     const noColorConfig = yield* Config.string("NO_COLOR").pipe(Config.option, Effect.orDie)
     const useColor = options.noColor !== true && Option.isNone(noColorConfig)
+    const hooks: RecipeExecutionHooks = {
+      onPreview: (_plan, preview) => Console.log(renderPlanPreview(preview, { color: useColor })),
+      onVerified: (_plan, _preview, verified) =>
+        Console.log(renderDiagnosticDiff(verified.diagnosticDiff, { color: useColor })),
+    }
 
     yield* Effect.gen(function* () {
       const workspace = yield* Workspace
-      const plan = yield* runRecipe(recipe, options.input)
 
       if (options.mode === "scan") {
+        const { plan } = yield* executeRecipe(recipe, options.input, { mode: "plan" })
         const report = yield* workspace.withSnapshot(
           {},
           Effect.gen(function* () {
@@ -190,21 +189,22 @@ export const runCli = (options: CliOptions): Effect.Effect<void, CliError | CliM
         return
       }
 
-      const preview = yield* previewOf(plan)
-
-      yield* Console.log(renderPlanPreview(preview, { color: useColor }))
-
       if (options.mode === "verify" || options.mode === "apply") {
-        const verified = yield* verify(plan, recipe, options.input)
-        if (verified.diagnosticDiff) {
-          yield* Console.log(renderDiagnosticDiff(verified.diagnosticDiff, { color: useColor }))
-        }
-
         if (options.mode === "apply") {
-          const receipt = yield* apply(verified).pipe(Effect.provide(mainLayer))
-          yield* Console.log(`\n✔ Applied ${receipt.outputs.length} file changes successfully!`)
+          const execution = yield* executeRecipe(recipe, options.input, {
+            mode: "apply",
+            hooks,
+          }).pipe(Effect.provide(applicationLayerNode))
+          yield* Console.log(
+            `\n✔ Applied ${execution.receipt.outputs.length} file changes successfully!`,
+          )
+        } else {
+          yield* executeRecipe(recipe, options.input, { mode: "verify", hooks })
         }
+        return
       }
+
+      yield* executeRecipe(recipe, options.input, { mode: "preview", hooks })
     }).pipe(
       Effect.provide(workspaceLayer),
       Effect.mapError((cause) => {
