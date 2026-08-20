@@ -4,7 +4,7 @@
  * This example walks through the 5 core pillars of safemods:
  * 1. Declarative AST Pattern Matching (`Pattern` & `Query.match`)
  * 2. Algebraic Criteria Combinators (`Criterion.all`, `Criterion.not`)
- * 3. High-Fidelity Syntactic Draft Combinators (`Draft.imports`, `Draft.args`, `Draft.objectLiteral`)
+ * 3. High-Fidelity Draft Mutations (`Draft.replaceEach`, `Draft.imports`, `Draft.files`)
  * 4. In-Memory Virtual Overlays & Algebraic Recipes (`Recipe.pipe`, `Recipe.all`, `Recipe.branch`)
  * 5. Diagnostic Diffs & Declarative Policies (`Policy.noNewErrors`, `Policy.fixesError`, `Policy.idempotent`)
  */

@@ -25,7 +25,7 @@ const expectCompleteEvidence = (draft: Draft.Draft): void => {
 
 describe("Draft helper contracts", () => {
   effect(
-    "aligns replace/wrap matches and gives operation edits complete, unique evidence",
+    "aligns replace, insert, and remove matches and gives operation edits complete, unique evidence",
     () =>
       withFixture((root, app) =>
         Effect.gen(function* () {
@@ -54,12 +54,14 @@ describe("Draft helper contracts", () => {
               expect(call).toBeDefined()
               if (call === undefined) return
 
+              const firstArg = call.arguments[0]!
+              const secondArg = call.arguments[1]!
+              const thirdArg = call.arguments[2]!
               const drafts = [
-                yield* Draft.replaceArgument(project, call, 0, "10"),
-                yield* Draft.wrapArgument(project, call, 0, (text) => `wrapped(${text})`),
-                yield* Draft.args.wrap(project, call, 1, (text) => `wrapped(${text})`),
-                yield* Draft.args.reorder(project, call, [2, 0, 1]),
-                yield* Draft.args.append(project, call, "4"),
+                yield* Draft.replace(project, firstArg, "10"),
+                yield* Draft.insertBefore(project, secondArg, "/* before */ "),
+                yield* Draft.insertAfter(project, secondArg, " /* after */"),
+                yield* Draft.remove(project, thirdArg),
               ]
               for (const draft of drafts) {
                 expect(draft.matches).toBe(1)
@@ -68,13 +70,6 @@ describe("Draft helper contracts", () => {
               }
               expectCompleteEvidence(Draft.concat(...drafts))
               expectCompleteEvidence(Draft.concat({ ...drafts[0]!, evidence: [] }))
-
-              const scoped = Draft.forProject(project)
-              expect(scoped.audit).toBe(Draft.audit)
-              expect(scoped.replaceEach).toBe(Draft.replaceEach)
-              expect(scoped.concat).toBe(Draft.concat)
-              expect(scoped.imports.organize).toBeTypeOf("function")
-              expect(scoped.replaceArgument).toBeTypeOf("function")
 
               const emptyEach = yield* Draft.replaceEach(calls.slice(0, 1), () => Draft.empty)
               expect(emptyEach.edits).toEqual([])
@@ -148,59 +143,6 @@ describe("Draft helper contracts", () => {
                 matches: 1,
               })).pipe(Effect.flip)
               expect(conflictingEach._tag).toBe("DraftEvidenceConflict")
-            }),
-          )
-        }),
-      ),
-    60_000,
-  )
-
-  effect(
-    "returns Draft.empty for missing arguments and invalid reorder permutations",
-    () =>
-      withFixture((root, app) =>
-        Effect.gen(function* () {
-          yield* Effect.tryPromise(() =>
-            Fs.writeFile(
-              Path.join(root, "src/reorder.ts"),
-              [
-                "declare function run(...values: Array<number>): number",
-                "export const result = run(1, 2, 3)",
-                "",
-              ].join("\n"),
-            ),
-          )
-
-          const workspace = yield* Workspace
-          yield* workspace.withSnapshot(
-            {},
-            Effect.gen(function* () {
-              const snapshot = yield* WorkspaceSnapshot
-              const project = yield* snapshot.project(app)
-              const calls = yield* Query.calls(project).pipe(
-                Query.within("src/reorder.ts"),
-                Query.collect,
-              )
-              const call = calls.find((selection) => selection.value.arguments.length === 3)?.value
-              expect(call).toBeDefined()
-              if (call === undefined) return
-
-              expect(yield* Draft.replaceArgument(project, call, 9, "missing")).toEqual(Draft.empty)
-              expect(yield* Draft.wrapArgument(project, call, 9, (text) => text)).toEqual(
-                Draft.empty,
-              )
-
-              const invalidIndices = [
-                [0, 0, 2],
-                [0, 1, 3],
-                [-1, 1, 2],
-                [0, 1],
-                [0, 1, 1.5],
-                [0, 1, 2],
-              ]
-              for (const indices of invalidIndices) {
-                expect(yield* Draft.args.reorder(project, call, indices)).toEqual(Draft.empty)
-              }
             }),
           )
         }),

@@ -86,8 +86,10 @@ describe("recipe project-file composition", () => {
                 // 6. Scoped argument replacement
                 const replaceDraft = yield* Draft.replaceEach(
                   callsInConsumer,
-                  ({ project: p, value: call }) =>
-                    Draft.wrapArgument(p, call, 0, (arg) => `{ value: ${arg} }`),
+                  ({ value: call }) => {
+                    const arg = call.arguments[0]!
+                    return { node: arg, text: `{ value: ${arg.getText()} }` }
+                  },
                 )
 
                 return Draft.concat(importDraft, replaceDraft)

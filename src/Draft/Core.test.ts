@@ -24,21 +24,20 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 Effect.gen(function* () {
                   const snapshot = yield* WorkspaceSnapshot
                   const project = yield* snapshot.project(app)
-                  const draft = Draft.forProject(project)
 
                   // 1. Add import
-                  const d1 = yield* draft.imports.addNamed("src/consumer.ts", {
+                  const d1 = yield* Draft.imports.addNamed(project, "src/consumer.ts", {
                     module: "./library.js",
                     name: "TargetInput",
                   })
 
-                  // 2. Wrap call argument
+                  // 2. Replace call argument
                   const calls = yield* Query.calls(project).pipe(Query.collect)
-                  const targetCall = calls[0]!.value
-                  const d2 = yield* draft.args.wrap(
-                    targetCall,
-                    0,
-                    (text) => `/* wrapped */ { value: ${text} }`,
+                  const targetArg = calls[0]!.value.arguments[0]!
+                  const d2 = yield* Draft.replace(
+                    project,
+                    targetArg,
+                    `/* wrapped */ { value: ${targetArg.getText()} }`,
                   )
 
                   return Draft.concat(d1, d2)
@@ -75,10 +74,7 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     within: "src/library.ts",
                   })
 
-                  return yield* Draft.forProject(project).renameSymbol(
-                    otherSymbol,
-                    "transformedOther",
-                  )
+                  return yield* Draft.renameSymbol(project, otherSymbol, "transformedOther")
                 }),
             })
 

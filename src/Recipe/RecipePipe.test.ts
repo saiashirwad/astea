@@ -91,9 +91,10 @@ describe("recipe sequential composition", () => {
                   Query.where(Query.resolvesTo(target, { location: (c) => c.expression })),
                   Query.collect,
                 )
-                return yield* Draft.replaceEach(calls, ({ project: p, value: call }) =>
-                  Draft.wrapArgument(p, call, 0, (arg) => `{ value: ${arg} }`),
-                )
+                return yield* Draft.replaceEach(calls, ({ value: call }) => {
+                  const arg = call.arguments[0]!
+                  return { node: arg, text: `{ value: ${arg.getText()} }` }
+                })
               }),
           })
 
@@ -166,14 +167,13 @@ describe("recipe sequential composition", () => {
                   Query.collect,
                 )
 
-                return yield* Draft.replaceEach(calls, ({ project: p, value: call }) =>
-                  Draft.wrapArgument(
-                    p,
-                    call,
-                    0,
-                    (arg) => `/* scanned:${exportMap.get("target")?.name} */ ${arg}`,
-                  ),
-                )
+                return yield* Draft.replaceEach(calls, ({ value: call }) => {
+                  const arg = call.arguments[0]!
+                  return {
+                    node: arg,
+                    text: `/* scanned:${exportMap.get("target")?.name} */ ${arg.getText()}`,
+                  }
+                })
               }),
           })
 
@@ -289,9 +289,10 @@ describe("recipe sequential composition", () => {
                   Query.where(Query.resolvesTo(target, { location: (c) => c.expression })),
                   Query.collect,
                 )
-                return yield* Draft.replaceEach(calls, ({ project: p, value: call }) =>
-                  Draft.wrapArgument(p, call, 0, (arg) => `{ value: ${arg} }`),
-                )
+                return yield* Draft.replaceEach(calls, ({ value: call }) => {
+                  const arg = call.arguments[0]!
+                  return { node: arg, text: `{ value: ${arg.getText()} }` }
+                })
               }),
           })
 

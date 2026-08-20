@@ -59,9 +59,10 @@ describe("recipe policy and concurrent composition", () => {
                   Query.collect,
                 )
 
-                return yield* Draft.replaceEach(targetCalls, ({ project: p, value: call }) =>
-                  Draft.wrapArgument(p, call, 0, (arg) => `publicTarget(${arg})`),
-                )
+                return yield* Draft.replaceEach(targetCalls, ({ value: call }) => {
+                  const arg = call.arguments[0]!
+                  return { node: arg, text: `publicTarget(${arg.getText()})` }
+                })
               }),
           })
 
@@ -268,7 +269,8 @@ describe("recipe policy and concurrent composition", () => {
                 const call = calls.find((selection) => selection.value.arguments[0] !== undefined)
                 expect(call).toBeDefined()
                 if (call === undefined) return Draft.empty
-                return yield* Draft.args.wrap(project, call.value, 0, (text) => text)
+                const arg = call.value.arguments[0]!
+                return yield* Draft.replace(project, arg, arg.getText())
               }),
           })
           const again = Recipe.define("wrap-same-arg-again", {
@@ -285,11 +287,12 @@ describe("recipe policy and concurrent composition", () => {
                 const call = calls.find((selection) => selection.value.arguments[0] !== undefined)
                 expect(call).toBeDefined()
                 if (call === undefined) return Draft.empty
-                return yield* Draft.args.wrap(project, call.value, 0, (text) => text)
+                const arg = call.value.arguments[0]!
+                return yield* Draft.replace(project, arg, arg.getText())
               }),
           })
           const plan = yield* Recipe.run(Recipe.pipe(bump, again), undefined)
-          const wrapIds = plan.evidence.filter((item) => item.id.includes("argument:wrap"))
+          const wrapIds = plan.evidence.filter((item) => item.id.includes("node:replace"))
           expect(new Set(wrapIds.map((item) => item.id)).size).toBe(wrapIds.length)
 
           const conflictingA = Recipe.define("conflict-a", {

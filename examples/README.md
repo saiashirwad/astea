@@ -80,7 +80,7 @@ Legacy codemods relied on deeply nested `if` statements, manual AST node type ca
 
 ---
 
-## 3. High-Fidelity Syntactic Draft Combinators (`Draft.imports`, `Draft.args`, `Draft.objectLiteral`)
+## 3. High-Fidelity Draft Mutations (`Draft.replaceEach`, `Draft.replaceWith`, `Draft.imports`)
 
 ### What it solves
 
@@ -100,12 +100,15 @@ if (legacyImport !== undefined) {
   yield * Draft.imports.removeNamed(project, legacyImport.value, "oldFn")
 }
 
-// 2. Wrap or reorder function call arguments without altering trivia
-yield * Draft.args.wrap(project, callNode, 0, (text) => `{ value: ${text} }`)
-yield * Draft.args.reorder(project, callNode, [1, 0])
+// 2. Replace or wrap expressions without altering surrounding trivia
+yield * Draft.replace(project, targetArgument, `{ value: ${targetArgument.getText()} }`)
 
-// 3. Insert or modify object literal fields with inferred indentation
-yield * Draft.objectLiteral.setField(project, objectNode, "timeoutMs", "5000")
+// 3. Propose edits for matching query selections
+yield *
+  Draft.replaceEach(calls, ({ value: call }) => {
+    const argument = call.arguments[0]!
+    return { node: argument, text: `{ value: ${argument.getText()} }` }
+  })
 ```
 
 ---

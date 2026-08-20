@@ -92,7 +92,7 @@ export named `recipe`.
 | Query                   | Streams of calls, imports, identifiers, property accesses, arbitrary node kinds, symbol references, and structural pattern matches. Queries can be scoped by file and filtered by text, argument count, type, symbol, JSDoc, export status, or AST relationships. |
 | Pattern                 | Composable matchers for expressions, declarations, control flow, tuples, bindings, predicates, and computed TypeScript types.                                                                                                                                     |
 | Precondition            | Fast file filtering by path, text, or imported module before doing AST or type-checker work.                                                                                                                                                                      |
-| Draft                   | Guarded text replacement, insertion, removal, and printing, plus helpers for imports, call arguments, object literals, interfaces, classes, functions, symbol renames, and unused imports.                                                                        |
+| Draft                   | Guarded text replacement, insertion, removal, and printing, plus operations for imports, file operations, symbol renames, and unused imports.                                                                                                                     |
 | File operations         | Create, delete, and move files. Moving a file also updates matching relative imports.                                                                                                                                                                             |
 | Recipe                  | Schema-validated inputs, two-phase scans, sequential or concurrent composition, conditional branches, and in-memory handoff between recipe stages.                                                                                                                |
 | Plan and Preview        | Deterministic, serializable, content-addressed plans and exact read-only previews.                                                                                                                                                                                |
@@ -150,20 +150,19 @@ running a query.
 ## Drafting changes
 
 The basic draft operations are `replace`, `remove`, `insertBefore`,
-`insertAfter`, `replaceEach`, and `print`. Higher-level helpers cover common
-TypeScript edits:
+`insertAfter`, `replaceWith`, `replaceEach`, and `print`. Domain operations cover project
+and import structure:
 
 ```ts
 Draft.imports.addNamed(project, "src/index.ts", {
   module: "effect",
   name: "Option",
 })
-Draft.args.wrap(project, call, 0, (argument) => `{ value: ${argument} }`)
-Draft.objectLiteral.setField(project, options, "timeoutMs", "5_000")
+Draft.replace(project, targetNode, "{ value: 1 }")
 Draft.files.move(project, "src/old.ts", "src/new.ts")
 ```
 
-Each helper returns an Effect that produces a `Draft`. Combine drafts with
+Each operation returns an Effect that produces a `Draft`. Combine drafts with
 `Draft.concat` before returning from the recipe.
 
 Every text edit records its expected source hash. Bytes outside the edited

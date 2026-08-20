@@ -20,7 +20,6 @@ export default Recipe.define("wrap-target-arguments", {
   run: Effect.fnUntraced(function* ({ member, wrapper }) {
     const snapshot = yield* WorkspaceSnapshot
     const project = yield* snapshot.project(app)
-    const draft = Draft.forProject(project)
     const target = yield* project.symbolNamed("target", { within: "src/library.ts" })
     const calls = yield* Query.calls(project).pipe(
       Query.where(Query.resolvesTo(target, { location: (call) => call.expression })),
@@ -30,8 +29,12 @@ export default Recipe.define("wrap-target-arguments", {
       Query.collect,
     )
 
-    return yield* Draft.replaceEach(calls, ({ value: call }) =>
-      draft.args.wrap(call, 0, (text) => `${wrapper}({ ${member}: ${text} })`),
-    )
+    return yield* Draft.replaceEach(calls, ({ value: call }) => {
+      const argument = call.arguments[0]!
+      return {
+        node: argument,
+        text: `${wrapper}({ ${member}: ${argument.getText(call.getSourceFile())} })`,
+      }
+    })
   }),
 })
