@@ -156,17 +156,6 @@ export const atMostFiles = (count: number): Policy => ({ maxAffectedFiles: count
 /** Reject the plan if verification finds any new error diagnostic. This is the default. */
 export const noNewErrors = (): Policy => ({
   diagnostics: "no-new-errors",
-  rules: [
-    {
-      name: "no-new-errors",
-      evaluate: (ctx) => {
-        const newErrors = unpermittedIntroducedErrors(ctx.diagnosticDiff, ctx.allowedErrors ?? [])
-        return newErrors.length === 0
-          ? true
-          : `Introduced ${newErrors.length} new error diagnostic(s): ${newErrors.map((e) => `TS${e.code}: ${e.message}`).join("; ")}`
-      },
-    },
-  ],
 })
 
 /** Require that this transformation actively resolves specific compiler error diagnostic(s). */

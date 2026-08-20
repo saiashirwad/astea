@@ -169,6 +169,11 @@ describe("declarative transformations API (@effect/vitest)", () => {
             const validPlan = yield* Recipe.run(validRecipe, undefined)
             const verified = yield* Verification.verify(validPlan, validRecipe, undefined)
             expect(verified.diagnosticDiff).toBeDefined()
+            const policyNames = verified.receipt.policyResults.map((result) => result.name)
+            expect(policyNames.filter((name) => name === "no-new-errors")).toEqual([
+              "no-new-errors",
+            ])
+            expect(new Set(policyNames).size).toBe(policyNames.length)
 
             // Failing policy is rejected during verification
             const failingPlan = yield* Recipe.run(failingRecipe, undefined)
@@ -306,6 +311,8 @@ describe("declarative transformations API (@effect/vitest)", () => {
               expect(result.failure._tag).toBe("VerificationFailure")
               if (result.failure._tag === "VerificationFailure")
                 expect(result.failure.policy).toBe("diagnostics")
+              if (result.failure._tag === "VerificationFailure")
+                expect(result.failure.detail).toContain("Introduced 1 new error diagnostic")
             }
           }),
         ),

@@ -57,6 +57,30 @@ describe("policy evaluation", () => {
     expect(evaluation.failure).toEqual({ policy: "matches", detail: "Observed 1" })
   })
 
+  it("reports introduced error details from the durable diagnostics policy", () => {
+    const evaluation = evaluateBuiltInPolicies({
+      policies: {
+        matchCount: {},
+        diagnostics: "no-new-errors",
+        idempotence: "not-promised",
+      },
+      affectedFiles: 1,
+      baselineErrorCount: 0,
+      proposedErrorCount: 1,
+      diagnosticDiff: {
+        ...emptyDiagnosticDiff,
+        introduced: [{ code: 2322, message: "Type mismatch", category: "error" }],
+      },
+    })
+
+    expect(evaluation.results).toEqual([{ name: "no-new-errors", passed: false }])
+    expect(evaluation.failure).toEqual({
+      policy: "diagnostics",
+      detail: "Introduced 1 new error diagnostic(s): TS2322: Type mismatch",
+      diagnostics: [{ code: 2322, message: "Type mismatch", category: "error" }],
+    })
+  })
+
   it("stops custom rules at the first failure", () => {
     const visited: Array<string> = []
     const context: PolicyEvaluationContext = {

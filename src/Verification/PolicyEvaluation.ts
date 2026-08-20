@@ -93,7 +93,7 @@ export const evaluateBuiltInPolicies = (input: BuiltInPolicyInput): PolicyEvalua
   } else if (!diagnosticsPassed) {
     failure = {
       policy: "diagnostics",
-      detail: `${input.baselineErrorCount} -> ${input.proposedErrorCount}; introduced error diagnostics are not permitted`,
+      detail: `Introduced ${unpermittedErrors.length} new error diagnostic(s): ${unpermittedErrors.map((error) => `TS${error.code}: ${error.message}`).join("; ")}`,
       diagnostics: unpermittedErrors,
     }
   } else if (!idempotencePassed) {
