@@ -21,7 +21,6 @@ import {
 } from "../Plan/index.ts"
 import {
   type PlanPreview,
-  type PolicyResult,
   previewPlan,
   type ProjectIdentityMismatch,
   requireMatchingProjectIdentity,
@@ -37,7 +36,6 @@ import {
   type DiagnosticDiff,
   type DiagnosticRecord,
   type PolicyEvaluationContext,
-  unpermittedIntroducedErrors,
 } from "../Policy/index.ts"
 import { TOOLCHAIN, type Recipe } from "../Recipe/index.ts"
 import {
@@ -48,6 +46,7 @@ import {
   type SnapshotExpired,
 } from "../Workspace/index.ts"
 import type { VirtualFsSnapshot } from "../VirtualFs/index.ts"
+import { evaluateBuiltInPolicies, evaluateCustomRules } from "./PolicyEvaluation.ts"
 
 export { ProjectIdentityMismatch, StalePlanError, VerificationFailure } from "./Engine.ts"
 
@@ -367,35 +366,25 @@ export const verify = <Input, E, R>(
 
     const diagnosticDiff = computeDiagnosticDiff(baselineDiagnostics, proposedRun.diagnostics)
     const allowedErrors = allowedErrorsFromRules(recipe.rules)
-    const introducedErrors = unpermittedIntroducedErrors(diagnosticDiff, allowedErrors)
-
     const matches = validatedPlan.measurements?.matches
-    const { min, max } = validatedPlan.policies.matchCount
-    if ((min !== undefined || max !== undefined) && matches === undefined) {
+    const baselineErrorCount = baselineDiagnostics.filter((d) => d.category === "error").length
+    const proposedErrorCount = proposedRun.diagnostics.filter((d) => d.category === "error").length
+    const builtIn = evaluateBuiltInPolicies({
+      policies: validatedPlan.policies,
+      actualMatches: matches,
+      affectedFiles: proposed.files.length,
+      baselineErrorCount,
+      proposedErrorCount,
+      diagnosticDiff,
+      secondPlanChangeCount: proposedRun.replayChanges,
+      allowedErrors,
+    })
+    if (builtIn.missingMatchMeasurement) {
       return yield* new VerificationFailure({
         planId: validatedPlan.planId,
         policy: "matches",
-        detail: "Plan carries no primary-run match measurement",
+        detail: builtIn.failure!.detail,
       })
-    }
-
-    const policyResults: Array<PolicyResult> = []
-    if (
-      validatedPlan.policies.matchCount.min !== undefined ||
-      validatedPlan.policies.matchCount.max !== undefined
-    ) {
-      policyResults.push({ name: "match-count", passed: true })
-    }
-    if (validatedPlan.policies.maxAffectedFiles !== undefined) {
-      policyResults.push({ name: "affected-files", passed: true })
-    }
-    if (validatedPlan.policies.diagnostics === "no-new-errors") {
-      policyResults.push({ name: "no-new-errors", passed: introducedErrors.length === 0 })
-    } else {
-      policyResults.push({ name: "diagnostic-diff", passed: true })
-    }
-    if (validatedPlan.policies.idempotence === "required") {
-      policyResults.push({ name: "idempotence", passed: proposedRun.replayChanges === 0 })
     }
 
     const context: PolicyEvaluationContext = {
@@ -405,27 +394,16 @@ export const verify = <Input, E, R>(
       replayEdits: proposedRun.replayChanges,
       allowedErrors,
     }
-
-    if (recipe.rules.length > 0) {
-      for (const rule of recipe.rules) {
-        const result = rule.evaluate(context)
-        if (result === true) {
-          policyResults.push({ name: rule.name, passed: true })
-        } else {
-          const detail = result === false ? `Policy rule '${rule.name}' failed` : result
-          policyResults.push({ name: rule.name, passed: false, detail })
-          return yield* new VerificationFailure({
-            planId: validatedPlan.planId,
-            policy: "diagnostics",
-            detail,
-            diagnostics: diagnosticDiff.introduced,
-          })
-        }
-      }
+    const custom = evaluateCustomRules(recipe.rules, context)
+    const policyResults = [...builtIn.results, ...custom.results]
+    if (custom.failure !== undefined) {
+      return yield* new VerificationFailure({
+        planId: validatedPlan.planId,
+        policy: custom.failure.policy,
+        detail: custom.failure.detail,
+        diagnostics: custom.failure.diagnostics,
+      })
     }
-
-    const baselineErrorCount = baselineDiagnostics.filter((d) => d.category === "error").length
-    const proposedErrorCount = proposedRun.diagnostics.filter((d) => d.category === "error").length
 
     const observation: VerificationObservation =
       proposedRun.replayChanges === undefined

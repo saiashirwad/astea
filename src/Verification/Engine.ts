@@ -1,12 +1,7 @@
 /** Verification and application service engine. */
 import { Data, Effect, FileSystem, Path, Predicate } from "effect"
 import { textHash } from "../Edit/index.ts"
-import {
-  unpermittedIntroducedErrors,
-  type AllowedError,
-  type DiagnosticDiff,
-  type DiagnosticRecord,
-} from "../Policy/index.ts"
+import type { AllowedError, DiagnosticDiff, DiagnosticRecord } from "../Policy/index.ts"
 import {
   isContentFingerprint,
   type PlanDecodeError,
@@ -22,6 +17,14 @@ import {
   VirtualFsError,
 } from "../VirtualFs/index.ts"
 import { isProjectRelativePath, parseProjectRelativePath } from "../ProjectPath/index.ts"
+import {
+  evaluateBuiltInPolicies,
+  failureFromPolicyResults,
+  type PolicyFailure,
+  type PolicyResult,
+} from "./PolicyEvaluation.ts"
+
+export type { PolicyResult } from "./PolicyEvaluation.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{
   readonly planId: string
@@ -36,6 +39,20 @@ export class VerificationFailure extends Data.TaggedError("VerificationFailure")
   /** Diagnostics relevant to the failed policy, including source locations. */
   readonly diagnostics?: ReadonlyArray<DiagnosticRecord> | undefined
 }> {}
+
+const verificationFailure = (planId: string, failure: PolicyFailure): VerificationFailure =>
+  failure.diagnostics === undefined
+    ? new VerificationFailure({
+        planId,
+        policy: failure.policy,
+        detail: failure.detail,
+      })
+    : new VerificationFailure({
+        planId,
+        policy: failure.policy,
+        detail: failure.detail,
+        diagnostics: failure.diagnostics,
+      })
 
 /** A plan's project identities are not the live Workspace definition. */
 export class ProjectIdentityMismatch extends Data.TaggedError("ProjectIdentityMismatch")<{
@@ -73,12 +90,6 @@ export interface VerificationObservation {
   readonly diagnosticDiff: DiagnosticDiff
   readonly policyResults?: ReadonlyArray<PolicyResult>
   readonly allowedErrors?: ReadonlyArray<AllowedError>
-}
-
-export interface PolicyResult {
-  readonly name: string
-  readonly passed: boolean
-  readonly detail?: string
 }
 
 export interface VerificationReceipt {
@@ -407,65 +418,29 @@ export const verifyPreview = (
   VerificationFailure | PlanDecodeError
 > =>
   Effect.gen(function* () {
-    const { min, max } = plan.policies.matchCount
-    if (
-      (min !== undefined && observation.actualMatches < min) ||
-      (max !== undefined && observation.actualMatches > max)
-    ) {
-      return yield* new VerificationFailure({
-        planId: plan.planId,
-        policy: "matches",
-        detail: `Observed ${observation.actualMatches}`,
-      })
-    }
-    if (
-      plan.policies.maxAffectedFiles !== undefined &&
-      preview.files.length > plan.policies.maxAffectedFiles
-    ) {
-      return yield* new VerificationFailure({
-        planId: plan.planId,
-        policy: "affected-files",
-        detail: `Observed ${preview.files.length}`,
-      })
-    }
-    const unpermittedErrors = unpermittedIntroducedErrors(
-      observation.diagnosticDiff,
-      observation.allowedErrors ?? [],
-    )
-    if (plan.policies.diagnostics === "no-new-errors" && unpermittedErrors.length > 0) {
-      return yield* new VerificationFailure({
-        planId: plan.planId,
-        policy: "diagnostics",
-        detail: `${observation.baselineErrorCount} -> ${observation.proposedErrorCount}; introduced error diagnostics are not permitted`,
-        diagnostics: unpermittedErrors,
-      })
-    }
-    if (plan.policies.idempotence === "required" && observation.secondPlanChangeCount !== 0) {
-      return yield* new VerificationFailure({
-        planId: plan.planId,
-        policy: "idempotence",
-        detail: "Second recipe run was not empty",
-      })
+    const builtIn = evaluateBuiltInPolicies({
+      policies: plan.policies,
+      actualMatches: observation.actualMatches,
+      affectedFiles: preview.files.length,
+      baselineErrorCount: observation.baselineErrorCount,
+      proposedErrorCount: observation.proposedErrorCount,
+      diagnosticDiff: observation.diagnosticDiff,
+      secondPlanChangeCount: observation.secondPlanChangeCount,
+      allowedErrors: observation.allowedErrors,
+    })
+    if (builtIn.failure !== undefined) {
+      return yield* verificationFailure(plan.planId, builtIn.failure)
     }
 
     // Do not mint a VerifiedPlan containing a failed built-in result, even when
     // a caller constructed the observation directly rather than going through
     // Core's policy checks above.
-    const failedBuiltIn = observation.policyResults?.find((result) => !result.passed)
-    if (failedBuiltIn !== undefined) {
-      return yield* new VerificationFailure({
-        planId: plan.planId,
-        policy:
-          failedBuiltIn.name === "idempotence"
-            ? "idempotence"
-            : failedBuiltIn.name === "match-count"
-              ? "matches"
-              : failedBuiltIn.name === "affected-files"
-                ? "affected-files"
-                : "diagnostics",
-        detail: failedBuiltIn.detail ?? `Policy '${failedBuiltIn.name}' failed`,
-        diagnostics: observation.diagnosticDiff.introduced,
-      })
+    const reportedFailure = failureFromPolicyResults(
+      observation.policyResults,
+      observation.diagnosticDiff,
+    )
+    if (reportedFailure !== undefined) {
+      return yield* verificationFailure(plan.planId, reportedFailure)
     }
 
     const receipt: VerificationReceipt = {
