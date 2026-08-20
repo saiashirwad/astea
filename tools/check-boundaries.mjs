@@ -42,7 +42,6 @@ const rootFacadeDependencies = new Set([
  */
 export const temporaryAdapterImports = new Map([
   ["Draft", new Set(["Node", "platform"])],
-  ["Overlay", new Set(["platform"])],
   ["Recipe", new Set(["Node", "platform"])],
   ["Verification", new Set(["platform"])],
   ["Workspace", new Set(["Node", "platform"])],

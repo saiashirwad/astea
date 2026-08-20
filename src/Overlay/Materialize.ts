@@ -1,4 +1,3 @@
-import { path as Path } from "../platform/node.ts"
 import { Effect } from "effect"
 import type { EditConflict, InvalidEdit, TextEdit } from "../Edit/index.ts"
 import type { PlannedFileOperation } from "../Plan/index.ts"
@@ -55,14 +54,14 @@ export const materialize = (
       yield* projectFor(project.id)
     }
 
-    const projectRoot = (projectId: string): string => {
+    const projectForPath = (projectId: string): ProjectSnapshot => {
       const project = snapshots.get(projectId)
       if (project === undefined) {
         // Every path is resolved after its project is loaded by the canonical
         // engine; this is an invariant violation if it ever occurs.
         throw new Error(`Project ${projectId} was not loaded before path resolution`)
       }
-      return project.root
+      return project
     }
 
     const result = yield* materializeVirtualFs({
@@ -73,7 +72,7 @@ export const materialize = (
           const project = snapshots.get(projectId) ?? (yield* projectFor(projectId))
           return yield* project.sourceText(fileName)
         }),
-      resolvePath: (projectId, fileName) => Path.resolve(projectRoot(projectId), fileName),
+      resolvePath: (projectId, fileName) => projectForPath(projectId).resolveFileName(fileName),
     })
 
     // A non-symbol compatibility view keeps older Overlay.materialize users
