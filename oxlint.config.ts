@@ -346,7 +346,6 @@ export default defineConfig({
               "../Edit/*",
               "../Plan/*",
               "../Overlay/*",
-              "../Preview/*",
               "../Verification/*",
               "../Application/*",
             ],
@@ -392,6 +391,7 @@ export default defineConfig({
       rules: {
         "typescript/no-unsafe-assignment": "off",
         "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
       },
     },
     {

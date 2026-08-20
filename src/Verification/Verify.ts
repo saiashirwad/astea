@@ -218,6 +218,10 @@ export const verifyPreview = (
     return issueVerifiedPlan(validated, preview, receipt, observation.diagnosticDiff)
   })
 
+export interface VerifyOptions {
+  readonly preview?: PlanPreview | undefined
+}
+
 /**
  * Verify a plan with fresh baseline and proposed compiler snapshots. This
  * operation evaluates policies and returns application authority on success.
@@ -226,6 +230,7 @@ export const verify = <Input, E, R>(
   plan: TransformationPlan,
   recipe: Recipe<Input, E, R>,
   input: Input,
+  options?: VerifyOptions | undefined,
 ): Effect.Effect<
   VerifiedPlan & { readonly diagnosticDiff: DiagnosticDiff },
   | E
@@ -247,7 +252,7 @@ export const verify = <Input, E, R>(
     const validatedPlan = yield* validatePlan(plan)
     yield* requireMatchingProjectIdentity(validatedPlan, workspace.definition.projects)
     const validatedInput = yield* validateRecipeForPlan(validatedPlan, recipe, input)
-    const proposed = yield* of(validatedPlan)
+    const proposed = options?.preview ?? (yield* of(validatedPlan))
 
     const files = new Map<string, string>()
     const created = new Set<string>()

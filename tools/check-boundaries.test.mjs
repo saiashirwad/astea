@@ -25,7 +25,6 @@ describe("architecture boundaries", () => {
       dependencyFailure("Recipe", "Application"),
       "Recipe must not depend on Application",
     )
-    assert.equal(dependencyFailure("Preview", "Execution"), "Preview must not depend on Execution")
     assert.equal(
       dependencyFailure("Verification", "Application"),
       "Verification must not depend on Application",
@@ -40,7 +39,6 @@ describe("architecture boundaries", () => {
         mkdir(join(root, "src", "Draft"), { recursive: true }),
         mkdir(join(root, "src", "Edit"), { recursive: true }),
         mkdir(join(root, "src", "Pattern"), { recursive: true }),
-        mkdir(join(root, "src", "Preview"), { recursive: true }),
         mkdir(join(root, "src", "Query", "internal"), { recursive: true }),
         mkdir(join(root, "src", "Recipe"), { recursive: true }),
         mkdir(join(root, "src", "Application"), { recursive: true }),
@@ -72,7 +70,6 @@ describe("architecture boundaries", () => {
           join(root, "src", "Recipe", "Bad.ts"),
           'import("../Cli/index.ts")\nimport "../Application/index.ts"\nimport "../index.ts"\n',
         ),
-        writeFile(join(root, "src", "Preview", "Bad.ts"), 'import "../Execution/index.ts"\n'),
         writeFile(
           join(root, "src", "Verification", "Bad.ts"),
           'import "../Application/index.ts"\n',
@@ -89,9 +86,6 @@ describe("architecture boundaries", () => {
       assert.ok(failures.some((failure) => failure.includes("Recipe must not depend on Cli")))
       assert.ok(
         failures.some((failure) => failure.includes("Recipe must not depend on Application")),
-      )
-      assert.ok(
-        failures.some((failure) => failure.includes("Preview must not depend on Execution")),
       )
       assert.ok(
         failures.some((failure) => failure.includes("Verification must not depend on Application")),

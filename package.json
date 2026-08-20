@@ -59,10 +59,6 @@
       "types": "./dist/src/Precondition/index.d.ts",
       "default": "./dist/src/Precondition/index.js"
     },
-    "./Preview": {
-      "types": "./dist/src/Preview/index.d.ts",
-      "default": "./dist/src/Preview/index.js"
-    },
     "./Query": {
       "types": "./dist/src/Query/index.d.ts",
       "default": "./dist/src/Query/index.js"

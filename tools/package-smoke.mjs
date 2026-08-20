@@ -67,7 +67,7 @@ try {
   await writeFile(
     join(fixture, "smoke.ts"),
     `${imports}
-import { of as preview, type FilePreview, type FileState, type PlanPreview } from "safemods/Preview"
+import { of as preview, type FilePreview, type FileState, type PlanPreview } from "safemods/Verification"
 void preview
 declare const previewValue: PlanPreview
 declare const fileValue: FilePreview
@@ -81,7 +81,7 @@ void stateValue
     join(fixture, "compatibility-smoke.mjs"),
     `
 import * as Root from "safemods"
-import * as PreviewEntry from "safemods/Preview"
+import * as VerificationEntry from "safemods/Verification"
 
 const forbidden = [
   [Root.Application, "Application"],
@@ -93,15 +93,11 @@ const forbidden = [
   [Root.Plan, "serialize"],
   [Root.Policy, "Policy"],
   [Root.Precondition, "Precondition"],
-  [Root.Preview, "verify"],
-  [Root.Preview, "VerificationFailure"],
-  [PreviewEntry, "verify"],
-  [PreviewEntry, "VerificationFailure"],
-  [Root.Verification, "Preview"],
   [Root.Query, "Query"],
   [Root.Query, "preceding"],
   [Root.Query, "following"],
   [Root.Recipe, "Recipe"],
+  [Root.Verification, "Preview"],
   [Root.Verification, "Verification"],
 ]
 
@@ -109,8 +105,12 @@ for (const [domain, name] of forbidden) {
   if (name in domain) throw new Error(\`Legacy export still present: \${name}\`)
 }
 
-if (typeof Root.Preview.of !== "function" || typeof PreviewEntry.of !== "function") {
-  throw new Error("Focused Preview entry point does not export of")
+if ("Preview" in Root) {
+  throw new Error("Preview module is still exported on Root")
+}
+
+if (typeof Root.Verification.of !== "function" || typeof VerificationEntry.of !== "function") {
+  throw new Error("Verification entry point does not export of")
 }
 `,
   )

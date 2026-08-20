@@ -9,7 +9,7 @@ export const architectureLayers = [
   ["Edit", "Evidence", "Plan", "Policy", "ProjectPath", "VirtualFs", "generated"],
   ["Compiler", "Pattern", "Query", "Workspace"],
   ["Draft", "Overlay", "Precondition"],
-  ["Application", "Execution", "Preview", "Recipe", "Verification"],
+  ["Application", "Execution", "Recipe", "Verification"],
   ["Node", "platform"],
   ["AgentTool", "Cli", "bin"],
 ]
@@ -28,7 +28,6 @@ const rootFacadeDependencies = new Set([
   "Plan",
   "Policy",
   "Precondition",
-  "Preview",
   "Query",
   "Recipe",
   "Verification",
@@ -67,7 +66,6 @@ const exactDependencies = new Map([
       "generated",
     ]),
   ],
-  ["Preview", new Set(["Verification"])],
   [
     "Verification",
     new Set([

@@ -7,8 +7,6 @@ export * as Pattern from "./Pattern/index.ts"
 export * as Plan from "./Plan/index.ts"
 export * as Policy from "./Policy/index.ts"
 export * as Precondition from "./Precondition/index.ts"
-/** Preview is the read-only materialization stage of Verification. */
-export * as Preview from "./Preview/index.ts"
 export * as Query from "./Query/index.ts"
 export * as Recipe from "./Recipe/index.ts"
 export * as Verification from "./Verification/index.ts"

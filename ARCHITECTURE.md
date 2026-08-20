@@ -11,9 +11,9 @@ Cli / AgentTool / bin
           |
      Application
           |
-   Verification
+    Verification
           |
-Recipe / Preview
+        Recipe
           |
  Draft / Overlay / Precondition
           |
@@ -31,14 +31,14 @@ Within the semantic layer, `Query` may depend on `Pattern`, `Workspace`, and
   root barrel or the package name `safemods`.
 - A feature's `internal/` directory is private to that feature.
 - `Workspace` is read/compiler authority. It does not import Draft, Edit,
-  Plan, Overlay, Preview, Verification, or Application.
-- `Recipe` creates plans. `Preview` materializes plan bytes without writes.
-  `Verification` checks plans and issues verified authority. `Application` is
-  the only write authority and consumes that verified authority. `Execution`
-  is the consumer workflow that orchestrates plan, preview, verify, and apply.
-  Recipe, Preview, and Verification must not import Application. Recipe and
-  Preview must not import Execution.
-- Preview and Verification are read-only. Only Application has write authority.
+  Plan, Overlay, Verification, or Application.
+- `Recipe` creates plans. `Verification` materializes preview bytes without
+  writes, checks plans, and issues verified authority. `Application` is the only
+  write authority and consumes that verified authority. `Execution` is the
+  consumer workflow that orchestrates plan, preview, verify, and apply.
+  Recipe and Verification must not import Application. Recipe and Verification
+  must not import Execution.
+- Verification is read-only. Only Application has write authority.
 - `Workspace` owns the synchronous `WorkspaceRuntime` port for TypeScript
   compiler-host callbacks. `Node` provides its concrete filesystem and path
   implementation. This port is synchronous because TypeScript calls its host

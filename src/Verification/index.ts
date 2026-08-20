@@ -7,8 +7,8 @@ export {
   PolicyMismatch,
   ToolchainMismatch,
 } from "./Errors.ts"
-export { of } from "./Preview.ts"
-export { verify } from "./Verify.ts"
+export { of, previewPlan } from "./Preview.ts"
+export { verify, verifyPreview, type VerifyOptions } from "./Verify.ts"
 export type { FilePreview, FileState, PlanPreview, VerificationReceipt } from "./Model.ts"
 export type { PolicyResult } from "./PolicyEvaluation.ts"
 export type { VerifiedPlan } from "./VerifiedPlan.ts"

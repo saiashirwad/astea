@@ -16,7 +16,6 @@ import * as Application from "safemods/Application"
 import * as Draft from "safemods/Draft"
 import { applicationLayerNode, workspaceLayerNode } from "safemods/Node"
 import * as Policy from "safemods/Policy"
-import * as Preview from "safemods/Preview"
 import { Criterion } from "safemods/Query"
 import * as Query from "safemods/Query"
 import * as Recipe from "safemods/Recipe"
@@ -110,7 +109,7 @@ export const runTour = Effect.gen(function* () {
   console.log(`[Plan Created] ID: ${plan.planId}, Edits: ${plan.edits.length}`)
 
   // Step 2: Generate read-only Preview
-  const preview = yield* Preview.of(plan)
+  const preview = yield* Verification.of(plan)
   console.log(`[Preview Generated] Files affected: ${preview.files.length}`)
 
   // Step 3: Verify plan against isolated virtual compiler authority
