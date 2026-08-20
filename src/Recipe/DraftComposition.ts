@@ -10,11 +10,11 @@ import {
 import * as Draft from "../Draft/index.ts"
 import type { Draft as DraftModel, DraftEvidenceConflict } from "../Draft/index.ts"
 import type { PlannedFileOperation } from "../Plan/index.ts"
-import type {
-  FileNotFound,
+import {
   ProjectNotInSnapshot,
-  ProjectSnapshotError,
-  WorkspaceSnapshotService,
+  type FileNotFound,
+  type ProjectSnapshotError,
+  type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 
 /** Collapse two sequential Drafts into one Draft against the original snapshot. */
@@ -32,6 +32,23 @@ export const composeDrafts = (
   | DraftEvidenceConflict
 > =>
   Effect.gen(function* () {
+    const configuredProjects = new Map(snapshot.projects.map((project) => [project.id, project]))
+    const configuredProject = (projectId: string) => {
+      const project = configuredProjects.get(projectId)
+      return project === undefined
+        ? Effect.fail(new ProjectNotInSnapshot({ projectId, generation: snapshot.generation }))
+        : Effect.succeed(project)
+    }
+    const projectIds = new Set(
+      [accumulated, next].flatMap((draft) => [
+        ...draft.edits.map((edit) => edit.projectId),
+        ...(draft.fileOperations ?? []).map((operation) => operation.projectId),
+      ]),
+    )
+    for (const projectId of projectIds) {
+      yield* configuredProject(projectId)
+    }
+
     const accumulatedChanged =
       accumulated.edits.length > 0 || (accumulated.fileOperations?.length ?? 0) > 0
     const nextChanged = next.edits.length > 0 || (next.fileOperations?.length ?? 0) > 0
@@ -58,8 +75,7 @@ export const composeDrafts = (
       } else if (accEdits && nxtEdits) {
         // SAFETY: Edit-map keys contain the project ID and file name by construction.
         const [projectId, fileName] = key.split("\0") as [string, string]
-        const projectDef = snapshot.projects.find((p) => p.id === projectId)
-        if (!projectDef) continue
+        const projectDef = yield* configuredProject(projectId)
         const project = yield* snapshot.project(projectDef)
         const t0 = yield* project.sourceText(fileName)
         const t1 = yield* applyFileEdits(t0, accEdits)
@@ -163,12 +179,10 @@ export const composeDrafts = (
       }
 
       if (normalized.kind === "delete" || normalized.kind === "move") {
-        const configured = snapshot.projects.find((project) => project.id === normalized.projectId)
-        if (configured !== undefined) {
-          const project = yield* snapshot.project(configured)
-          const original = yield* project.sourceText(normalized.path)
-          normalized = { ...normalized, initialHash: textHash(original) }
-        }
+        const configuredProjectForOperation = yield* configuredProject(normalized.projectId)
+        const project = yield* snapshot.project(configuredProjectForOperation)
+        const original = yield* project.sourceText(normalized.path)
+        normalized = { ...normalized, initialHash: textHash(original) }
       }
       if (operation.kind === "delete" || operation.kind === "move") consumed.add(sourceKey)
       normalizedOperations.push(normalized)

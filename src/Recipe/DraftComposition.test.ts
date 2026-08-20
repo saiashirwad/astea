@@ -6,6 +6,7 @@ import { applyFileEdits, textHash, type TextEdit } from "../Edit/index.ts"
 import type { Draft } from "../Draft/index.ts"
 import {
   ConfiguredProject,
+  ProjectNotInSnapshot,
   Workspace,
   WorkspaceSnapshot,
   type WorkspaceSnapshotService,
@@ -142,6 +143,79 @@ effect("composeDrafts puts a later edit into moved file content", () =>
         toPath: "src/moved.ts",
         content: expected,
       })
+    }),
+  ),
+)
+
+effect("composeDrafts rejects sequential edits for an unknown project", () =>
+  withSnapshot((snapshot) =>
+    Effect.gen(function* () {
+      const invalidProjectId = "missing-project"
+      const first: TextEdit = {
+        projectId: invalidProjectId,
+        fileName: "src/consumer.ts",
+        start: 0,
+        end: 0,
+        expectedTextHash: textHash(""),
+        newText: "first",
+        evidenceIds: [],
+      }
+      const second: TextEdit = {
+        ...first,
+        newText: "second",
+      }
+      const result = yield* Effect.result(
+        composeDrafts(
+          snapshot,
+          { edits: [first], fileOperations: [], evidence: [], matches: 1 },
+          { edits: [second], fileOperations: [], evidence: [], matches: 1 },
+        ),
+      )
+
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") {
+        expect(result.failure).toBeInstanceOf(ProjectNotInSnapshot)
+        expect(result.failure).toMatchObject({
+          projectId: invalidProjectId,
+          generation: snapshot.generation,
+        })
+      }
+    }),
+  ),
+)
+
+effect("composeDrafts rejects file operations for an unknown project", () =>
+  withSnapshot((snapshot) =>
+    Effect.gen(function* () {
+      const invalidProjectId = "missing-project"
+      const result = yield* Effect.result(
+        composeDrafts(
+          snapshot,
+          {
+            edits: [],
+            fileOperations: [
+              {
+                kind: "create",
+                projectId: invalidProjectId,
+                path: requireProjectRelativePath("src/new-file.ts"),
+                content: "export {}\n",
+              },
+            ],
+            evidence: [],
+            matches: 1,
+          },
+          { edits: [], fileOperations: [], evidence: [], matches: 0 },
+        ),
+      )
+
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") {
+        expect(result.failure).toBeInstanceOf(ProjectNotInSnapshot)
+        expect(result.failure).toMatchObject({
+          projectId: invalidProjectId,
+          generation: snapshot.generation,
+        })
+      }
     }),
   ),
 )
