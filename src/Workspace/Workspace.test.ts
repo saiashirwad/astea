@@ -77,6 +77,19 @@ describe("workspace path confinement, overlay FS, and symbol lookup", () => {
               expect(project.resolveFileName("src/library.ts")).toBe(library)
               expect(project.relativeFileName(library)).toBe("src/library.ts")
               expect(project.containsFileName(library)).toBe(true)
+              // Native paths can differ from the root in letter case on
+              // case-insensitive filesystems; containment folds case.
+              const rootBase = Path.basename(project.root)
+              const flippedBase = rootBase.replace(/[a-z]/i, (char) =>
+                char === char.toLowerCase() ? char.toUpperCase() : char.toLowerCase(),
+              )
+              expect(flippedBase).not.toBe(rootBase)
+              const caseVariant = Path.join(
+                Path.dirname(project.root),
+                flippedBase,
+                "src/library.ts",
+              )
+              expect(project.containsFileName(caseVariant)).toBe(true)
               expect(project.containsFileName(Path.resolve(project.root, "../outside.ts"))).toBe(
                 false,
               )

@@ -161,7 +161,13 @@ export const projectSnapshotFor = ({
   runtime,
 }: ProjectSnapshotOptions): ProjectSnapshot => {
   const isWithinProject = (fileName: string): boolean => {
-    const relative = runtime.relativePath(projectRoot, runtime.resolvePath(fileName))
+    // Native paths (e.g. symbol declaration paths from the compiler) can
+    // differ from the workspace root in letter case on case-insensitive
+    // filesystems, so containment folds case before comparing.
+    const relative = runtime.relativePath(
+      projectRoot.toLowerCase(),
+      runtime.resolvePath(fileName).toLowerCase(),
+    )
     return (
       relative !== "" &&
       relative !== ".." &&
