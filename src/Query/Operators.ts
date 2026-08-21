@@ -109,7 +109,10 @@ export const collect = <A, E, R>(
 
 const escapeGlobRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-/** Match a project-relative path against a documented `*` / `**` glob. */
+/**
+ * Match a project-relative path against a documented `*` / `**` glob.
+ * Exported for testing and for callers that need glob semantics directly.
+ */
 export const matchesPathGlob = (fileName: string, glob: string): boolean => {
   const path = fileName.replaceAll("\\", "/")
   const pattern = glob.replaceAll("\\", "/")
@@ -136,7 +139,12 @@ export const matchesPathGlob = (fileName: string, glob: string): boolean => {
   return new RegExp(`${source}$`).test(path)
 }
 
-/** Filter selections to only those whose project-relative fileName matches a glob pattern, suffix, RegExp, or ProjectFile. */
+/**
+ * Filter selections by project-relative file name. A string containing `*`
+ * is a documented `*` / `**` glob; any other string must equal the file name
+ * exactly. Regular expressions test the file name; a ProjectFile selects
+ * that one file.
+ */
 export const within = Function.dual<
   <A>(pattern: string | RegExp | ProjectFile) => <E, R>(query: Query<A, E, R>) => Query<A, E, R>,
   <A, E, R>(query: Query<A, E, R>, pattern: string | RegExp | ProjectFile) => Query<A, E, R>
@@ -151,9 +159,7 @@ export const within = Function.dual<
   }
   const predicate = Predicate.isString(pattern)
     ? (fileName: string) =>
-        pattern.includes("*")
-          ? matchesPathGlob(fileName, pattern)
-          : fileName.includes(pattern) || fileName.endsWith(pattern)
+        pattern.includes("*") ? matchesPathGlob(fileName, pattern) : fileName === pattern
     : (fileName: string) => testRegExp(pattern, fileName)
 
   return Stream.filter(query, (selection) => predicate(selection.fileName))

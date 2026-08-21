@@ -202,7 +202,7 @@ describe("Query stream operators", () => {
   )
 
   effect(
-    "within admits by glob, bare string, regular expression, and exact ProjectFile",
+    "within admits by glob, exact path, regular expression, and exact ProjectFile",
     () =>
       withProject({}, (project) => {
         const countIn = (pattern: string | RegExp | ProjectFile) =>
@@ -210,8 +210,7 @@ describe("Query stream operators", () => {
 
         return Effect.gen(function* () {
           const all = yield* countIn("src/**/*.ts")
-          const libraryOnly = yield* countIn("library.ts")
-          const consumerOnly = yield* countIn("consumer")
+          const libraryOnly = yield* countIn("src/library.ts")
           const regExp = yield* countIn(/reexport-consumer/)
           const files = yield* project.files
           const library = files.find((file) => file.path === "src/library.ts")
@@ -219,12 +218,15 @@ describe("Query stream operators", () => {
 
           expect(all.length).toBeGreaterThan(0)
           expect(libraryOnly.length).toBeGreaterThan(0)
-          expect(libraryOnly.every((s) => s.fileName.endsWith("library.ts"))).toBe(true)
-          expect(consumerOnly.every((s) => s.fileName.includes("consumer"))).toBe(true)
+          expect(libraryOnly.every((s) => s.fileName === "src/library.ts")).toBe(true)
           expect(regExp.every((s) => s.fileName.includes("reexport-consumer"))).toBe(true)
           expect((yield* countIn(library!)).every((s) => s.fileName === "src/library.ts")).toBe(
             true,
           )
+
+          // Bare strings are exact: no substring or suffix matching.
+          expect(yield* countIn("library.ts")).toEqual([])
+          expect(yield* countIn("consumer")).toEqual([])
         })
       }),
     60_000,

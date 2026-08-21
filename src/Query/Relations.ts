@@ -113,6 +113,14 @@ const isBoundaryNode = (node: Node): boolean =>
   isModuleDeclaration(node) ||
   isSourceFile(node)
 
+/**
+ * Locate a node among its siblings. A node that is the sole child of an
+ * ExpressionStatement is compared at statement granularity instead: its
+ * siblings become the enclosing parent's children (for example, the
+ * statements of a block). The positional fallback keeps the index stable
+ * when traversal vends equal-range node instances rather than the same
+ * object.
+ */
 const getSiblingsAndIndex = (
   node: Node,
 ): { readonly siblings: ReadonlyArray<Node>; readonly index: number } | undefined => {
@@ -145,6 +153,13 @@ const getSiblingsAndIndex = (
   return { siblings: children, index }
 }
 
+/**
+ * Evaluate a matcher against a sibling candidate. Relations are usually
+ * authored at statement granularity (`foo(); other();`), so after a failed
+ * direct match the candidate is retried through lone statement shells: an
+ * ExpressionStatement or ReturnStatement candidate also matches via its
+ * inner expression, which is then the reported node.
+ */
 const evaluateSibling = <Out, E, R>(
   matcher: RelationalMatcher<Out, E, R>,
   sibling: Node,
