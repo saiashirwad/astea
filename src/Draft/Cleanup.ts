@@ -29,7 +29,6 @@ export const cleanUnused = (
             const sym = yield* projectFile.symbolAt(element.name.getStart(file))
             if (sym !== undefined) {
               const refs = yield* Query.collect(Query.referencesTo(project, sym))
-              // If only reference is the import itself
               if (refs.length <= 1) {
                 const draft = yield* imports.removeNamed(project, statement, element.name.text)
                 const conflicts = draft.edits.some((candidate) =>

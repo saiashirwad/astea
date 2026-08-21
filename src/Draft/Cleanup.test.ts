@@ -79,7 +79,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
               Layer.provideMerge(Layer.succeed(Workspace, yield* Workspace)),
             )
 
-            // First add an unused import
             const addUnusedRecipe = Recipe.define("add-unused-import", {
               version: "1.0.0",
               policies: [{ diagnostics: "exact-delta" }],
@@ -98,7 +97,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
             const verified1 = yield* Verification.verify(plan1, addUnusedRecipe, undefined)
             yield* Application.apply(verified1).pipe(Effect.provide(mainLayer))
 
-            // Now run cleanUnused recipe
             const cleanRecipe = Recipe.define("clean-unused-recipe", {
               version: "1.0.0",
               policies: [{ diagnostics: "exact-delta" }],
@@ -133,7 +131,4 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
   })
-
-  // ---------------------------------------------------------------------------
-  // 9. Interactive CLI, Terminal Diff Rendering & Agent Tool Protocol
 })

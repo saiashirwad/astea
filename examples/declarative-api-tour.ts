@@ -24,10 +24,6 @@ import { ConfiguredProject, WorkspaceSnapshot } from "safemods/Workspace"
 
 const app = ConfiguredProject.make({ id: "app", config: "tsconfig.json" })
 
-// -----------------------------------------------------------------------------
-// 1. Define a Typed Recipe with Input Schema
-// -----------------------------------------------------------------------------
-
 export const WrapOptionsSchema = Schema.Struct({
   propertyName: Schema.NonEmptyString,
   addTypeImport: Schema.Boolean,
@@ -58,7 +54,6 @@ export const wrapTargetRecipe = Recipe.define("wrap-target-call-sites", {
         return { node: argument, text: `{ ${input.propertyName}: ${argument.getText()} }` }
       })
 
-      // Optionally add named import to consumer files
       const importDraft = input.addTypeImport
         ? yield* Draft.imports.addNamed(project, "src/consumer.ts", {
             module: "./library.js",
@@ -69,10 +64,6 @@ export const wrapTargetRecipe = Recipe.define("wrap-target-call-sites", {
       return Draft.concat(wrapDraft, importDraft)
     }),
 })
-
-// -----------------------------------------------------------------------------
-// 2. Multi-Stage Pipeline Composition with Recipe.pipe
-// -----------------------------------------------------------------------------
 
 export const cleanupRecipe = Recipe.define("cleanup-deprecated", {
   version: "1.0.0",
@@ -94,25 +85,17 @@ export const cleanupRecipe = Recipe.define("cleanup-deprecated", {
     }),
 })
 
-// Chaining recipes purely in memory using TypeScript 7 virtual overlays
 export const fullMigrationPipeline = Recipe.pipe(wrapTargetRecipe, cleanupRecipe)
-
-// -----------------------------------------------------------------------------
-// 3. Execution Pipeline (Query → Plan → Preview → Verify → Apply)
-// -----------------------------------------------------------------------------
 
 export const runTour = Effect.gen(function* () {
   const input: WrapOptions = { propertyName: "value", addTypeImport: true }
 
-  // Step 1: Run recipe to create durable, content-addressed Transformation Plan
   const plan = yield* Recipe.run(wrapTargetRecipe, input)
   console.log(`[Plan Created] ID: ${plan.planId}, Edits: ${plan.edits.length}`)
 
-  // Step 2: Generate read-only Preview
   const preview = yield* Verification.of(plan)
   console.log(`[Preview Generated] Files affected: ${preview.files.length}`)
 
-  // Step 3: Verify plan against isolated virtual compiler authority
   const verified = yield* Verification.verify(plan, wrapTargetRecipe, input)
   console.log(
     `[Verification Passed] Diagnostic Delta: ${verified.receipt.diagnosticDelta}, Idempotence: ${verified.receipt.idempotenceChecked}`,
@@ -121,16 +104,11 @@ export const runTour = Effect.gen(function* () {
     `[Diagnostic Diff] Introduced: ${verified.diagnosticDiff.introduced.length}, Resolved: ${verified.diagnosticDiff.resolved.length}`,
   )
 
-  // Step 4: Explicit Application (the ONLY filesystem write)
   const receipt = yield* Application.apply(verified)
   console.log(`[Application Applied] Confirmed output files: ${receipt.outputs.length}`)
 
   return receipt
 })
-
-// -----------------------------------------------------------------------------
-// 4. Standalone Runner with Temporary Fixture
-// -----------------------------------------------------------------------------
 
 async function main() {
   const fixtureSource = fileURLToPath(new URL("../fixtures/recipe/", import.meta.url))

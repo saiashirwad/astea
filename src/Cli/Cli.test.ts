@@ -60,15 +60,11 @@ const withFixture = <A, E, R>(
 describe("safemods scan & audit reporting (@effect/vitest)", () => {
   it("computeLineAndColumn correctly resolves 1-based line and column from offset", () => {
     const text = "const a = 1\nconst b = 2\nconst c = 3"
-    // line 1: const a = 1 (offset 0..11, \n at 11)
     expect(computeLineAndColumn(text, 0)).toEqual({ line: 1, column: 1 })
     expect(computeLineAndColumn(text, 6)).toEqual({ line: 1, column: 7 })
-    // line 2: const b = 2 (offset 12..23, \n at 23)
     expect(computeLineAndColumn(text, 12)).toEqual({ line: 2, column: 1 })
     expect(computeLineAndColumn(text, 18)).toEqual({ line: 2, column: 7 })
-    // line 3: const c = 3 (offset 24..)
     expect(computeLineAndColumn(text, 24)).toEqual({ line: 3, column: 1 })
-    // Clamping boundary
     expect(computeLineAndColumn(text, 9999)).toEqual({ line: 3, column: 12 })
   })
 
@@ -153,19 +149,16 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           expect(first.endLine).toBeGreaterThanOrEqual(first.startLine)
           expect(first.snippet).toContain("renamed")
 
-          // Check text format
           const textOutput = renderAuditText(report, { color: false })
           expect(textOutput).toContain("Audit Report: audit-target-calls [v1.0.0]")
           expect(textOutput).toContain("src/consumer.ts")
           expect(textOutput).toContain("line")
 
-          // Check JSON format
           const jsonOutput = renderAuditJson(report)
           const parsedJson = JSON.parse(jsonOutput)
           expect(parsedJson.recipe.name).toBe("audit-target-calls")
           expect(parsedJson.findings.length).toBe(report.totalMatches)
 
-          // Check CSV format
           const csvOutput = renderAuditCsv(report)
           expect(csvOutput).toContain(
             "project,file,start_line,start_col,end_line,end_col,start_offset,end_offset,criteria,snippet",
@@ -186,7 +179,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
             property: "wrapped",
           }
 
-          // 1. Scan mode with text format
           yield* runCli({
             recipePath: wrapRecipePath,
             cwd: root,
@@ -196,7 +188,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
             noColor: true,
           })
 
-          // 2. Scan mode with JSON format
           yield* runCli({
             recipePath: wrapRecipePath,
             cwd: root,
@@ -206,7 +197,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
             noColor: true,
           })
 
-          // 3. Scan mode with CSV format
           yield* runCli({
             recipePath: wrapRecipePath,
             cwd: root,
@@ -216,7 +206,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
             noColor: true,
           })
 
-          // 4. Scan mode with failOnMatch=true throws CliMatchFoundError when matches exist
           const result = yield* runCli({
             recipePath: wrapRecipePath,
             cwd: root,
@@ -243,7 +232,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
             property: "wrapped",
           })
 
-          // Execute scan command
           const { stdout: textOut } = yield* Effect.tryPromise(() =>
             execFileAsync("node", [
               binPath,
@@ -259,7 +247,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           expect(textOut).toContain("Audit Report: wrap-target-input [v1.0.0]")
           expect(textOut).toContain("src/consumer.ts")
 
-          // Execute scan with the compatibility alias and --json
           const { stdout: jsonOut } = yield* Effect.tryPromise(() =>
             execFileAsync("node", [
               binPath,
@@ -276,7 +263,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           expect(parsed.recipe.name).toBe("wrap-target-input")
           expect(parsed.findings.length).toBeGreaterThan(0)
 
-          // Execute scan with --csv
           const { stdout: csvOut } = yield* Effect.tryPromise(() =>
             execFileAsync("node", [
               binPath,
@@ -294,7 +280,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           )
           expect(csvOut).toContain("app,src/consumer.ts")
 
-          // Execute the tool command through its compatibility alias
           const { stdout: toolOut } = yield* Effect.tryPromise(() =>
             execFileAsync("node", [binPath, wrapRecipePath, "--tool-schema"]),
           )
@@ -302,7 +287,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           expect(tool.name).toBe("safemods_wrap_target_input")
           expect(tool.schema.type).toBe("object")
 
-          // Reject extra positional arguments instead of silently ignoring them
           const positionalStderr = yield* Effect.promise(async () => {
             try {
               await execFileAsync("node", [binPath, "scan", wrapRecipePath, "unexpected.ts"])
@@ -317,7 +301,6 @@ describe("safemods scan & audit reporting (@effect/vitest)", () => {
           })
           expect(positionalStderr).toContain("unexpected.ts")
 
-          // Execute scan with --fail-on-match asserting exit code 1
           const failOnMatchError = yield* Effect.tryPromise(() =>
             execFileAsync("node", [
               binPath,

@@ -26,13 +26,11 @@ const twoPhaseMigration = Effect.gen(function* () {
   const snapshot = yield* WorkspaceSnapshot
   const project = yield* snapshot.project(app)
 
-  // Stage 1: In-memory draft for library.ts
   const draft1 = yield* Draft.imports.addNamed(project, "src/library.ts", {
     module: "./types.js",
     name: "NewConfig",
   })
 
-  // Stage 2: Author the next Draft against the overlay; Overlay rebases it.
   return yield* Overlay.composeDraft(
     draft1,
     Effect.gen(function* () {
@@ -92,7 +90,6 @@ Full AST re-printing often strips comments, custom line breaks, and project form
 All syntactic operations operate on **minimal range slices guarded by cryptographic old-text hashes**:
 
 ```ts
-// 1. Manage named imports while preserving quote styles and multiline formatting
 yield * Draft.imports.addNamed(project, "src/index.ts", { module: "effect", name: "Option" })
 
 const [legacyImport] =
@@ -101,10 +98,8 @@ if (legacyImport !== undefined) {
   yield * Draft.imports.removeNamed(project, legacyImport.value, "oldFn")
 }
 
-// 2. Replace or wrap expressions without altering surrounding trivia
 yield * Draft.replace(project, targetArgument, `{ value: ${targetArgument.getText()} }`)
 
-// 3. Propose edits for matching query selections
 yield *
   Draft.replaceEach(calls, ({ value: call }) => {
     const argument = call.arguments[0]!
@@ -143,16 +138,9 @@ A naive "no compiler errors allowed" rule prevents refactoring in legacy project
 export const safeRecipe = Recipe.define("safe-migration", {
   version: "1.0.0",
   policies: [
-    // Ensure no NEW errors are introduced (pre-existing baseline errors tolerated)
     Policy.noNewErrors(),
-
-    // Assert that a specific error code was resolved by this transformation
     Policy.fixesError(2345),
-
-    // Replay idempotence check: f(f(x)) === f(x)
     Policy.idempotent(),
-
-    // Match count expectations
     Policy.matches({ min: 1 }),
   ],
   run: (input) => Effect.gen(function*() { ... }),

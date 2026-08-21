@@ -25,10 +25,8 @@ describe("recipe definition and input validation", () => {
               }),
           })
 
-          // Valid input passes
           yield* Recipe.run(schemaRecipe, { propertyName: "validProp", multiplier: 42 })
 
-          // Invalid input fails with RecipeInputError
           // SAFETY: the test intentionally provides invalid input to verify runtime schema validation.
           const failure = yield* Recipe.run(schemaRecipe, {
             propertyName: "",

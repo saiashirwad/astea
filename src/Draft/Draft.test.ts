@@ -25,13 +25,11 @@ describe("declarative transformations API (@effect/vitest)", () => {
                   const snapshot = yield* WorkspaceSnapshot
                   const project = yield* snapshot.project(app)
 
-                  // 1. Add import
                   const d1 = yield* Draft.imports.addNamed(project, "src/consumer.ts", {
                     module: "./library.js",
                     name: "TargetInput",
                   })
 
-                  // 2. Replace call argument
                   const calls = yield* Query.calls(project).pipe(Query.collect)
                   const targetArg = calls[0]!.value.arguments[0]!
                   const d2 = yield* Draft.replace(
@@ -99,7 +97,4 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
   })
-
-  // ---------------------------------------------------------------------------
-  // 5. Diagnostic Diffs and Declarative Policy Expressions
 })

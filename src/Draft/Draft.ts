@@ -286,11 +286,6 @@ const selectionEvidence = <A extends Node>(
     })),
   },
 })
-
-// =============================================================================
-// Read-only Audit Evidence
-// =============================================================================
-
 /**
  * Record query selections as search/audit evidence without proposing any file edits.
  * Enables read-only codebase audits, inventorying, and migration sizing.

@@ -58,7 +58,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     const overlaySnapshot = yield* WorkspaceSnapshot
                     const overlayProject = yield* overlaySnapshot.project(app)
 
-                    // 1. Match await expressions inside loops
                     const awaitsInLoops = yield* Query.nodes(
                       overlayProject,
                       isAwaitExpression,
@@ -68,7 +67,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                       awaitsInLoops[0]!.evidence.some((e) => e.criterion.startsWith("inside")),
                     ).toBe(true)
 
-                    // 2. Match await expressions inside handlers matching naming pattern
                     const awaitsInHandlers = yield* Query.nodes(
                       overlayProject,
                       isAwaitExpression,
@@ -78,8 +76,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(awaitsInHandlers.length).toBe(1)
 
-                    // 3. Boundary test: "in-callback" is inside a function inside a loop
-                    // With stopBy: 'boundary', searching inside loop stops at callbackInsideLoop boundary (no match)
                     const logsInLoopWithBoundary = yield* Query.calls(overlayProject).pipe(
                       Query.within("src/consumer.ts"),
                       Query.where(Query.textMatches("in-callback")),
@@ -88,7 +84,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(logsInLoopWithBoundary.length).toBe(0)
 
-                    // With stopBy: 'root' (default), it traverses past function boundary to find outer loop
                     const logsInLoopWithRoot = yield* Query.calls(overlayProject).pipe(
                       Query.within("src/consumer.ts"),
                       Query.where(Query.textMatches("in-callback")),
@@ -153,7 +148,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                       within: "src/library.ts",
                     })
 
-                    // 1. Find try-catch statements that have target calls matching symbol criterion
                     const tryWithTarget = yield* Query.nodes(overlayProject, isTryStatement).pipe(
                       Query.has(
                         Query.resolvesTo(targetSymbol, {
@@ -167,8 +161,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                       tryWithTarget[0]!.evidence.some((e) => e.criterion.startsWith("has")),
                     ).toBe(true)
 
-                    // 2. Test stopBy: 'boundary' on outerFunction
-                    // With boundary: outerFunction does NOT match because target is inside nested innerWithTarget
                     const outerBoundary = yield* Query.nodes(
                       overlayProject,
                       isFunctionDeclaration,
@@ -179,7 +171,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(outerBoundary.length).toBe(0)
 
-                    // Without boundary / stopBy: 'root': outerFunction matches
                     const outerRoot = yield* Query.nodes(
                       overlayProject,
                       isFunctionDeclaration,
@@ -227,7 +218,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     const overlaySnapshot = yield* WorkspaceSnapshot
                     const overlayProject = yield* overlaySnapshot.project(app)
 
-                    // 1. doAction follows initialization (non-immediate: true since intermediate is between them)
                     const callsFollowingInit = yield* Query.calls(overlayProject).pipe(
                       Query.where(Query.textMatches("doAction")),
                       Query.follows(Pattern.variableStatement({ name: "initialized" })),
@@ -235,7 +225,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(callsFollowingInit.length).toBe(1)
 
-                    // 2. doAction does NOT immediately follow initialization
                     const callsImmediatelyFollowingInit = yield* Query.calls(overlayProject).pipe(
                       Query.where(Query.textMatches("doAction")),
                       Query.follows(Pattern.variableStatement({ name: "initialized" }), {
@@ -245,7 +234,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(callsImmediatelyFollowingInit.length).toBe(0)
 
-                    // 3. doAction immediately follows intermediate variable
                     const callsImmediatelyFollowingInter = yield* Query.calls(overlayProject).pipe(
                       Query.where(Query.textMatches("doAction")),
                       Query.follows(Pattern.variableStatement({ name: "intermediate" }), {
@@ -255,7 +243,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(callsImmediatelyFollowingInter.length).toBe(1)
 
-                    // 4. doAction immediately precedes cleanup
                     const callsImmediatelyPrecedingCleanup = yield* Query.calls(
                       overlayProject,
                     ).pipe(
@@ -270,7 +257,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(callsImmediatelyPrecedingCleanup.length).toBe(1)
 
-                    // 5. initialization precedes cleanup (non-immediate)
                     const initPrecedingCleanup = yield* Query.nodes(
                       overlayProject,
                       isVariableStatement,
@@ -285,7 +271,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     )
                     expect(initPrecedingCleanup.length).toBe(1)
 
-                    // 6. cleanup follows initialization
                     const cleanupFollowingInit = yield* Query.calls(overlayProject).pipe(
                       Query.where(Query.textMatches("cleanup")),
                       Query.follows(Pattern.variableStatement({ name: "initialized" })),
@@ -339,7 +324,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     const overlaySnapshot = yield* WorkspaceSnapshot
                     const overlayProject = yield* overlaySnapshot.project(app)
 
-                    // Inside class AND inside loop
                     const inClassAndLoop = yield* Query.calls(overlayProject).pipe(
                       Query.where(
                         Criterion.all(
@@ -354,7 +338,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                       inClassAndLoop[0]!.value.getText(inClassAndLoop[0]!.value.getSourceFile()),
                     ).toContain("inside-class-and-loop")
 
-                    // Inside class BUT NOT inside loop
                     const inClassNotLoop = yield* Query.calls(overlayProject).pipe(
                       Query.where(
                         Criterion.all(
@@ -369,7 +352,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                       inClassNotLoop[0]!.value.getText(inClassNotLoop[0]!.value.getSourceFile()),
                     ).toContain("inside-class-not-loop")
 
-                    // Inside class OR inside loop
                     const inClassOrLoop = yield* Query.calls(overlayProject).pipe(
                       Query.where(
                         Criterion.any(
@@ -441,63 +423,54 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     const overlaySnapshot = yield* WorkspaceSnapshot
                     const overlayProject = yield* overlaySnapshot.project(app)
 
-                    // 1. Class pattern
                     const classes = yield* Query.match(
                       overlayProject,
                       Pattern.classDeclaration({ name: "Controller", exported: true }),
                     ).pipe(Query.within("src/consumer.ts"), Query.collect)
                     expect(classes.length).toBe(1)
 
-                    // 2. If-statement pattern with else branch
                     const ifWithElse = yield* Query.match(
                       overlayProject,
                       Pattern.ifStatement({ hasElse: true }),
                     ).pipe(Query.within("src/consumer.ts"), Query.collect)
                     expect(ifWithElse.length).toBe(1)
 
-                    // 3. Return statement pattern
                     const returns = yield* Query.match(
                       overlayProject,
                       Pattern.returnStatement(),
                     ).pipe(Query.within("src/consumer.ts"), Query.collect)
                     expect(returns.length).toBe(2)
 
-                    // 4. While statement pattern
                     const whiles = yield* Query.match(
                       overlayProject,
                       Pattern.whileStatement(),
                     ).pipe(Query.within("src/consumer.ts"), Query.collect)
                     expect(whiles.length).toBe(1)
 
-                    // 5. Do statement pattern
                     const dos = yield* Query.match(overlayProject, Pattern.doStatement()).pipe(
                       Query.within("src/consumer.ts"),
                       Query.collect,
                     )
                     expect(dos.length).toBe(1)
 
-                    // 6. For statement pattern
                     const fors = yield* Query.match(overlayProject, Pattern.forStatement()).pipe(
                       Query.within("src/consumer.ts"),
                       Query.collect,
                     )
                     expect(fors.length).toBe(1)
 
-                    // 7. For-of statement pattern
                     const forOfs = yield* Query.match(
                       overlayProject,
                       Pattern.forOfStatement(),
                     ).pipe(Query.within("src/consumer.ts"), Query.collect)
                     expect(forOfs.length).toBe(1)
 
-                    // 8. For-in statement pattern
                     const forIns = yield* Query.match(
                       overlayProject,
                       Pattern.forInStatement(),
                     ).pipe(Query.within("src/consumer.ts"), Query.collect)
                     expect(forIns.length).toBe(1)
 
-                    // 9. Generic loop pattern matching all loops
                     const allLoops = yield* Query.match(overlayProject, Pattern.loop()).pipe(
                       Query.within("src/consumer.ts"),
                       Query.collect,
@@ -560,7 +533,4 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
   })
-
-  // ---------------------------------------------------------------------------
-  // 3. Higher-Order Recipe Combinators & Schema Validation
 })

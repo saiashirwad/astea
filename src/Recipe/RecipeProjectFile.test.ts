@@ -57,33 +57,27 @@ describe("recipe project-file composition", () => {
                 const snapshot = yield* WorkspaceSnapshot
                 const project = yield* snapshot.project(app)
 
-                // 1. Validated file lookup (fails fast with FileNotFound if missing)
                 const consumerFile = yield* project.file("src/consumer.ts")
                 expect(consumerFile.path).toBe("src/consumer.ts")
 
-                // 2. Optional file lookup
                 const maybeFile = yield* project.findFile("src/nonexistent.ts")
                 expect(maybeFile._tag).toBe("None")
 
-                // 3. Scoped symbol lookup from file
                 const libraryFile = yield* project.file("src/library.ts")
                 const targetSymbol = yield* libraryFile.symbolNamed("target")
                 expect(targetSymbol.name).toBe("target")
 
-                // 4. Scoped query directly on ProjectFile
                 const callsInConsumer = yield* Query.calls(consumerFile).pipe(
                   Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
                   Query.collect,
                 )
                 expect(callsInConsumer.length).toBe(1)
 
-                // 5. Scoped import addition on ProjectFile
                 const importDraft = yield* Draft.imports.addNamed(consumerFile, {
                   module: "./library.js",
                   name: "TargetInput",
                 })
 
-                // 6. Scoped argument replacement
                 const replaceDraft = yield* Draft.replaceEach(
                   callsInConsumer,
                   ({ value: call }) => {
@@ -127,7 +121,6 @@ describe("recipe project-file composition", () => {
               const consumerFile = yield* project.file("src/consumer.ts")
               const reexportConsumerFile = yield* project.file("src/reexport-consumer.ts")
 
-              // Direct referencing files (downstream dependents/importers)
               const libraryDirectReferencing = yield* libraryFile.referencingFiles()
               expect(libraryDirectReferencing.map((f) => f.path)).toEqual([
                 "src/barrel.ts",
@@ -139,7 +132,6 @@ describe("recipe project-file composition", () => {
                 "src/reexport-consumer.ts",
               ])
 
-              // Transitive referencing files (through barrels / re-exports)
               const libraryTransitiveReferencing = yield* libraryFile.referencingFiles({
                 transitive: true,
               })
@@ -149,14 +141,12 @@ describe("recipe project-file composition", () => {
                 "src/reexport-consumer.ts",
               ])
 
-              // Direct referenced files (upstream dependencies)
               const reexportDirectReferenced = yield* reexportConsumerFile.referencedFiles()
               expect(reexportDirectReferenced.map((f) => f.path)).toEqual(["src/barrel.ts"])
 
               const consumerDirectReferenced = yield* consumerFile.referencedFiles()
               expect(consumerDirectReferenced.map((f) => f.path)).toEqual(["src/library.ts"])
 
-              // Transitive referenced files
               const reexportTransitiveReferenced = yield* reexportConsumerFile.referencedFiles({
                 transitive: true,
               })
@@ -165,7 +155,6 @@ describe("recipe project-file composition", () => {
                 "src/library.ts",
               ])
 
-              // Querying directly over the dependency slice: ReadonlyArray<ProjectFile>
               const targetSymbol = yield* libraryFile.symbolNamed("target")
               const callsInSlice = yield* Query.calls(libraryDirectReferencing).pipe(
                 Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
@@ -174,11 +163,9 @@ describe("recipe project-file composition", () => {
               expect(callsInSlice.length).toBe(1)
               expect(callsInSlice[0]?.fileName).toBe("src/consumer.ts")
 
-              // Empty ProjectScope slice should return empty stream without erroring
               const emptyCalls = yield* Query.calls([]).pipe(Query.collect)
               expect(emptyCalls).toEqual([])
 
-              // Match query on a slice
               const fnDeclsInSlice = yield* Query.match(
                 [libraryFile, consumerFile],
                 Pattern.functionDeclaration({ exported: true }),
@@ -189,7 +176,6 @@ describe("recipe project-file composition", () => {
                 "src/library.ts",
               ])
 
-              // Deduplication when duplicate ProjectFiles are passed into Query
               const callsWithDuplicates = yield* Query.calls([consumerFile, consumerFile]).pipe(
                 Query.where(Query.resolvesTo(targetSymbol, { location: (c) => c.expression })),
                 Query.collect,
@@ -207,7 +193,6 @@ describe("recipe project-file composition", () => {
     () =>
       withFixture((root, app) =>
         Effect.gen(function* () {
-          // Add a circular import: library.ts imports consumer.ts while consumer.ts imports library.ts
           yield* Effect.tryPromise(() =>
             Fs.writeFile(
               Path.join(root, "src/library.ts"),
@@ -226,14 +211,12 @@ describe("recipe project-file composition", () => {
               const libraryFile = yield* project.file("src/library.ts")
               const consumerFile = yield* project.file("src/consumer.ts")
 
-              // Direct referencing
               const libReferencing = yield* libraryFile.referencingFiles()
               expect(libReferencing.map((f) => f.path)).toContain("src/consumer.ts")
 
               const consumerReferencing = yield* consumerFile.referencingFiles()
               expect(consumerReferencing.map((f) => f.path)).toContain("src/library.ts")
 
-              // Transitive referencing with cycle (A -> B -> A): should terminate and exclude the source file itself
               const libTransitive = yield* libraryFile.referencingFiles({ transitive: true })
               expect(libTransitive.map((f) => f.path)).not.toContain("src/library.ts")
               expect(libTransitive.map((f) => f.path)).toContain("src/consumer.ts")
@@ -244,7 +227,6 @@ describe("recipe project-file composition", () => {
               expect(consumerTransitive.map((f) => f.path)).not.toContain("src/consumer.ts")
               expect(consumerTransitive.map((f) => f.path)).toContain("src/library.ts")
 
-              // Transitive referenced with cycle
               const libTransitiveReferenced = yield* libraryFile.referencedFiles({
                 transitive: true,
               })
@@ -274,7 +256,6 @@ describe("recipe project-file composition", () => {
               const barrelFile = yield* project.file("src/barrel.ts")
               yield* project.file("src/reexport-consumer.ts")
 
-              // 1. fileTextIncludes
               const hasSentinels = yield* Precondition.satisfies(
                 consumerFile,
                 Precondition.fileTextIncludes("renamed"),
@@ -287,7 +268,6 @@ describe("recipe project-file composition", () => {
               )
               expect(libraryHasSentinel).toBe(false)
 
-              // 2. fileTextMatches (including stateful /g regex evaluated concurrently)
               const globalRegex = /export\s+const\s+(\w+)/g
               const constMatches = yield* Precondition.filesMatching(
                 project,
@@ -298,7 +278,6 @@ describe("recipe project-file composition", () => {
                 "src/reexport-consumer.ts",
               ])
 
-              // 3. hasImport (static imports, re-exports, regex module specifier)
               const libraryImporters = yield* Precondition.filesMatching(
                 project,
                 Precondition.hasImport("./library.js"),
@@ -329,7 +308,6 @@ describe("recipe project-file composition", () => {
               )
               expect(nonExistentImporters).toEqual([])
 
-              // 4. pathMatches (exact, glob, substring, regex)
               const exactPath = yield* Precondition.filesMatching(
                 project,
                 Precondition.pathMatches("src/consumer.ts"),
@@ -353,7 +331,6 @@ describe("recipe project-file composition", () => {
               )
               expect(regexPath.map((f) => f.path)).toEqual(["src/reexport-consumer.ts"])
 
-              // 5. Combinators: all, any, not, custom
               const allMatch = yield* Precondition.filesMatching(
                 project,
                 Precondition.all(
@@ -390,7 +367,6 @@ describe("recipe project-file composition", () => {
                 "src/library.ts",
               ])
 
-              // 6. Running Query.calls scoped to pre-filtered files
               const targetSymbol = yield* libraryFile.symbolNamed("target")
               const filteredFiles = yield* Precondition.filesMatching(
                 project,

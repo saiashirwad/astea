@@ -99,9 +99,6 @@ describe("issued verified plans and project identity", () => {
     () =>
       withFixture((root, app) =>
         Effect.gen(function* () {
-          // Environment inputs are not reported by the TS 7 native host, so
-          // they are not invented here. Directory / missing / realpath entries
-          // are recorded only when the host actually observes them.
           const originalConfig = yield* Effect.tryPromise(() =>
             Fs.readFile(Path.join(root, "tsconfig.json"), "utf8"),
           )

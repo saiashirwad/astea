@@ -21,7 +21,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 const snapshot = yield* WorkspaceSnapshot
                 const project = yield* snapshot.project(app)
 
-                // Stage 1: Propose an edit to library.ts in memory
                 const libFile = yield* project.sourceFile("src/library.ts")
                 expect(libFile).toBeDefined()
 
@@ -31,7 +30,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 })
                 expect(draft1.edits).toHaveLength(1)
 
-                // Stage 2: Evaluate inside in-memory overlay
                 yield* Overlay.run(
                   draft1,
                   Effect.gen(function* () {
@@ -41,7 +39,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                     const updatedLib = yield* overlayProject.sourceFile("src/library.ts")
                     expect(updatedLib?.text).toContain('import { Option } from "effect"')
 
-                    // Verify that disk was untouched
                     const diskContent = yield* Effect.tryPromise(() =>
                       Fs.readFile(Path.join(root, "src/library.ts"), "utf8"),
                     )

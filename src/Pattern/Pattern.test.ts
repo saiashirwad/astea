@@ -24,7 +24,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                   within: "src/library.ts",
                 })
 
-                // Match call expressions with target symbol expression and single argument
                 const callPattern = Pattern.callExpression({
                   expression: Pattern.identifier({ resolvesTo: targetSymbol }),
                   arguments: Pattern.tuple([Pattern.bind("arg", Pattern.any)]),
@@ -57,7 +56,6 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 const snapshot = yield* WorkspaceSnapshot
                 const project = yield* snapshot.project(app)
 
-                // 1. Query with type pattern matching
                 const typedCallPattern = Pattern.callExpression({
                   expression: Pattern.any,
                   arguments: Pattern.tuple([
@@ -68,14 +66,12 @@ describe("declarative transformations API (@effect/vitest)", () => {
                 const matches = yield* Query.match(project, typedCallPattern).pipe(Query.collect)
                 expect(matches.length).toBeGreaterThan(0)
 
-                // 2. Query with typeAssignableTo criterion on identifiers
                 const numberArgs = yield* Query.identifiers(project).pipe(
                   Query.where(Query.typeAssignableTo("number")),
                   Query.collect,
                 )
                 expect(numberArgs.length).toBeGreaterThan(0)
 
-                // 3. Inspect type of node directly
                 const firstCall = matches[0]!.value.call
                 const callType = yield* Query.typeOf(project, firstCall)
                 expect(callType).toBeDefined()
@@ -141,7 +137,4 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
   })
-
-  // ---------------------------------------------------------------------------
-  // 3. Relational AST Combinators (inside, has, precedes, follows)
 })

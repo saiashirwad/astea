@@ -19,7 +19,6 @@ describe("recipe policy and concurrent composition", () => {
     () =>
       withFixture((root, app) =>
         Effect.gen(function* () {
-          // Recipe 1: Adds import of publicTarget from ./barrel.js to consumer.ts
           const step1 = Recipe.define("step1-add-barrel-import", {
             version: "1.0.0",
             run: () =>
@@ -33,7 +32,6 @@ describe("recipe policy and concurrent composition", () => {
               }),
           })
 
-          // Recipe 2: Uses Precondition.hasImport("./barrel.js") to find matching files in the overlay
           const step2 = Recipe.define("step2-transform-matching", {
             version: "1.0.0",
             run: () =>
@@ -41,7 +39,6 @@ describe("recipe policy and concurrent composition", () => {
                 const snapshot = yield* WorkspaceSnapshot
                 const project = yield* snapshot.project(app)
 
-                // Step 2 sees the overlay from Step 1 containing import of ./barrel.js in consumer.ts
                 const barrelFiles = yield* Precondition.filesMatching(
                   project,
                   Precondition.hasImport("./barrel.js"),

@@ -27,8 +27,6 @@ import type {
 } from "../Workspace/index.ts"
 import { concat, type Draft, type ProposedEdit } from "./Draft.ts"
 
-// // =============================================================================
-
 export const files = {
   /** Propose creating a new source file in the project with initial content. */
   create: (
@@ -383,5 +381,3 @@ const checkedPath = (
     ? Effect.fail(new InvalidProjectRelativePath({ path: value }))
     : Effect.succeed(path)
 }
-
-// =============================================================================

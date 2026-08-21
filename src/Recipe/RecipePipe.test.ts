@@ -123,9 +123,6 @@ describe("recipe sequential composition", () => {
             readonly paramCount: number
           }
 
-          // Define a scanning recipe:
-          // Phase 1 (scan): Scan library.ts and collect all exported functions into a Map
-          // Phase 2 (run): Use the accumulator map to rewrite call sites in consumer.ts
           const scanningRecipe = Recipe.scanning("scan-and-migrate-calls", {
             version: "1.0.0",
             policies: [Policy.matches({ min: 1 }), Policy.noNewErrors()],
@@ -177,7 +174,6 @@ describe("recipe sequential composition", () => {
               }),
           })
 
-          // Verify that scan can be invoked directly on the ScanningRecipe
           const directAcc = yield* Workspace.use((_ws) =>
             Effect.gen(function* () {
               const workspace = yield* Workspace
@@ -186,7 +182,6 @@ describe("recipe sequential composition", () => {
           )
           expect(directAcc.has("target")).toBe(true)
 
-          // Run end-to-end plan, verify and apply
           const plan = yield* Recipe.run(scanningRecipe, undefined)
           expect(plan.edits.length).toBeGreaterThanOrEqual(1)
 

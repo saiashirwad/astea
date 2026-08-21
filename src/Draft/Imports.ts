@@ -17,8 +17,6 @@ import {
 } from "../Workspace/index.ts"
 import { draftForEdit, empty, type Draft } from "./Draft.ts"
 
-// // =============================================================================
-
 export interface AddNamedImportOptions {
   readonly module: string
   readonly name: string
@@ -279,7 +277,6 @@ export const imports = {
             return empty
           }
 
-          // Group by module
           const byModule = new Map<
             string,
             { quote: string; defaultImport?: string; namedImports: Set<string> }
@@ -352,7 +349,6 @@ export const imports = {
             }
           }
 
-          // Partition into: 1. Built-in node modules, 2. External packages, 3. Relative/internal
           const isBuiltin = (m: string) =>
             m.startsWith("node:") ||
             ["fs", "path", "crypto", "os", "util", "events", "url"].includes(m)
@@ -402,5 +398,3 @@ export const imports = {
       )
     }),
 }
-
-// =============================================================================

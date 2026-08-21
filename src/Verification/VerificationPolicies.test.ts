@@ -149,7 +149,6 @@ describe("verification diagnostics and policies", () => {
               }),
           })
 
-          // Valid passes verification
           const validPlan = yield* Recipe.run(validRecipe, undefined)
           const verified = yield* Verification.verify(validPlan, validRecipe, undefined)
           expect(verified.diagnosticDiff).toBeDefined()
@@ -157,7 +156,6 @@ describe("verification diagnostics and policies", () => {
           expect(policyNames.filter((name) => name === "no-new-errors")).toEqual(["no-new-errors"])
           expect(new Set(policyNames).size).toBe(policyNames.length)
 
-          // Failing policy is rejected during verification
           const failingPlan = yield* Recipe.run(failingRecipe, undefined)
           const failure = yield* Verification.verify(failingPlan, failingRecipe, undefined).pipe(
             Effect.flip,

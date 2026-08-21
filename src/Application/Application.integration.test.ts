@@ -30,14 +30,12 @@ describe("declarative transformations API (@effect/vitest)", () => {
                   const snapshot = yield* WorkspaceSnapshot
                   const project = yield* snapshot.project(app)
 
-                  // 1. Create a brand new file
                   const d1 = yield* Draft.files.create(
                     project,
                     "src/utils.ts",
                     "export const magicNumber = 42;\n",
                   )
 
-                  // 2. Move library.ts -> shared/core.ts (and rewrite imports in consumer.ts)
                   const d2 = yield* Draft.files.move(
                     project,
                     "src/library.ts",
@@ -57,19 +55,16 @@ describe("declarative transformations API (@effect/vitest)", () => {
             const verified = yield* Verification.verify(plan, fileLifecycleRecipe, undefined)
             yield* Application.apply(verified).pipe(Effect.provide(mainLayer))
 
-            // Check created file on disk
             const createdContent = yield* Effect.tryPromise(() =>
               Fs.readFile(Path.join(root, "src/utils.ts"), "utf8"),
             )
             expect(createdContent).toContain("export const magicNumber = 42;")
 
-            // Check moved file on disk
             const movedContent = yield* Effect.tryPromise(() =>
               Fs.readFile(Path.join(root, "src/shared/core.ts"), "utf8"),
             )
             expect(movedContent).toContain("function other(value: number)")
 
-            // Check rewritten relative import in consumer.ts
             const consumerContent = yield* Effect.tryPromise(() =>
               Fs.readFile(Path.join(root, "src/consumer.ts"), "utf8"),
             )
@@ -195,7 +190,4 @@ describe("declarative transformations API (@effect/vitest)", () => {
       60_000,
     )
   })
-
-  // ---------------------------------------------------------------------------
-  // 7. Declaration Combinators (Interfaces, Classes, Functions)
 })

@@ -14,8 +14,6 @@ type Equal<Left, Right> =
     : false
 type Assert<Value extends true> = Value
 
-// --- Type-level contract -------------------------------------------------
-
 export type _RecipeInputInference = Assert<
   Equal<Parameters<typeof wrapTargetInput.run>[0], WrapTargetInput>
 >
@@ -46,8 +44,6 @@ type PredicateOutput<P> = P extends Pattern.Pattern<infer _N, infer Out> ? Out :
 export type _BooleanPredicateYieldsNode = Assert<
   Equal<PredicateOutput<typeof _booleanPredicate>, Node>
 >
-
-// --- End-to-end pipeline ---------------------------------------------------
 
 const fixtureSource = fileURLToPath(new URL("../fixtures/recipe/", import.meta.url))
 const stressFixture = fileURLToPath(new URL("../fixtures/stress/", import.meta.url))
@@ -125,12 +121,9 @@ describe("candidate public API (@effect/vitest)", () => {
           expect(consumer).toContain("local.target(3)")
           expect(reexport).toContain("publicTarget({ value: 4 })")
 
-          // A durable plan crosses the process boundary intact.
           const roundTripped = yield* Plan.parsePlan(Plan.serializePlan(plan))
           expect(roundTripped.planId).toBe(plan.planId)
 
-          // After application the recipe is a no-op: the reran plan has no edits.
-          // Reopen the workspace so the compiler observes the newly written snapshot.
           const freshWorkspaceLayer = workspaceLayerNode({ projects: [app] }, { cwd: root })
           const second = yield* Recipe.run(wrapTargetInput, input).pipe(
             Effect.provide(Layer.merge(freshWorkspaceLayer, nodeLayer)),

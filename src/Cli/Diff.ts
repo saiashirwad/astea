@@ -33,7 +33,6 @@ export const computeUnifiedDiff = (
   lines.push(colorize(`--- a/${fileName}`, ANSI.bold + ANSI.red, useColor))
   lines.push(colorize(`+++ b/${fileName}`, ANSI.bold + ANSI.green, useColor))
 
-  // Simple and robust Myers-style line diffing
   const diffs: Array<{
     type: "same" | "add" | "remove"
     text: string
