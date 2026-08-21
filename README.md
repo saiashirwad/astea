@@ -1,6 +1,6 @@
 # safemods
 
-Type-aware codemods for TypeScript 7 projects.
+A declarative runtime for planning, verifying, composing, and safely applying codebase migrations to Typescript 7+ codebases.
 
 `safemods` uses the TypeScript compiler to find code by meaning, not just by
 syntax. A recipe can follow a symbol through imports, aliases, and re-exports,
