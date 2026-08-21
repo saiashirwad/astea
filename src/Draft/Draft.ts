@@ -36,31 +36,25 @@ export interface Draft {
 
 export const empty: Draft = { edits: [], fileOperations: [], evidence: [], matches: 0 }
 
+const mergeDrafts = (...drafts: ReadonlyArray<Draft>) => ({
+  edits: drafts.flatMap((draft) => draft.edits),
+  fileOperations: drafts.flatMap((draft) => draft.fileOperations ?? []),
+  evidence: drafts.flatMap((draft) => draft.evidence),
+  matches: drafts.reduce((total, draft) => total + draft.matches, 0),
+})
+
 /** Effect form of `concat` for Recipe.all. */
 export const concatEffect = (
   ...drafts: ReadonlyArray<Draft>
 ): Effect.Effect<Draft, DraftEvidenceConflict> =>
-  finalizeDraftEvidenceEffect(
-    {
-      edits: drafts.flatMap((draft) => draft.edits),
-      fileOperations: drafts.flatMap((draft) => draft.fileOperations ?? []),
-      evidence: drafts.flatMap((draft) => draft.evidence),
-      matches: drafts.reduce((total, draft) => total + draft.matches, 0),
-    },
-    { facts: { source: "concat" } },
-  )
+  finalizeDraftEvidenceEffect(mergeDrafts(...drafts), { facts: { source: "concat" } })
 
-/** Combine drafts built from disjoint selections. Conflicting overlaps are rejected at finalization. */
+/**
+ * Combine drafts built from disjoint selections. Identical evidence records
+ * merge; records sharing an ID with different facts are rejected.
+ */
 export const concat = (...drafts: ReadonlyArray<Draft>): Draft =>
-  finalizeDraftEvidence(
-    {
-      edits: drafts.flatMap((draft) => draft.edits),
-      fileOperations: drafts.flatMap((draft) => draft.fileOperations ?? []),
-      evidence: drafts.flatMap((draft) => draft.evidence),
-      matches: drafts.reduce((total, draft) => total + draft.matches, 0),
-    },
-    { facts: { source: "concat" } },
-  )
+  finalizeDraftEvidence(mergeDrafts(...drafts), { facts: { source: "concat" } })
 
 type DraftEdit = Omit<ProposedEdit, "evidenceIds">
 
@@ -199,6 +193,72 @@ const isTextReplacement = (val: Replacement): val is string => Predicate.isStrin
 export const isDraft = (value: unknown): value is Draft =>
   Predicate.isObject(value) && "edits" in value && "evidence" in value && "matches" in value
 
+/** A returned Draft with no edits, operations, evidence, or matches is `empty`. */
+const isCompletelyEmpty = (draft: Draft): boolean =>
+  draft.edits.length === 0 &&
+  (draft.fileOperations?.length ?? 0) === 0 &&
+  draft.evidence.length === 0 &&
+  draft.matches === 0
+
+/**
+ * A returned `Draft.empty` still counts as one selected occurrence: match
+ * policies and scan audits count the selection, not whether an edit was
+ * produced.
+ */
+const emptySelectionDraft = <A extends Node>(
+  selection: Selection<A>,
+  evidenceId: string,
+): Draft => ({
+  edits: [],
+  fileOperations: [],
+  evidence: [selectionEvidence(selection, evidenceId)],
+  matches: 1,
+})
+
+/** Fold a returned Draft into the selection, tagging its records with the selection's evidence. */
+const adoptReturnedDraft = <A extends Node>(
+  selection: Selection<A>,
+  evidenceId: string,
+  proposed: Draft,
+): Effect.Effect<Draft, DraftEvidenceConflict> =>
+  finalizeDraftEvidenceEffect(
+    {
+      edits: proposed.edits.map((edit) => ({
+        ...edit,
+        evidenceIds: [...new Set([...edit.evidenceIds, evidenceId])],
+      })),
+      fileOperations: (proposed.fileOperations ?? []).map((operation) => ({
+        ...operation,
+        evidenceIds: [...new Set([...(operation.evidenceIds ?? []), evidenceId])],
+      })),
+      evidence: [...proposed.evidence, selectionEvidence(selection, evidenceId)],
+      matches: 1,
+    },
+    { facts: { source: "replaceEach" } },
+  )
+
+const draftFromProposal = <A extends Node>(
+  selection: Selection<A>,
+  proposed: Replacement | Draft,
+): Effect.Effect<Draft, SnapshotExpired | DraftEvidenceConflict> => {
+  const evidenceId = selectionEvidenceId(selection)
+  if (isDraft(proposed)) {
+    if (isCompletelyEmpty(proposed)) {
+      return Effect.succeed(emptySelectionDraft(selection, evidenceId))
+    }
+    return adoptReturnedDraft(selection, evidenceId, proposed)
+  }
+  const node = isTextReplacement(proposed) ? selection.value : proposed.node
+  const text = isTextReplacement(proposed) ? proposed : proposed.text
+  return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
+    Effect.map((edit): Draft => ({
+      edits: [edit],
+      evidence: [selectionEvidence(selection, evidenceId)],
+      matches: 1,
+    })),
+  )
+}
+
 /**
  * Propose one replacement per selection. Each edit inherits its selection's
  * Query Evidence automatically; the draft records the selection count as the
@@ -215,55 +275,7 @@ export const replaceEach = <A extends Node, E = never, R = never>(
     const effect: Effect.Effect<Replacement | Draft, E, R> = Effect.isEffect(raw)
       ? raw
       : Effect.succeed(raw)
-    return effect.pipe(
-      Effect.flatMap(
-        (proposed): Effect.Effect<Draft, E | SnapshotExpired | DraftEvidenceConflict, R> => {
-          const evidenceId = selectionEvidenceId(selection)
-          if (isDraft(proposed)) {
-            // A returned Draft.empty is still one selected occurrence. Match
-            // policies and scan audits count the selection, not whether an edit
-            // was produced.
-            if (
-              proposed.edits.length === 0 &&
-              (proposed.fileOperations?.length ?? 0) === 0 &&
-              proposed.evidence.length === 0 &&
-              proposed.matches === 0
-            ) {
-              return Effect.succeed({
-                edits: [],
-                fileOperations: [],
-                evidence: [selectionEvidence(selection, evidenceId)],
-                matches: 1,
-              })
-            }
-            return finalizeDraftEvidenceEffect(
-              {
-                edits: proposed.edits.map((edit) => ({
-                  ...edit,
-                  evidenceIds: [...new Set([...edit.evidenceIds, evidenceId])],
-                })),
-                fileOperations: (proposed.fileOperations ?? []).map((operation) => ({
-                  ...operation,
-                  evidenceIds: [...new Set([...(operation.evidenceIds ?? []), evidenceId])],
-                })),
-                evidence: [...proposed.evidence, selectionEvidence(selection, evidenceId)],
-                matches: 1,
-              },
-              { facts: { source: "replaceEach" } },
-            )
-          }
-          const node = isTextReplacement(proposed) ? selection.value : proposed.node
-          const text = isTextReplacement(proposed) ? proposed : proposed.text
-          return editForNode(selection.project, node, text, { evidenceIds: [evidenceId] }).pipe(
-            Effect.map((edit): Draft => ({
-              edits: [edit],
-              evidence: [selectionEvidence(selection, evidenceId)],
-              matches: 1,
-            })),
-          )
-        },
-      ),
-    )
+    return Effect.flatMap(effect, (proposed) => draftFromProposal(selection, proposed))
   }).pipe(Effect.flatMap((drafts) => concatEffect(...drafts)))
 
 const selectionEvidenceId = <A extends Node>(selection: Selection<A>): string =>

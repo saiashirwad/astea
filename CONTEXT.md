@@ -123,3 +123,19 @@ _Avoid_: AST mutation, unguarded patch
 **Source Fidelity**:
 The guarantee that applying Text Edits preserves every source byte outside their explicit ranges. Native AST printing may create replacement fragments but never grants permission to reprint an unrelated file or subtree.
 _Avoid_: Pretty-print equivalence, whole-file regeneration
+
+## Interface Notes
+
+Facts a caller must know beyond type signatures, recorded when characterization surfaced them.
+
+**Effect dual functions must not be partially applied into named helpers**:
+Assigning `const inFile = Query.within("src/x.ts")` resolves the element type parameter to `unknown` at the assignment, silently upcasting every query later piped through the helper. Declare such helpers as generic functions whose body calls the data-first form.
+_Avoid_: Generic-preserving partial application, untyped pipeline aliases
+
+**Literal expressions carry literal types**:
+Type inspection of a numeric or string literal node renders its literal type (`"1"`, not `"number"`). Type criteria admit literals by assignability while reporting the literal rendering as evidence.
+_Avoid_: Widened-primitive assumptions, exact type-string assertions on literals
+
+**Queries are Streams, not Effects**:
+A Semantic Query is a Stream of Selections and cannot be yielded inside `Effect.gen`. Terminate it with `Query.collect` before yielding.
+_Avoid_: Yielding a query directly, ad hoc drain loops
