@@ -71,20 +71,30 @@ const resolveScope = (
   )
 }
 
+/** Depth-first collection of nodes whose kind matches the optional filter. */
+const descendantsMatching = (root: Node, syntaxKind?: SyntaxKindFilter): Array<Node> => {
+  const found: Array<Node> = []
+  const visit = (node: Node): void => {
+    const kindMatches =
+      syntaxKind === undefined ||
+      (Array.isArray(syntaxKind) ? syntaxKind.includes(node.kind) : node.kind === syntaxKind)
+    if (kindMatches) found.push(node)
+    node.forEachChild(visit)
+  }
+  visit(root)
+  return found
+}
+
 const collectNodes = <A extends Node>(
   project: ProjectSnapshot,
   sourceFile: SourceFile,
   guard: (node: Node) => node is A,
   syntaxKind?: SyntaxKindFilter,
 ): Array<Selection<A>> => {
-  const selections: Array<Selection<A>> = []
   const fileName = requireProjectRelativePath(project.relativeFileName(sourceFile.fileName))
-
-  const visit = (node: Node): void => {
-    const kindMatches =
-      syntaxKind === undefined ||
-      (Array.isArray(syntaxKind) ? syntaxKind.includes(node.kind) : node.kind === syntaxKind)
-    if (kindMatches && guard(node)) {
+  const selections: Array<Selection<A>> = []
+  for (const node of descendantsMatching(sourceFile, syntaxKind)) {
+    if (guard(node)) {
       selections.push({
         value: node,
         project,
@@ -99,10 +109,7 @@ const collectNodes = <A extends Node>(
         ],
       })
     }
-    node.forEachChild(visit)
   }
-
-  visit(sourceFile)
   return selections
 }
 
@@ -151,17 +158,7 @@ export const match = <Out>(
           const relFileName = requireProjectRelativePath(
             project.relativeFileName(sourceFile.fileName),
           )
-          const candidateNodes: Array<Node> = []
-          const visit = (node: Node): void => {
-            const kindMatches =
-              pattern.syntaxKind === undefined ||
-              (Array.isArray(pattern.syntaxKind)
-                ? pattern.syntaxKind.includes(node.kind)
-                : node.kind === pattern.syntaxKind)
-            if (kindMatches) candidateNodes.push(node)
-            node.forEachChild(visit)
-          }
-          visit(sourceFile)
+          const candidateNodes = descendantsMatching(sourceFile, pattern.syntaxKind)
 
           return Stream.fromIterable(candidateNodes).pipe(
             Stream.mapEffect((node) =>

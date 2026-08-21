@@ -275,14 +275,21 @@ const criterionHas = <A extends Node, Out = unknown, E = never, R = never>(
     }),
 })
 
-const criterionPrecedes = <A extends Node, Out = unknown, E = never, R = never>(
+/**
+ * Admit selections whose sibling in the given direction matches. `precedes`
+ * scans following siblings; `follows` scans preceding ones. With
+ * `immediately`, only the adjacent sibling is considered.
+ */
+const criterionSibling = <A extends Node, Out = unknown, E = never, R = never>(
+  relation: "precedes" | "follows",
   matcher: RelationalMatcher<Out, E, R>,
   options?: SiblingOptions,
 ): Criterion<A, E | ProjectSnapshotError, R> => ({
   mode: "selection",
-  id: `precedes(${matcherId(matcher)})`,
+  id: `${relation}(${matcherId(matcher)})`,
   select: (selections) =>
     Effect.gen(function* () {
+      const direction = relation === "precedes" ? 1 : -1
       const results: Array<Readonly<Record<string, EvidenceFact>> | undefined> = []
       for (const selection of selections) {
         const siblingInfo = getSiblingsAndIndex(selection.value)
@@ -295,97 +302,33 @@ const criterionPrecedes = <A extends Node, Out = unknown, E = never, R = never>(
         let matchedFacts: Readonly<Record<string, EvidenceFact>> | undefined
 
         if (options?.immediately) {
-          if (index < siblings.length - 1) {
-            const followingSibling = siblings[index + 1]!
+          const adjacent = siblings[index + direction]
+          if (adjacent !== undefined) {
             const outcome = yield* evaluateSibling(
               matcher,
-              followingSibling,
+              adjacent,
               selection.project,
               selection.fileName,
             )
             if (outcome.matched) {
-              const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
               matchedFacts = {
-                siblingKind,
+                siblingKind: SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind),
                 ...outcome.facts,
               }
             }
           }
         } else {
-          for (let i = index + 1; i < siblings.length; i++) {
-            const followingSibling = siblings[i]!
+          for (let i = index + direction; i >= 0 && i < siblings.length; i += direction) {
+            const sibling = siblings[i]!
             const outcome = yield* evaluateSibling(
               matcher,
-              followingSibling,
+              sibling,
               selection.project,
               selection.fileName,
             )
             if (outcome.matched) {
-              const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
               matchedFacts = {
-                siblingKind,
-                ...outcome.facts,
-              }
-              break
-            }
-          }
-        }
-
-        results.push(matchedFacts)
-      }
-      return results
-    }),
-})
-
-const criterionFollows = <A extends Node, Out = unknown, E = never, R = never>(
-  matcher: RelationalMatcher<Out, E, R>,
-  options?: SiblingOptions,
-): Criterion<A, E | ProjectSnapshotError, R> => ({
-  mode: "selection",
-  id: `follows(${matcherId(matcher)})`,
-  select: (selections) =>
-    Effect.gen(function* () {
-      const results: Array<Readonly<Record<string, EvidenceFact>> | undefined> = []
-      for (const selection of selections) {
-        const siblingInfo = getSiblingsAndIndex(selection.value)
-        if (siblingInfo === undefined) {
-          results.push(undefined)
-          continue
-        }
-
-        const { siblings, index } = siblingInfo
-        let matchedFacts: Readonly<Record<string, EvidenceFact>> | undefined
-
-        if (options?.immediately) {
-          if (index > 0) {
-            const precedingSibling = siblings[index - 1]!
-            const outcome = yield* evaluateSibling(
-              matcher,
-              precedingSibling,
-              selection.project,
-              selection.fileName,
-            )
-            if (outcome.matched) {
-              const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
-              matchedFacts = {
-                siblingKind,
-                ...outcome.facts,
-              }
-            }
-          }
-        } else {
-          for (let i = index - 1; i >= 0; i--) {
-            const precedingSibling = siblings[i]!
-            const outcome = yield* evaluateSibling(
-              matcher,
-              precedingSibling,
-              selection.project,
-              selection.fileName,
-            )
-            if (outcome.matched) {
-              const siblingKind = SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind)
-              matchedFacts = {
-                siblingKind,
+                siblingKind: SyntaxKind[outcome.node.kind] ?? String(outcome.node.kind),
                 ...outcome.facts,
               }
               break
@@ -430,7 +373,7 @@ export const precedes =
   <A extends Node, E, R>(
     self: Query<A, E, R>,
   ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
-    where(criterionPrecedes<A, Out, E2, R2>(matcher, options))(self)
+    where(criterionSibling<A, Out, E2, R2>("precedes", matcher, options))(self)
 
 /** Filter selections to only those following a sibling matching the given pattern, criterion, or predicate. */
 export const follows =
@@ -441,11 +384,17 @@ export const follows =
   <A extends Node, E, R>(
     self: Query<A, E, R>,
   ): Query<A, E | E2 | ProjectSnapshotError | QueryContractError, R | R2> =>
-    where(criterionFollows<A, Out, E2, R2>(matcher, options))(self)
+    where(criterionSibling<A, Out, E2, R2>("follows", matcher, options))(self)
 
 export const RelationCriterion = {
   inside: criterionInside,
   has: criterionHas,
-  precedes: criterionPrecedes,
-  follows: criterionFollows,
+  precedes: <A extends Node, Out = unknown, E = never, R = never>(
+    matcher: RelationalMatcher<Out, E, R>,
+    options?: SiblingOptions,
+  ): Criterion<A, E | ProjectSnapshotError, R> => criterionSibling("precedes", matcher, options),
+  follows: <A extends Node, Out = unknown, E = never, R = never>(
+    matcher: RelationalMatcher<Out, E, R>,
+    options?: SiblingOptions,
+  ): Criterion<A, E | ProjectSnapshotError, R> => criterionSibling("follows", matcher, options),
 }

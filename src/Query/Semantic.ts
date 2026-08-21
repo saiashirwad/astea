@@ -15,6 +15,7 @@ import {
   type ProjectScope,
   type Query,
   type QueryContractError,
+  type Selection,
 } from "./Query.ts"
 import { identifiers } from "./Sources.ts"
 import { where } from "./Operators.ts"
@@ -135,6 +136,32 @@ export type IntrinsicTypeName =
 const isIntrinsicTypeName = (value: NativeType | IntrinsicTypeName): value is IntrinsicTypeName =>
   Predicate.isString(value)
 
+/**
+ * Compute the TypeScript type of each selection's node in order, skipping
+ * selections the checker cannot resolve, and collect one optional fact per
+ * selection.
+ */
+const eachComputedType = <A extends Node, Fact>(
+  selections: ReadonlyArray<Selection<A>>,
+  compute: (
+    selection: Selection<A>,
+    nodeType: NativeType,
+  ) => Effect.Effect<Fact | undefined, ProjectSnapshotError>,
+): Effect.Effect<Array<Fact | undefined>, ProjectSnapshotError> =>
+  Effect.forEach(
+    selections,
+    (selection) =>
+      Effect.gen(function* () {
+        const node = selection.value
+        const sourceFile = node.getSourceFile()
+        const pos = node.getStart(sourceFile)
+        const nodeType = yield* selection.project.typeAt(selection.fileName, pos)
+        if (nodeType === undefined) return undefined
+        return yield* compute(selection, nodeType)
+      }),
+    { concurrency: 1 },
+  )
+
 /** Admit nodes whose computed type is assignable to `target`. */
 export const typeAssignableTo = <A extends Node>(
   target: NativeType | IntrinsicTypeName,
@@ -144,33 +171,19 @@ export const typeAssignableTo = <A extends Node>(
     mode: "selection",
     id: `type-assignable-to:${targetLabel}`,
     select: (selections) =>
-      Effect.gen(function* () {
-        const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
-          length: selections.length,
-        })
-        for (let i = 0; i < selections.length; i++) {
-          const selection = selections[i]!
-          const node = selection.value
-          const sourceFile = node.getSourceFile()
-          const pos = node.getStart(sourceFile)
-          const nodeType = yield* selection.project.typeAt(selection.fileName, pos)
-          if (nodeType === undefined) continue
-
+      eachComputedType(selections, (selection, nodeType) =>
+        Effect.gen(function* () {
           const expectedType = isIntrinsicTypeName(target)
             ? yield* selection.project.intrinsicType(target)
             : target
 
           const assignable = yield* selection.project.isTypeAssignableTo(nodeType, expectedType)
-          if (assignable) {
-            const typeStr = yield* selection.project.typeToString(nodeType)
-            facts[i] = {
-              type: typeStr,
-              assignableTo: isIntrinsicTypeName(target) ? target : "type",
-            }
-          }
-        }
-        return facts
-      }),
+          if (!assignable) return undefined
+
+          const typeStr = yield* selection.project.typeToString(nodeType)
+          return { type: typeStr, assignableTo: isIntrinsicTypeName(target) ? target : "type" }
+        }),
+      ),
   }
 }
 
@@ -182,23 +195,9 @@ export const typeSatisfies = <A extends Node>(
   mode: "selection",
   id: `type-satisfies:${id}`,
   select: (selections) =>
-    Effect.gen(function* () {
-      const facts: Array<Readonly<Record<string, EvidenceFact>> | undefined> = Array.from({
-        length: selections.length,
-      })
-      for (let i = 0; i < selections.length; i++) {
-        const selection = selections[i]!
-        const node = selection.value
-        const sourceFile = node.getSourceFile()
-        const pos = node.getStart(sourceFile)
-        const nodeType = yield* selection.project.typeAt(selection.fileName, pos)
-        if (nodeType === undefined) continue
-
-        const typeStr = yield* selection.project.typeToString(nodeType)
-        if (predicate(nodeType, typeStr)) {
-          facts[i] = { type: typeStr, predicate: id }
-        }
-      }
-      return facts
-    }),
+    eachComputedType(selections, (selection, nodeType) =>
+      Effect.map(selection.project.typeToString(nodeType), (typeStr) =>
+        predicate(nodeType, typeStr) ? { type: typeStr, predicate: id } : undefined,
+      ),
+    ),
 })
