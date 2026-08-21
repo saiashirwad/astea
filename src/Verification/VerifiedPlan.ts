@@ -2,7 +2,8 @@
 import { Predicate } from "effect"
 import type { TransformationPlan } from "../Plan/index.ts"
 import type { DiagnosticDiff } from "../Policy/index.ts"
-import type { PlanPreview, VerificationReceipt } from "./Model.ts"
+import type { PlanPreview } from "./Preview.ts"
+import type { VerificationReceipt } from "./VerificationReceipt.ts"
 
 // Process-local token. Symbol.for would be forgeable across the isolate.
 const VerifiedPlanTypeId: unique symbol = Symbol("@safemods/internal/VerifiedPlan")

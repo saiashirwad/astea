@@ -1,6 +1,6 @@
-export { emptySnapshot, materialize, virtualFileKey, VirtualFsError } from "./Core.ts"
+export { emptySnapshot, materialize, virtualFileKey, VirtualFsError } from "./VirtualFs.ts"
 export type {
   VirtualFsInitialFile,
   VirtualFsMaterializeOptions,
   VirtualFsSnapshot,
-} from "./Core.ts"
+} from "./VirtualFs.ts"

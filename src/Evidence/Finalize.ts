@@ -1,6 +1,6 @@
 /** Evidence identity, merging, and completion for draft operations. */
 import { Data, Effect } from "effect"
-import type { EvidenceRecord } from "./Core.ts"
+import type { EvidenceRecord } from "./Evidence.ts"
 import { canonicalJson } from "./Canonical.ts"
 
 export class DraftEvidenceConflict extends Data.TaggedError("DraftEvidenceConflict")<{

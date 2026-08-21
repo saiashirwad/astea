@@ -9,7 +9,7 @@ import {
   type ProjectSnapshotError,
 } from "../Workspace/index.ts"
 import type { DraftEvidenceConflict } from "../Evidence/index.ts"
-import { empty, replaceEach, type Draft } from "./Model.ts"
+import { empty, replaceEach, type Draft } from "./Draft.ts"
 
 /** Rename a symbol across all its declarations, imports, and reference occurrences in the project. */
 export const renameSymbol = (

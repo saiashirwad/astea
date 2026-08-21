@@ -16,7 +16,7 @@ import {
   type WorkspaceSnapshotService,
 } from "../Workspace/index.ts"
 import { fromCompiled } from "./Define.ts"
-import type { Recipe } from "./Model.ts"
+import type { Recipe } from "./Recipe.ts"
 import { compileChildren } from "./PolicyComposition.ts"
 
 const composedSchema = <Input>(

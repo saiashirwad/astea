@@ -1,5 +1,5 @@
 import { Effect, Layer, Semaphore, type FileSystem, type Path } from "effect"
-import { PlanApplication } from "../../Application/Model.ts"
+import { PlanApplication } from "../../Application/Application.ts"
 import { Workspace } from "../../Workspace/index.ts"
 import { layer as nodeLayer } from "../../platform/node.ts"
 import { applyVerifiedPlan } from "./Transaction.ts"

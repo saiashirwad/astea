@@ -19,11 +19,11 @@ import {
   isSourceFile,
   isTypeAliasDeclaration,
 } from "typescript/unstable/ast/is"
-import type { EvidenceFact } from "../Evidence/Core.ts"
+import type { EvidenceFact } from "../Evidence/Evidence.ts"
 import type { ProjectRelativePath } from "../ProjectPath/index.ts"
 import type { NodeCriterion } from "../Pattern/index.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
-import type { Criterion, Query, QueryContractError, Selection } from "./Model.ts"
+import type { Criterion, Query, QueryContractError, Selection } from "./Query.ts"
 import { where } from "./Operators.ts"
 
 export interface InsideOptions {

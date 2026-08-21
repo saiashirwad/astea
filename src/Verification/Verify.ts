@@ -7,9 +7,9 @@ import {
   type WorkspaceCompilerError,
   type WorkspaceSnapshot,
 } from "../Workspace/index.ts"
+import type { Json } from "../Evidence/index.ts"
 import {
   canonicalJson,
-  type Json,
   type PlanDecodeError,
   validatePlan,
   type TransformationPlan,
@@ -33,14 +33,14 @@ import {
   ToolchainMismatch,
   VerificationFailure,
 } from "./Errors.ts"
-import type { PlanPreview, VerificationObservation, VerificationReceipt } from "./Model.ts"
+import { of, type PlanPreview } from "./Preview.ts"
 import {
   evaluateBuiltInPolicies,
   evaluateCustomRules,
   failureFromPolicyResults,
   type PolicyFailure,
 } from "./PolicyEvaluation.ts"
-import { of } from "./Preview.ts"
+import type { VerificationObservation, VerificationReceipt } from "./VerificationReceipt.ts"
 import { requireMatchingProjectIdentity } from "./SourceRevalidation.ts"
 import { issueVerifiedPlan, type VerifiedPlan } from "./VerifiedPlan.ts"
 

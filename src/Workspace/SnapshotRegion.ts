@@ -4,13 +4,11 @@ import type { FileChanges } from "typescript/unstable/proto"
 import type { NativeCompiler, WorkspaceCompilerError } from "./internal/NativeCompiler.ts"
 import {
   type ConfiguredProject,
-  type ProjectSnapshot,
   ProjectNotInSnapshot,
   type SnapshotTransition,
-  SnapshotExpired,
   type WorkspaceChanges,
-} from "./Model.ts"
-import { projectSnapshotFor } from "./ProjectSnapshot.ts"
+} from "./ConfiguredProject.ts"
+import { projectSnapshotFor, SnapshotExpired, type ProjectSnapshot } from "./ProjectSnapshot.ts"
 import type { WorkspaceRuntimeService } from "./Runtime.ts"
 
 export interface WorkspaceSnapshotService {

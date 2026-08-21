@@ -15,7 +15,7 @@ import {
   type ProjectSnapshotError,
   type SnapshotExpired,
 } from "../Workspace/index.ts"
-import { draftForEdit, empty, type Draft } from "./Model.ts"
+import { draftForEdit, empty, type Draft } from "./Draft.ts"
 
 // // =============================================================================
 

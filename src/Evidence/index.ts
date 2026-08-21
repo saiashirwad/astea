@@ -1,4 +1,4 @@
-export type { EvidenceFact, EvidenceRecord, Json, QueryEvidence } from "./Core.ts"
+export type { EvidenceFact, EvidenceRecord, Json, QueryEvidence } from "./Evidence.ts"
 export {
   DraftEvidenceConflict,
   finalizeDraftEvidence,

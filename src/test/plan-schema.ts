@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto"
+import type { Json } from "../Evidence/index.ts"
 import {
   asJson,
   canonicalJson,
   finalizePlan,
   requireProjectRelativePath,
   validatePlan,
-  type Json,
   type PlanInput,
   type TransformationPlan,
 } from "../Plan/index.ts"

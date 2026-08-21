@@ -1,6 +1,7 @@
 /** Verification failures at plan, recipe, policy, and workspace boundaries. */
 import { Data } from "effect"
-import type { Json, TransformationPlan } from "../Plan/index.ts"
+import type { Json } from "../Evidence/index.ts"
+import type { TransformationPlan } from "../Plan/index.ts"
 import type { DiagnosticRecord } from "../Policy/index.ts"
 
 export class StalePlanError extends Data.TaggedError("StalePlanError")<{

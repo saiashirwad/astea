@@ -16,8 +16,28 @@ import {
 } from "../VirtualFs/index.ts"
 import { Workspace } from "../Workspace/index.ts"
 import { type ProjectIdentityMismatch, StalePlanError, VerificationFailure } from "./Errors.ts"
-import type { FilePreview, FileState, PlanPreview } from "./Model.ts"
 import { requireMatchingProjectIdentity, revalidateSource } from "./SourceRevalidation.ts"
+
+export type FileState =
+  | { readonly exists: false; readonly text?: undefined; readonly hash?: undefined }
+  | { readonly exists: true; readonly text: string; readonly hash: string }
+
+export interface FilePreview {
+  readonly projectId: string
+  readonly fileName: string
+  /** Explicit operation and virtual existence state; empty text is valid content. */
+  readonly action: "create" | "modify" | "delete" | "move"
+  readonly before: FileState
+  readonly after: FileState
+  /** The counterpart path for a move operation, when applicable. */
+  readonly movePath?: string | undefined
+}
+
+export interface PlanPreview {
+  readonly planId: string
+  readonly snapshotHash: string
+  readonly files: ReadonlyArray<FilePreview>
+}
 
 export const previewPlan = (
   plan: TransformationPlan,

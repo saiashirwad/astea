@@ -56,6 +56,7 @@ const exactDependencies = new Map([
     new Set([
       "Draft",
       "Edit",
+      "Evidence",
       "Overlay",
       "Plan",
       "Policy",
@@ -67,7 +68,16 @@ const exactDependencies = new Map([
   ],
   [
     "Verification",
-    new Set(["Edit", "Plan", "Policy", "ProjectPath", "Recipe", "VirtualFs", "Workspace"]),
+    new Set([
+      "Edit",
+      "Evidence",
+      "Plan",
+      "Policy",
+      "ProjectPath",
+      "Recipe",
+      "VirtualFs",
+      "Workspace",
+    ]),
   ],
   ["Application", new Set(["Verification"])],
   [

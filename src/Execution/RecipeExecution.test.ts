@@ -8,7 +8,7 @@ import * as Recipe from "../Recipe/index.ts"
 import type { PlanPreview } from "../Verification/index.ts"
 import { WorkspaceSnapshot } from "../Workspace/index.ts"
 import { withFixture } from "../test/declarative-fixture.ts"
-import { executeRecipe } from "./Recipe.ts"
+import { executeRecipe } from "./RecipeExecution.ts"
 
 describe("recipe execution workflow", () => {
   effect("runs only the stages selected by the mode", () =>

@@ -1,13 +1,7 @@
 import { describe, effect, expect } from "@effect/vitest"
 import { Effect } from "effect"
-import {
-  canonicalJson,
-  finalizePlan,
-  parsePlan,
-  serializePlan,
-  type Json,
-  type PlanInput,
-} from "./index.ts"
+import type { Json } from "../Evidence/index.ts"
+import { canonicalJson, finalizePlan, parsePlan, serializePlan, type PlanInput } from "./index.ts"
 import { canonicalJson as canonicalEvidenceJson } from "../Evidence/Canonical.ts"
 import { richInput } from "../test/plan-schema.ts"
 

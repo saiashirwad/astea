@@ -1,11 +1,8 @@
 /** Durable Plan domain values and errors. */
 import { Data } from "effect"
-import type { EvidenceRecord, Json } from "../Evidence/Core.ts"
-import type { TextEdit } from "../Edit/index.ts"
+import type { TextEdit } from "../Edit/TextEdit.ts"
+import type { EvidenceRecord, Json } from "../Evidence/Evidence.ts"
 import type { ProjectRelativePath } from "../ProjectPath/index.ts"
-
-export type { Json } from "../Evidence/Core.ts"
-export type { TextEdit } from "../Edit/index.ts"
 
 export interface ProjectEvidence {
   readonly id: string
@@ -50,8 +47,6 @@ export interface MoveFileOperation extends FileOperationBase {
 }
 
 export type PlannedFileOperation = CreateFileOperation | DeleteFileOperation | MoveFileOperation
-
-export type { EvidenceRecord } from "../Evidence/Core.ts"
 
 export interface PlanPolicies {
   readonly matchCount: { readonly min?: number | undefined; readonly max?: number | undefined }

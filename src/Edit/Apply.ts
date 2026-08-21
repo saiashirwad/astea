@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { InvalidEdit, type EditConflict, type TextEdit } from "./Model.ts"
+import { InvalidEdit, type EditConflict, type TextEdit } from "./TextEdit.ts"
 import { textHash } from "./Hash.ts"
 import { normalizeEdits } from "./Validate.ts"
 

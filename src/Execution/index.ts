@@ -1,4 +1,4 @@
-export { executeRecipe } from "./Recipe.ts"
+export { executeRecipe } from "./RecipeExecution.ts"
 export type {
   AppliedExecution,
   PlanExecution,
@@ -9,4 +9,4 @@ export type {
   RecipeExecutionMode,
   RecipeExecutionResult,
   VerifiedExecution,
-} from "./Recipe.ts"
+} from "./RecipeExecution.ts"

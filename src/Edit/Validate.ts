@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { EditConflict, InvalidEdit, type TextEdit } from "./Model.ts"
+import { EditConflict, InvalidEdit, type TextEdit } from "./TextEdit.ts"
 
 export const compareEdits = (left: TextEdit, right: TextEdit): number =>
   left.projectId.localeCompare(right.projectId) ||

@@ -2,7 +2,8 @@
  * Safemods CLI — read-only search and audit reporting.
  */
 import { Data, Effect, Predicate } from "effect"
-import type { Json, TransformationPlan } from "../Plan/index.ts"
+import type { Json } from "../Evidence/index.ts"
+import type { TransformationPlan } from "../Plan/index.ts"
 import type {
   FileNotFound,
   ProjectNotInSnapshot,

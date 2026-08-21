@@ -4,7 +4,12 @@ import { Effect, type Schema } from "effect"
 import type { PlanPolicies } from "../Plan/index.ts"
 import * as Policy from "../Policy/index.ts"
 import type { VerificationRule } from "../Policy/index.ts"
-import type { Recipe, RecipeDefinition, ScanningRecipe, ScanningRecipeDefinition } from "./Model.ts"
+import type {
+  Recipe,
+  RecipeDefinition,
+  ScanningRecipe,
+  ScanningRecipeDefinition,
+} from "./Recipe.ts"
 
 /** Construct a recipe from durable policies and runtime rules. */
 export const fromCompiled = <Input, E, R>(

@@ -19,7 +19,7 @@ import {
 import type { PlannedFileOperation } from "../Plan/index.ts"
 import type { Node } from "typescript/unstable/ast"
 import { textHash } from "../Edit/Hash.ts"
-import type { TextEdit } from "../Edit/Model.ts"
+import type { TextEdit } from "../Edit/TextEdit.ts"
 import type { Selection } from "../Query/index.ts"
 import type { ProjectSnapshot, ProjectSnapshotError, SnapshotExpired } from "../Workspace/index.ts"
 

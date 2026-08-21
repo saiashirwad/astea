@@ -25,9 +25,16 @@ import {
   isTemplateExpression,
 } from "typescript/unstable/ast/is"
 import type { Symbol as NativeSymbol } from "typescript/unstable/async"
-import type { EvidenceFact } from "../Evidence/Core.ts"
-import { tuple, predicate, type AnyPattern, type Pattern } from "./Core.ts"
-import { matchFailure, matchSuccess, matchesName } from "./Internal.ts"
+import type { EvidenceFact } from "../Evidence/Evidence.ts"
+import {
+  matchFailure,
+  matchSuccess,
+  matchesName,
+  predicate,
+  tuple,
+  type AnyPattern,
+  type Pattern,
+} from "./Pattern.ts"
 
 export const identifier = (options?: {
   readonly name?: string | RegExp

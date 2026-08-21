@@ -2,7 +2,7 @@
 import { Effect } from "effect"
 import { compareEdits, editsConflict } from "../Edit/index.ts"
 import { asJson, canonicalJson, digest, withoutPlanId } from "./Canonical.ts"
-import { PlanBuildError, type PlanInput, type TransformationPlan } from "./Model.ts"
+import { PlanBuildError, type PlanInput, type TransformationPlan } from "./TransformationPlan.ts"
 import { compareSourceFingerprints, normalizedPath, validateInput } from "./Validate.ts"
 
 export const finalizePlan = (input: PlanInput): Effect.Effect<TransformationPlan, PlanBuildError> =>

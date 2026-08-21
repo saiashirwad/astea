@@ -8,7 +8,7 @@ import {
   type Criterion,
   type Query,
   type Selection,
-} from "./Model.ts"
+} from "./Query.ts"
 
 /** Admit only selections the criterion produces evidence for. */
 export const where = Function.dual<

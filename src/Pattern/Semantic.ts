@@ -1,8 +1,7 @@
 import { Effect, Predicate } from "effect"
 import type { Node } from "typescript/unstable/ast"
 import type { Type as NativeType } from "typescript/unstable/async"
-import type { Pattern } from "./Core.ts"
-import { matchFailure, matchSuccess, matchesName } from "./Internal.ts"
+import { matchFailure, matchSuccess, matchesName, type Pattern } from "./Pattern.ts"
 
 export type IntrinsicTypeName =
   | "string"

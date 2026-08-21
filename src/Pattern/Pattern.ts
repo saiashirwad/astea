@@ -1,10 +1,9 @@
 /** Matcher algebra and shared Pattern domain primitives. */
-import { Effect } from "effect"
+import { Effect, Predicate } from "effect"
 import type { Node, SyntaxKind } from "typescript/unstable/ast"
 import { isCallExpression } from "typescript/unstable/ast/is"
-import type { EvidenceFact } from "../Evidence/Core.ts"
+import type { EvidenceFact } from "../Evidence/Evidence.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
-import { matchFailure, matchSuccess } from "./Internal.ts"
 
 export interface PatternMatchResult<Out> {
   readonly matched: true
@@ -41,6 +40,22 @@ type Binding<K extends string, Out> = { readonly [P in K]: Out }
 export type AnyPattern = Pattern<Node, unknown>
 type TupleMatch<P extends ReadonlyArray<AnyPattern>> = {
   [K in keyof P]: P[K] extends Pattern<Node, infer Out> ? Out : never
+}
+
+export const matchSuccess = <Out>(
+  value: Out,
+  facts?: Readonly<Record<string, EvidenceFact>>,
+): PatternResult<Out> =>
+  facts === undefined ? { matched: true, value } : { matched: true, value, facts }
+
+export const matchFailure: PatternMismatch = { matched: false }
+
+export const matchesName = (name: string | RegExp, text: string): boolean => {
+  if (Predicate.isString(name)) return text === name
+  // `/g` and `/y` advance lastIndex; clone so two matches against the same
+  // name do not alternate.
+  const pattern = name.global || name.sticky ? new RegExp(name.source, name.flags) : name
+  return pattern.test(text)
 }
 
 const bindingOf = <K extends string, Out>(key: K, value: Out): Binding<K, Out> =>
@@ -114,7 +129,7 @@ export const bind = <K extends string, N extends Node, Out>(
 ): Pattern<N, Binding<K, Out>> => {
   const result = {
     mode: "node" as const,
-    kind: `bind(${key})`,
+    kind: `bind(${key})` as const,
     match: (node: Node, project: ProjectSnapshot) =>
       pattern.match(node, project).pipe(
         Effect.map((matched) => {

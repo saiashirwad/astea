@@ -1,1 +1,1 @@
-export * from "./Core.ts"
+export * from "./Precondition.ts"

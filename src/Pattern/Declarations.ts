@@ -13,8 +13,7 @@ import {
   isVariableDeclaration,
   isVariableStatement,
 } from "typescript/unstable/ast/is"
-import type { Pattern } from "./Core.ts"
-import { matchFailure, matchSuccess, matchesName } from "./Internal.ts"
+import { matchFailure, matchSuccess, matchesName, type Pattern } from "./Pattern.ts"
 
 export interface FunctionDeclarationPatternOptions {
   readonly name?: string | RegExp

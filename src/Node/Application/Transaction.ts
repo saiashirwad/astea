@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { Effect, FileSystem, Path, Predicate } from "effect"
-import { ApplicationIndeterminate } from "../../Application/Model.ts"
+import { ApplicationIndeterminate } from "../../Application/Application.ts"
 import type { TransformationPlan } from "../../Plan/index.ts"
 import { StalePlanError } from "../../Verification/Errors.ts"
 import { previewPlan } from "../../Verification/Preview.ts"

@@ -12,7 +12,7 @@ import {
   type ApplicationFailure,
   type ApplicationIndeterminate,
   type ApplicationReceipt,
-} from "./Model.ts"
+} from "./Application.ts"
 import type {
   ProjectIdentityMismatch,
   StalePlanError,

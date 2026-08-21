@@ -1,7 +1,7 @@
 /** Native compiler filesystem options for an isolated virtual snapshot. */
 import type { APIOptions } from "typescript/unstable/async"
 import type { VirtualFsSnapshot } from "../../VirtualFs/index.ts"
-import type { SnapshotTransition } from "../Model.ts"
+import type { SnapshotTransition } from "../ConfiguredProject.ts"
 import type { WorkspaceRuntimeService } from "../Runtime.ts"
 
 export interface CompilerOverlay {

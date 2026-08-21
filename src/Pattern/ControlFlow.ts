@@ -21,8 +21,7 @@ import {
   isTryStatement,
   isWhileStatement,
 } from "typescript/unstable/ast/is"
-import { predicate, type Pattern } from "./Core.ts"
-import { matchFailure, matchSuccess } from "./Internal.ts"
+import { matchFailure, matchSuccess, predicate, type Pattern } from "./Pattern.ts"
 
 export interface TryStatementPatternOptions {
   readonly hasCatch?: boolean

@@ -1,11 +1,10 @@
-/** Core Query domain types and criterion combinators. */
+/** Query domain types and criterion combinators. */
 import { Data, Effect, type Stream } from "effect"
 import type { SyntaxKind } from "typescript/unstable/ast"
-import type { EvidenceFact, QueryEvidence } from "../Evidence/Core.ts"
+import type { EvidenceFact, QueryEvidence } from "../Evidence/Evidence.ts"
 import type { ProjectRelativePath } from "../ProjectPath/index.ts"
 import type { ProjectFile, ProjectSnapshot } from "../Workspace/index.ts"
 
-export type { EvidenceFact, QueryEvidence } from "../Evidence/Core.ts"
 export type ProjectScope = ProjectSnapshot | ProjectFile | ReadonlyArray<ProjectFile>
 
 export interface TargetFileScope {

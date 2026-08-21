@@ -13,7 +13,7 @@ import {
   type ProjectNotInSnapshot,
   type SnapshotTransition,
   type WorkspaceDefinition,
-} from "./Model.ts"
+} from "./ConfiguredProject.ts"
 import { type WorkspaceSnapshot, openSnapshotRegion } from "./SnapshotRegion.ts"
 import { compilerOverlayFor } from "./internal/CompilerOverlay.ts"
 import {

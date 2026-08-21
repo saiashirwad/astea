@@ -1,7 +1,7 @@
 /** Strict serialization and decoding for content-addressed plans. */
 import { Effect, Schema } from "effect"
 import { asJson, canonicalJson, digest, withoutPlanId } from "./Canonical.ts"
-import { PlanDecodeError, type TransformationPlan } from "./Model.ts"
+import { PlanDecodeError, type TransformationPlan } from "./TransformationPlan.ts"
 import { strictPlanParseOptions, TransformationPlanSchema } from "./Structure.ts"
 import { validateDecodedPlan } from "./Validate.ts"
 

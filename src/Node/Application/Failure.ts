@@ -1,4 +1,4 @@
-import { ApplicationFailure } from "../../Application/Model.ts"
+import { ApplicationFailure } from "../../Application/Application.ts"
 
 export const asApplicationFailure = (
   planId: string,

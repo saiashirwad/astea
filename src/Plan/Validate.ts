@@ -10,7 +10,7 @@ import {
   type PlanInput,
   type SourceFingerprint,
   type TransformationPlan,
-} from "./Model.ts"
+} from "./TransformationPlan.ts"
 import { PlanInputSchema, strictPlanParseOptions } from "./Structure.ts"
 
 const fail = (

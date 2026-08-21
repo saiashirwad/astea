@@ -4,7 +4,7 @@ import * as Query from "../Query/index.ts"
 import type { QueryContractError } from "../Query/index.ts"
 import type { ProjectSnapshot, ProjectSnapshotError } from "../Workspace/index.ts"
 import { imports } from "./Imports.ts"
-import { concat, empty, type Draft } from "./Model.ts"
+import { concat, empty, type Draft } from "./Draft.ts"
 
 /** Clean up named imports that have no references beyond their own import specifier. */
 export const cleanUnused = (

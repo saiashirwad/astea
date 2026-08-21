@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { TextEdit } from "./Model.ts"
+import type { TextEdit } from "./TextEdit.ts"
 
 export const textHash = (text: string): string => createHash("sha256").update(text).digest("hex")
 

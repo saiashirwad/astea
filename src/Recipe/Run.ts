@@ -13,7 +13,7 @@ import {
 } from "../Workspace/index.ts"
 import { fingerprintWorkspace } from "./Fingerprint.ts"
 import { validateRecipeInput, type RecipeInputError } from "./Input.ts"
-import type { Recipe } from "./Model.ts"
+import type { Recipe } from "./Recipe.ts"
 
 /** Toolchain identity recorded in each Plan. */
 export const TOOLCHAIN = {

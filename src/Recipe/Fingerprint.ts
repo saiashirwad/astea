@@ -1,7 +1,8 @@
 /** Durable workspace input fingerprinting. */
 import { Effect, FileSystem, Path, Predicate } from "effect"
 import { textHash } from "../Edit/index.ts"
-import type { Json, SourceFingerprint } from "../Plan/index.ts"
+import type { Json } from "../Evidence/index.ts"
+import type { SourceFingerprint } from "../Plan/index.ts"
 import { parseProjectRelativePath, type ProjectRelativePath } from "../ProjectPath/index.ts"
 import {
   hashDirectoryListing,

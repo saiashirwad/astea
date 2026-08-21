@@ -1,6 +1,6 @@
 /** Policy composition for recipes that contain child recipes. */
 import type { PlanPolicies } from "../Plan/index.ts"
-import type { Recipe } from "./Model.ts"
+import type { Recipe } from "./Recipe.ts"
 
 const tighterMin = (current: number | undefined, next: number | undefined): number | undefined =>
   current === undefined ? next : next === undefined ? current : Math.max(current, next)

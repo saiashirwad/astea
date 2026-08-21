@@ -8,14 +8,14 @@ import {
   type ProjectSnapshot,
   type ProjectSnapshotError,
 } from "../Workspace/index.ts"
-import type { EvidenceFact } from "../Evidence/Core.ts"
+import type { EvidenceFact } from "../Evidence/Evidence.ts"
 import {
   CriterionBase,
   type Criterion,
   type ProjectScope,
   type Query,
   type QueryContractError,
-} from "./Model.ts"
+} from "./Query.ts"
 import { identifiers } from "./Sources.ts"
 import { where } from "./Operators.ts"
 

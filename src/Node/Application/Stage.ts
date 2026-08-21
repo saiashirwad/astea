@@ -3,7 +3,7 @@ import { Effect, FileSystem, Path } from "effect"
 import type { TransformationPlan } from "../../Plan/index.ts"
 import { textHash } from "../../Edit/index.ts"
 import { StalePlanError } from "../../Verification/Errors.ts"
-import type { FilePreview } from "../../Verification/Model.ts"
+import type { FilePreview } from "../../Verification/Preview.ts"
 import { asApplicationFailure } from "./Failure.ts"
 import { safeTarget } from "./PathSafety.ts"
 

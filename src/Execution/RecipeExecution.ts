@@ -1,7 +1,7 @@
 /** Shared recipe execution from planning through optional application. */
 import { Effect, type FileSystem, type Path } from "effect"
 import { apply, type ApplicationReceipt, type PlanApplication } from "../Application/index.ts"
-import type { ApplicationFailure, ApplicationIndeterminate } from "../Application/Model.ts"
+import type { ApplicationFailure, ApplicationIndeterminate } from "../Application/Application.ts"
 import type { DraftEvidenceConflict } from "../Draft/index.ts"
 import type { PlanBuildError, PlanDecodeError, TransformationPlan } from "../Plan/index.ts"
 import type { DiagnosticDiff } from "../Policy/index.ts"

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { Effect, FileSystem, Predicate } from "effect"
-import type { Json } from "../../Plan/index.ts"
+import type { Json } from "../../Evidence/index.ts"
 import { asApplicationFailure } from "./Failure.ts"
 
 export const APPLY_JOURNAL_NAME = ".safemods-apply.journal"

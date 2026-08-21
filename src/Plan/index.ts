@@ -1,12 +1,10 @@
 export { asJson, canonicalJson } from "./Canonical.ts"
 export { parsePlan, serializePlan, validatePlan } from "./Codec.ts"
 export { finalizePlan } from "./Finalize.ts"
-export { isContentFingerprint, PlanBuildError, PlanDecodeError } from "./Model.ts"
+export { isContentFingerprint, PlanBuildError, PlanDecodeError } from "./TransformationPlan.ts"
 export type {
   CreateFileOperation,
   DeleteFileOperation,
-  EvidenceRecord,
-  Json,
   MoveFileOperation,
   PlannedFileOperation,
   PlanInput,
@@ -15,9 +13,8 @@ export type {
   ProjectEvidence,
   SourceFingerprint,
   SourceFingerprintKind,
-  TextEdit,
   TransformationPlan,
-} from "./Model.ts"
+} from "./TransformationPlan.ts"
 export { TransformationPlanSchema } from "./Structure.ts"
 export {
   isProjectRelativePath,
