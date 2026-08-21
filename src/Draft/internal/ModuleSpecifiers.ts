@@ -66,6 +66,18 @@ const directoryName = (value: string): string => {
 const resolvedSpecifierPath = (fileDir: string, specText: string): string =>
   pathSegments(`${fileDir}/${specText}`).join("/")
 
+/**
+ * Resolve a relative module specifier to a normalized project-relative path
+ * (extension kept), or `undefined` for bare package specifiers.
+ */
+export const resolveRelativeSpecifier = (
+  importerPath: string,
+  specText: string,
+): string | undefined => {
+  if (!isRelativeSpecifier(specText)) return undefined
+  return resolvedSpecifierPath(directoryName(importerPath), specText)
+}
+
 const refersToMovedModule = (resolved: string, fromBase: string, sourcePath: string): boolean => {
   const stripped = stripModuleExtension(resolved)
   return stripped === fromBase || stripped === `./${fromBase}` || stripped === sourcePath

@@ -90,8 +90,12 @@ describe("declarative transformations API (@effect/vitest)", () => {
             )
 
             expect(libContent).toContain("function transformedOther(value: number)")
-            expect(consumerContent).toContain("import { transformedOther, target as renamed }")
-            expect(consumerContent).toContain("transformedOther(2)")
+            // The consumer's plain named import keeps its local binding via an
+            // alias, so its usages stay untouched.
+            expect(consumerContent).toContain(
+              "import { transformedOther as other, target as renamed }",
+            )
+            expect(consumerContent).toContain("other(2)")
           }),
         ),
       60_000,

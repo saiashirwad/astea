@@ -27,7 +27,7 @@ describe("recipe project-file composition", () => {
                 const snapshot = yield* WorkspaceSnapshot
                 const project = yield* snapshot.project(app)
                 return yield* Draft.renameSymbolNamed(project, "target", "newTarget", {
-                  within: "src/library.ts",
+                  lookupIn: "src/library.ts",
                 })
               }),
           })
