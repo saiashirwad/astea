@@ -44,90 +44,101 @@ const importInsertionPosition = (sourceFile: SourceFile): number => {
   return firstNonDirective?.getStart(sourceFile) ?? sourceFile.endOfFileToken.getStart(sourceFile)
 }
 
+/** Add a named import to the source file at `fileName`. */
+const addNamedToProject = (
+  project: ProjectSnapshot,
+  fileName: string,
+  options: AddNamedImportOptions,
+): Effect.Effect<Draft, ProjectSnapshotError> =>
+  Effect.gen(function* () {
+    const source = yield* project.sourceFile(fileName)
+    if (source === undefined) {
+      return empty
+    }
+
+    return yield* project.unsafeNative(() =>
+      Effect.sync((): Draft => {
+        const importName = options.alias ? `${options.name} as ${options.alias}` : options.name
+
+        for (const statement of source.statements) {
+          if (isImportDeclaration(statement)) {
+            const specifier = statement.moduleSpecifier
+            if (isStringLiteral(specifier) && specifier.text === options.module) {
+              const clause = statement.importClause
+              if (clause && clause.namedBindings && isNamedImports(clause.namedBindings)) {
+                const named = clause.namedBindings
+                if (
+                  clause.phaseModifier !== undefined ||
+                  named.elements.some((element) => element.isTypeOnly)
+                ) {
+                  return empty
+                }
+                for (const element of named.elements) {
+                  if (element.name.text === (options.alias ?? options.name)) {
+                    return empty
+                  }
+                }
+
+                if (named.elements.length > 0) {
+                  const last = named.elements[named.elements.length - 1]!
+                  const insertPos = last.getEnd()
+                  return draftForEdit(
+                    {
+                      projectId: project.project.id,
+                      fileName: project.relativeFileName(source.fileName),
+                      start: insertPos,
+                      end: insertPos,
+                      expectedTextHash: textHash(""),
+                      newText: `, ${importName}`,
+                    },
+                    `import:addNamed:${options.module}:${options.name}`,
+                    { module: options.module, name: options.name },
+                  )
+                }
+              }
+            }
+          }
+        }
+
+        const insertPos = importInsertionPosition(source)
+        const importText = `import { ${importName} } from "${options.module}";\n`
+
+        return draftForEdit(
+          {
+            projectId: project.project.id,
+            fileName: project.relativeFileName(source.fileName),
+            start: insertPos,
+            end: insertPos,
+            expectedTextHash: textHash(""),
+            newText: importText,
+          },
+          `import:addNamed:${options.module}:${options.name}`,
+          { module: options.module, name: options.name },
+        )
+      }),
+    )
+  })
+
 export const imports = {
   /** Add a named import to a source file. */
-  // SAFETY: Overloaded implementation handles ProjectFile and (ProjectSnapshot, fileName) argument signatures.
+  // SAFETY: the dispatcher is exhaustive over ProjectFile | ProjectSnapshot
+  // and hands each overload its exact declared parameter shapes.
   addNamed: ((
     projectOrFile: ProjectSnapshot | ProjectFile,
     fileNameOrOptions: string | AddNamedImportOptions,
     maybeOptions?: AddNamedImportOptions,
   ): Effect.Effect<Draft, ProjectSnapshotError> => {
-    const isFile = isProjectFile(projectOrFile)
-    const project = isFile ? projectOrFile.project : projectOrFile
-    // SAFETY: When projectOrFile is not a ProjectFile, fileNameOrOptions is guaranteed to be the string path.
-    const fileName = isFile ? projectOrFile.path : (fileNameOrOptions as string)
-    // SAFETY: When projectOrFile is a ProjectFile, fileNameOrOptions is the options object; otherwise options is in maybeOptions.
-    const options = isFile ? (fileNameOrOptions as AddNamedImportOptions) : maybeOptions!
-
-    return Effect.gen(function* () {
-      const source = yield* project.sourceFile(fileName)
-      if (source === undefined) {
-        return empty
-      }
-
-      return yield* project.unsafeNative(() =>
-        Effect.sync((): Draft => {
-          const importName = options.alias ? `${options.name} as ${options.alias}` : options.name
-
-          for (const statement of source.statements) {
-            if (isImportDeclaration(statement)) {
-              const specifier = statement.moduleSpecifier
-              if (isStringLiteral(specifier) && specifier.text === options.module) {
-                const clause = statement.importClause
-                if (clause && clause.namedBindings && isNamedImports(clause.namedBindings)) {
-                  const named = clause.namedBindings
-                  if (
-                    clause.phaseModifier !== undefined ||
-                    named.elements.some((element) => element.isTypeOnly)
-                  ) {
-                    return empty
-                  }
-                  for (const element of named.elements) {
-                    if (element.name.text === (options.alias ?? options.name)) {
-                      return empty
-                    }
-                  }
-
-                  if (named.elements.length > 0) {
-                    const last = named.elements[named.elements.length - 1]!
-                    const insertPos = last.getEnd()
-                    return draftForEdit(
-                      {
-                        projectId: project.project.id,
-                        fileName: project.relativeFileName(source.fileName),
-                        start: insertPos,
-                        end: insertPos,
-                        expectedTextHash: textHash(""),
-                        newText: `, ${importName}`,
-                      },
-                      `import:addNamed:${options.module}:${options.name}`,
-                      { module: options.module, name: options.name },
-                    )
-                  }
-                }
-              }
-            }
-          }
-
-          const insertPos = importInsertionPosition(source)
-          const importText = `import { ${importName} } from "${options.module}";\n`
-
-          return draftForEdit(
-            {
-              projectId: project.project.id,
-              fileName: project.relativeFileName(source.fileName),
-              start: insertPos,
-              end: insertPos,
-              expectedTextHash: textHash(""),
-              newText: importText,
-            },
-            `import:addNamed:${options.module}:${options.name}`,
-            { module: options.module, name: options.name },
-          )
-        }),
-      )
-    })
-    // SAFETY: Overloaded implementation handles ProjectFile and (ProjectSnapshot, fileName) argument signatures.
+    if (isProjectFile(projectOrFile)) {
+      // SAFETY: the ProjectFile overload passes the options object in the
+      // second argument position.
+      const options = fileNameOrOptions as AddNamedImportOptions
+      return addNamedToProject(projectOrFile.project, projectOrFile.path, options)
+    }
+    // SAFETY: without a ProjectFile the signature is (project, fileName,
+    // options), so fileNameOrOptions is the path and maybeOptions is present.
+    const fileName = fileNameOrOptions as string
+    const options = maybeOptions!
+    return addNamedToProject(projectOrFile, fileName, options)
   }) as AddNamedImportFn,
 
   /** Remove a named import from an import declaration. */
