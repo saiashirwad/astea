@@ -2,32 +2,32 @@
 
 Type-directed codemods for TypeScript 7 projects, built on Effect.
 
-`safemods` finds code by meaning, not syntax: a recipe can follow a symbol
-through imports, aliases, and re-exports, then propose small guarded text
-edits — never AST mutation, never whole-file reprints. Every change travels
-the same path:
+A recipe queries a project through the TypeScript compiler, resolving symbols,
+types, and references across imports and re-exports. It proposes text edits.
+Each edit carries a hash of the exact source it replaces, so an edit applies
+only where the file still matches what the recipe read.
 
 ```text
 query -> draft -> plan -> preview -> verify -> apply
 ```
 
-Planning, previewing, and verification are read-only. Writing is a separate
-step that accepts only a verified plan.
+Everything before `apply` is read-only. `apply` accepts only plans that passed
+verification.
 
 ## safemods is not a linter
 
-A linter reports findings and offers per-file quick-fixes; its contract ends
-at "I told you about it." safemods owns what happens _after_ detection:
-multi-file coordinated edits, symbol-accurate renames, compiler-checked
-verification, and atomic application with rollback.
+A linter reports findings and offers per-file quick-fixes. It does not modify
+your project. safemods modifies projects: coordinated edits across files,
+renames that follow symbols through every reference, compiler-checked
+verification, and application that rolls back on failure.
 
 The division of labor:
 
-- **oxlint / ESLint** — fast detection, rule catalogs, small mechanical fixes.
-  If a change is expressible as a lint rule plus an autofix, use a linter.
-- **safemods** — transformations that must resolve types and symbols, span
-  many files, compose in stages, or be provably safe before anything is
-  written.
+- **oxlint / ESLint** for fast detection, rule catalogs, and small mechanical
+  fixes. If a change works as a lint rule plus an autofix, use a linter.
+- **safemods** for transformations that need types and symbols, span many
+  files, compose in stages, or must be checked against the compiler before
+  anything is written.
 
 ## Requirements
 
@@ -77,7 +77,7 @@ export default Recipe.define("rename-old-name", {
 })
 ```
 
-Preview the exact changes:
+Preview:
 
 ```sh
 pnpm exec safemods run ./rename-old-name.ts --cwd ./path/to/project
@@ -101,24 +101,24 @@ export, then an export named `recipe`.
 
 ## The moving parts
 
-| Domain                  | Role                                                                                                                                            |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace               | Immutable snapshots of one or more configured TypeScript projects; symbol, type, and dependency lookup; explicit snapshot transitions.          |
-| Query                   | Effect Streams of `Selection`s: calls, imports, identifiers, property accesses, symbol references, structural matches — each with evidence.     |
-| Pattern                 | Composable matchers for expressions, declarations, control flow, tuples, bindings, and computed TypeScript types.                               |
-| Precondition            | Fast file filtering by path, text, or imported module before AST or type-checker work.                                                          |
-| Draft                   | Guarded text replacement, insertion, removal, printing; import surgery; file create/delete/move; project-wide symbol renames.                   |
-| Overlay                 | Run later stages against an in-memory snapshot of earlier changes, rebased onto the original snapshot.                                          |
-| Recipe                  | Schema-validated inputs, two-phase scans, sequential/concurrent composition, conditional branches.                                              |
-| Plan                    | Deterministic, content-addressed, serializable proposals; identical inputs yield identical plan IDs.                                            |
-| Policy and Verification | Match bounds, file limits, diagnostic diffs, diagnostic-code rules, custom checks, idempotence — evaluated read-only against the real compiler. |
-| Application             | Stale-plan rejection, staged writes, rollback, crash recovery, receipts.                                                                        |
+| Domain                  | Role                                                                                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace               | Immutable snapshots of one or more configured TypeScript projects; symbol, type, and dependency lookup; explicit snapshot transitions.                   |
+| Query                   | Effect Streams of `Selection`s: calls, imports, identifiers, property accesses, symbol references, structural matches, each with evidence.               |
+| Pattern                 | Composable matchers for expressions, declarations, control flow, tuples, bindings, and computed TypeScript types.                                        |
+| Precondition            | Fast file filtering by path, text, or imported module before AST or type-checker work.                                                                   |
+| Draft                   | Guarded text replacement, insertion, removal, printing; import edits; file create/delete/move; project-wide symbol renames.                              |
+| Overlay                 | Run later stages against an in-memory snapshot of earlier changes, rebased onto the original snapshot.                                                   |
+| Recipe                  | Schema-validated inputs, two-phase scans, sequential/concurrent composition, conditional branches.                                                       |
+| Plan                    | Deterministic, content-addressed, serializable proposals; identical inputs yield identical plan IDs.                                                     |
+| Policy and Verification | Match bounds, file limits, diagnostic diffs, diagnostic-code rules, custom checks, idempotence, all evaluated read-only against the TypeScript compiler. |
+| Application             | Stale-plan rejection, staged writes, rollback, crash recovery, receipts.                                                                                 |
 
 Root barrel namespaces: `Application`, `Draft`, `Edit`, `Evidence`, `Overlay`,
 `Pattern`, `Plan`, `Policy`, `Precondition`, `Query`, `Recipe`, `Verification`,
-`VirtualFs`, `Workspace`. Each is also a subpath (`safemods/Query`, …); the
-Node runtime layers, CLI helpers, and agent adapter live at `safemods/Node`,
-`safemods/Cli`, and `safemods/AgentTool`.
+`VirtualFs`, `Workspace`. Each is also a subpath (`safemods/Query`, ...). The
+Node runtime layers, CLI helpers, and agent adapter are available at
+`safemods/Node`, `safemods/Cli`, and `safemods/AgentTool`.
 
 ## Querying code
 
@@ -167,26 +167,26 @@ Each operation returns an Effect producing a `Draft`; combine drafts with
 `Draft.concat` (or `concatEffect`) before returning from the recipe.
 
 Every text edit records a SHA-256 hash of the exact source range it replaces.
-Bytes outside edited ranges are left alone — comments and formatting survive.
-Overlapping or out-of-bounds edits are rejected while the plan is built, and a
-hash mismatch at any later stage fails the plan as stale rather than guessing.
+Bytes outside edited ranges are left alone, so comments and formatting
+survive. Planning rejects overlapping or out-of-bounds edits, and a hash
+mismatch at any later stage fails the plan as stale.
 
 Notable behaviors:
 
 - `Draft.files.move` rewrites matching relative imports in referencing files
-  _and_ in the moved file itself; bare specifiers are untouched.
-- `Draft.imports.addNamed` is idempotent: an existing binding yields an empty
-  draft instead of a duplicate.
+  and in the moved file itself. Bare specifiers are untouched.
+- `Draft.imports.addNamed` yields an empty draft when the binding already
+  exists instead of adding a duplicate.
 - `Draft.renameSymbolNamed` returns an empty draft when the symbol is absent,
-  which makes reruns naturally idempotent.
-- `Draft.audit` records selections as evidence with zero edits — read-only
-  inventorying, and what powers `safemods scan`.
+  so reruns change nothing.
+- `Draft.audit` records selections as evidence without editing anything.
+  `safemods scan` is built on it.
 
 ## Composing recipes
 
 - `Recipe.pipe(a, b)` runs stages in order. Each later stage queries an
-  in-memory overlay of earlier changes; `Overlay` rebases its draft onto the
-  original snapshot so one coherent plan results.
+  in-memory overlay of earlier changes, and Overlay rebases its draft onto the
+  original snapshot. The result is one plan.
 - `Recipe.all([a, b])` runs independent recipes concurrently and merges their
   drafts.
 - `Recipe.branch(predicate, ifTrue, ifFalse)` and `Recipe.when(predicate, r)`
@@ -195,8 +195,8 @@ Notable behaviors:
   pass from the transformation pass, sharing one snapshot region.
 - `Overlay.composeDraft(draft, effect)` composes a later draft against an
   overlay of an earlier one. `Overlay.run(draft, effect)` exposes any draft as
-  a new in-memory compiler snapshot without writing — use it to inspect an
-  overlay or return something other than a draft.
+  a new in-memory compiler snapshot without writing anything. Use it to
+  inspect an overlay or return something other than a draft.
 
 Recipes may declare an Effect `Schema` for typed input. Pass input through the
 CLI as JSON:
@@ -211,10 +211,9 @@ to the recipe's schema. Hyphen-prefixed values such as `-1` work as
 
 ## The safety model
 
-The safety boundary is enforced by the API, not by CLI convention:
-`Application.apply` accepts only a `VerifiedPlan` — a process-local capability
-issued by successful verification — and rejects raw plans at the type level
-and at runtime.
+`Application.apply` accepts only a `VerifiedPlan`, a process-local capability
+issued by successful verification. It rejects raw plans at the type level and
+at runtime.
 
 **Policies** declare what a plan promises. Combinators intersect child
 policies automatically:
@@ -230,13 +229,13 @@ Policy.diagnosticDiff("only-types", (diff) => diff.introduced.length === 0)
 Policy.idempotent()
 ```
 
-**Verification** is read-only. It validates the plan's structure and content
-hash, checks recipe/toolchain/project identity, revalidates every source
-fingerprint (any drift fails the plan as stale), compiles baseline and
-proposed states in isolated in-memory snapshots, diffs their diagnostics, and
-evaluates policies. An existing error does not fail `noNewErrors()` unless the
-change introduces a new one. `idempotent()` replays the recipe over its own
-proposed output and requires zero new proposals.
+**Verification** is read-only. It checks the plan's structure, content hash,
+recipe, toolchain, and project identity. It revalidates every source
+fingerprint; any drift fails the plan as stale. Then it compiles the baseline
+and the proposed state in isolated in-memory snapshots, diffs their
+diagnostics, and evaluates the policies. An existing error does not fail
+`noNewErrors()` unless the change introduces a new one. `idempotent()` replays
+the recipe over its own proposed output and requires zero new proposals.
 
 **Application** re-checks staleness immediately before writing, stages each
 file to a temporary, and commits atomically. A failed commit rolls back
@@ -303,16 +302,16 @@ const program = Effect.gen(function* () {
 await Effect.runPromise(program.pipe(Effect.provide(runtimeLayer)))
 ```
 
-For read-only use, stop before `Application.apply` and provide a Node-backed
-workspace layer such as `workspaceLayerNode` (planning and verification also
-need filesystem and path services, which the Node layer supplies).
-Programmatic workspaces may contain multiple configured projects; the CLI
-opens the single `tsconfig.json` project shown above.
+For read-only use, stop before `Application.apply` and keep the Node-backed
+workspace layer. Planning and verification need filesystem and path services,
+which `workspaceLayerNode` provides. Programmatic workspaces may contain
+multiple configured projects; the CLI opens the single `tsconfig.json`
+project shown above.
 
 ## Agent tools
 
-Any recipe becomes a typed tool for LLM function-calling protocols (OpenAI /
-MCP / Anthropic style):
+Any recipe becomes a typed tool for LLM function-calling protocols such as
+OpenAI, MCP, and Anthropic tool use:
 
 ```ts
 import { recipeToAgentTool } from "safemods/AgentTool"
@@ -323,8 +322,8 @@ const tool = recipeToAgentTool(recipe)
 // diagnosticDelta, idempotenceChecked, files, diagnostics, policyResults
 ```
 
-`execute` verifies by default and only writes when called with
-`{ apply: true }`, so an agent can always preview before committing.
+`execute` verifies by default and writes only when called with
+`{ apply: true }`, so an agent can preview before committing.
 `safemods tool ./recipe.ts` prints the same descriptor as JSON.
 
 ## Development
