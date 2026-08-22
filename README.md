@@ -2,7 +2,9 @@
 
 Type-directed codemods for TypeScript 7 projects, built on [Effect](https://effect.website).
 
-A codemod in safemods is a **recipe**: a program that queries a project through the TypeScript compiler, proposes edits, and hands them to a pipeline that previews, verifies, and only then writes. Nothing touches disk until a plan has passed the type checker and the policies you attached to it.
+A codemod here is a recipe. A recipe queries a project through the TypeScript compiler, proposes edits, and hands them to a pipeline that previews, verifies, and only then writes. Nothing touches disk until a plan has passed the type checker and every policy you attached to it.
+
+Most codemod tools let you write the file the moment you have an edit. I think that is the wrong default. This one makes you earn the write.
 
 > Early and moving fast. The API will change.
 
@@ -40,7 +42,7 @@ export default Recipe.define("rename-old-name", {
 })
 ```
 
-This renames the symbol and every reference to it — imports, aliases, re-exports — across the project. The `lookupIn` path only says which `oldName` you mean.
+This renames the symbol and every reference to it across the project, including imports, aliases, and re-exports. The `lookupIn` path only says which `oldName` you mean.
 
 Run it:
 
@@ -52,14 +54,16 @@ safemods run rename-old-name.ts --apply    # verify, then write
 
 ## How it works
 
-Every recipe moves through the same four stages. Each stage is a separate module with its own authority, and the layers below never import the layers above.
+Every recipe moves through the same stages. Each stage is its own module with its own authority, and a lower layer never imports a higher one.
 
 ```
 Query  →  Draft  →  Plan  →  Verification  →  Application
 find      propose   freeze   check           write
 ```
 
-**Query** asks the compiler, not the text. `Query.calls(project)` yields call expressions; `Query.where(Query.resolvesTo(symbol))` keeps the ones whose callee resolves to a particular symbol through any alias or re-export. Results are `Selection`s bound to one immutable snapshot of the project, so a stale node can never leak into a later step.
+### Query
+
+Query asks the compiler, not the text. `Query.calls(project)` yields call expressions. `Query.where(Query.resolvesTo(symbol))` keeps the ones whose callee resolves to a given symbol through any alias or re-export. Results are `Selection`s bound to one immutable snapshot of the project, so a stale node cannot leak into a later step.
 
 ```ts
 const calls = yield* Query.calls(project).pipe(
@@ -70,7 +74,9 @@ const calls = yield* Query.calls(project).pipe(
 )
 ```
 
-**Draft** accumulates proposed edits. Operations are small and textual — replace a node, add a named import, move a file and fix its importers — so comments and formatting survive. Each edit records a hash of the text it expects to replace.
+### Draft
+
+Draft collects proposed edits. The operations are small and textual (replace a node, add a named import, move a file and fix its importers), so comments and formatting survive. Each edit records a hash of the text it expects to replace.
 
 ```ts
 yield* Draft.replaceEach(calls, ({ value: call }) => ({
@@ -81,9 +87,13 @@ yield* Draft.imports.addNamed(project, "src/index.ts", { module: "effect", name:
 yield* Draft.files.move(project, "src/old.ts", "src/new.ts")
 ```
 
-**Plan** is what a finished Draft becomes: a frozen, serializable list of edits plus a manifest of every file, directory, and config the recipe observed. Its ID is a digest of that content, so the same plan has the same ID on any machine. If any observed input changes before the plan is used, the plan is stale and is rejected rather than silently rebased.
+### Plan
 
-**Verification** is read-only. It re-checks each edit's hash, compiles the proposed result in memory, diffs compiler diagnostics against the baseline, and evaluates policies:
+A finished Draft becomes a Plan. A Plan is a frozen, serializable list of edits plus a manifest of every file, directory, and config the recipe read. Its ID is a digest of that content, so the same plan gets the same ID on any machine. If any input in the manifest changes before the plan is used, the plan is stale and the pipeline rejects it. It never rebases the edits for you. That sounds strict, and it is, but a silently rebased codemod is how you end up with a half-applied migration on a Friday afternoon.
+
+### Verification
+
+Verification is read-only. It re-checks each edit's hash, compiles the proposed result in memory, diffs compiler diagnostics against the baseline, and evaluates policies:
 
 ```ts
 Policy.noNewErrors()                // no diagnostics that weren't already there
@@ -94,9 +104,11 @@ Policy.allowErrors({ code: 2345, max: 2 })
 Policy.idempotent()                 // re-running on the result proposes nothing
 ```
 
-Passing verification issues a `VerifiedPlan` — a capability that only the Verification module can construct.
+Passing verification issues a `VerifiedPlan`. Only the Verification module can construct one.
 
-**Application** is the one module that writes. Its `apply` accepts a `VerifiedPlan` and nothing else, so there is no path from a Draft to disk that skips the checks. A successful write returns a receipt with the output hash of every file.
+### Application
+
+Application is the one module that writes. Its `apply` accepts a `VerifiedPlan` and nothing else, so there is no path from a Draft to disk that skips the checks. A successful write returns a receipt with the output hash of every file.
 
 ## Composing recipes
 
@@ -108,7 +120,7 @@ Recipe.all([addImports, removeDeadCode])              // concurrently, merged; c
 Recipe.when(usesStrictMode, tightenTypes)             // conditionally
 ```
 
-`Recipe.pipe` runs each later stage against an in-memory **overlay** of the earlier drafts, so the second recipe sees the first one's edits through the type checker without anything being written. The result is still one plan against the original snapshot.
+`Recipe.pipe` runs each later stage against an in-memory overlay of the earlier drafts. The second recipe sees the first one's edits through the type checker, and nothing has been written. The result is still one plan against the original snapshot.
 
 ## Patterns
 
@@ -130,10 +142,13 @@ safemods scan <recipe.ts> [--json | --csv] [--fail-on-match]
 safemods tool <recipe.ts>
 ```
 
-- `run` previews by default. `--verify` adds the diagnostic diff and policy results; `--apply` writes after a passing verification.
-- `scan` runs the query half only and reports matches per file. `--fail-on-match` exits non-zero if anything matched, which makes a recipe usable as a lint in CI.
-- `tool` prints the recipe as a JSON-schema tool definition for an agent host.
-- `--input` passes the recipe's input, validated against its `schema` if it declares one.
+`run` previews by default. `--verify` adds the diagnostic diff and policy results. `--apply` writes after a passing verification.
+
+`scan` runs only the query half and reports matches per file. `--fail-on-match` exits non-zero if anything matched, which turns a recipe into a lint you can run in CI.
+
+`tool` prints the recipe as a JSON-schema tool definition for an agent host.
+
+`--input` passes the recipe's input, validated against its `schema` if it declares one.
 
 ## Agents
 
@@ -147,7 +162,7 @@ await tool.execute({ oldName: "foo", newName: "bar", fileName: "src/a.ts" })    
 await tool.execute({ oldName: "foo", newName: "bar", fileName: "src/a.ts" }, { apply: true })
 ```
 
-An agent gets the same guarantees a human does: it cannot write without a verified plan.
+An agent gets the same guarantees a human does. It cannot write without a verified plan. This is the part I care about most. An agent that can run `sed` across a repo is a liability. An agent that can only propose a plan and wait for the type checker is something I will let loose.
 
 ## Programmatic use
 
@@ -186,8 +201,7 @@ await Effect.runPromise(program.pipe(Effect.provide(runtime)))
 
 ## Further reading
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — module layers and the boundary rules a linter enforces
-- [CONTEXT.md](./CONTEXT.md) — the vocabulary: Workspace, Snapshot, Plan, Draft, Application, and what each is not
+[ARCHITECTURE.md](./ARCHITECTURE.md) covers the module layers and the boundary rules a linter enforces. [CONTEXT.md](./CONTEXT.md) defines the vocabulary (Workspace, Snapshot, Plan, Draft, Application) and says what each one is not.
 
 ## Development
 
